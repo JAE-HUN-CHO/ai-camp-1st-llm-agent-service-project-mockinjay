@@ -1,0 +1,247 @@
+{
+  "projectName": "CareGuide",
+  "version": "1.0",
+  "description": "만성콩팥병 환자 종합 케어 플랫폼 Information Architecture",
+  "routes": [
+    {
+      "depth": 1,
+      "id": "main",
+      "name": "Main",
+      "path": "/main",
+      "description": "URL 진입 시 splash, BI로고 클릭 시 Home->/chat으로 direct",
+      "children": []
+    },
+    {
+      "depth": 1,
+      "id": "ai-chatbot",
+      "name": "AI챗봇",
+      "nameEn": "AI Chatbot",
+      "path": "/chat",
+      "description": "PubMed 논문 검색, RAG 분석, 논문 북마크",
+      "isMain": true,
+      "children": [
+        {
+          "depth": 2,
+          "id": "medical-welfare",
+          "name": "의료 복지",
+          "nameEn": "Medical_welfare",
+          "path": "/chat/medical-welfare",
+          "description": "의료 복지 agent",
+          "agent": "medical_welfare"
+        },
+        {
+          "depth": 2,
+          "id": "nutrition",
+          "name": "식이 영양",
+          "nameEn": "Nutrition",
+          "path": "/chat/nutrition",
+          "description": "영양 레시피 agent",
+          "agent": "nutrition"
+        },
+        {
+          "depth": 2,
+          "id": "research-paper",
+          "name": "연구 논문",
+          "nameEn": "Research_paper",
+          "path": "/chat/research",
+          "description": "연구 논문 agent",
+          "agent": "research"
+        }
+      ]
+    },
+    {
+      "depth": 1,
+      "id": "diet-care",
+      "name": "식단케어",
+      "nameEn": "Diet care",
+      "path": "/diet-care",
+      "description": "식단 관리 및 영양 정보",
+      "children": [
+        {
+          "depth": 2,
+          "id": "nutri-coach",
+          "name": "뉴트리 코치",
+          "nameEn": "Nutri_coach",
+          "path": "/nutri-coach",
+          "description": "질환식 정보"
+        },
+        {
+          "depth": 2,
+          "id": "diet-log",
+          "name": "식단 로그",
+          "nameEn": "Diet_log",
+          "path": "/diet-log",
+          "description": "식단 관리 목표 등록, 식사 정보 등록(아침/점심/저녁/간식)",
+          "features": [
+            "식단 관리 목표 등록",
+            "식사 정보 등록(아침/점심/저녁/간식)"
+          ]
+        }
+      ]
+    },
+    {
+      "depth": 1,
+      "id": "community",
+      "name": "커뮤니티",
+      "nameEn": "Community",
+      "path": "/community",
+      "description": "게시글 작성/댓글, 설문 생성(연구자), 포인트 적립",
+      "children": [
+        {
+          "depth": 2,
+          "id": "community-list",
+          "name": "목록 페이지",
+          "nameEn": "List",
+          "path": "/community-list",
+          "description": "커뮤니티 게시글 목록"
+        },
+        {
+          "depth": 2,
+          "id": "community-detail",
+          "name": "상세 페이지",
+          "nameEn": "Detail",
+          "path": "/community-detail",
+          "description": "커뮤니티 게시글 상세"
+        }
+      ]
+    },
+    {
+      "depth": 1,
+      "id": "trends",
+      "name": "트렌드",
+      "nameEn": "Trends",
+      "path": "/trends",
+      "description": "시계열 통계, 설문 결과 분석, 데이터 시각화",
+      "children": [
+        {
+          "depth": 2,
+          "id": "trends-list",
+          "name": "목록 페이지",
+          "path": "/trends-list",
+          "description": "트렌드 대시보드 목록"
+        },
+        {
+          "depth": 2,
+          "id": "trends-detail",
+          "name": "상세 페이지",
+          "path": "/trends-detail",
+          "description": "트렌드 상세 분석"
+        }
+      ]
+    },
+    {
+      "depth": 1,
+      "id": "utility",
+      "name": "유틸리티",
+      "nameEn": "Utility",
+      "path": "/utility",
+      "description": "사용자 인증 및 설정 관련 유틸리티",
+      "children": [
+        {
+          "depth": 2,
+          "id": "signup",
+          "name": "회원가입",
+          "nameEn": "Sign up",
+          "path": "/signup",
+          "description": "Id, pw, 인증, 개인정보, 질환정보",
+          "features": [
+            "Id, pw 입력",
+            "인증",
+            "개인정보 입력",
+            "질환정보 입력"
+          ]
+        },
+        {
+          "depth": 2,
+          "id": "login",
+          "name": "로그인/로그아웃",
+          "nameEn": "Log in",
+          "path": "/login",
+          "description": "사용자 로그인"
+        },
+        {
+          "depth": 2,
+          "id": "change-password",
+          "name": "비밀번호 변경",
+          "path": "/changepw",
+          "description": "비밀번호 변경"
+        },
+        {
+          "depth": 2,
+          "id": "mypage",
+          "name": "마이페이지",
+          "nameEn": "My page",
+          "path": "/mypage",
+          "description": "프로필 관리, 뱃지, 포인트, 논문 북마크 조회, 설정"
+        },
+        {
+          "depth": 2,
+          "id": "subscribe",
+          "name": "구독",
+          "path": "/subscribe",
+          "description": "구독 관리"
+        },
+        {
+          "depth": 2,
+          "id": "notification",
+          "name": "알림",
+          "nameEn": "Notification",
+          "path": "/notification",
+          "description": "모달 팝업",
+          "displayType": "modal"
+        },
+        {
+          "depth": 2,
+          "id": "support",
+          "name": "도움말 및 지원",
+          "nameEn": "Support",
+          "path": "/support",
+          "description": "사용자 지원"
+        },
+        {
+          "depth": 2,
+          "id": "terms-conditions",
+          "name": "약관",
+          "nameEn": "Terms & Conditions",
+          "path": "/terms-conditions",
+          "description": "서비스 이용약관"
+        },
+        {
+          "depth": 2,
+          "id": "privacy-policy",
+          "name": "개인정보처리방침",
+          "nameEn": "Privacy Policy",
+          "path": "/privacy-policy",
+          "description": "개인정보 처리 방침"
+        },
+        {
+          "depth": 2,
+          "id": "cookie-consent",
+          "name": "쿠키",
+          "nameEn": "Cookie",
+          "path": "/cookie-consent",
+          "description": "쿠키 정책"
+        },
+        {
+          "depth": 2,
+          "id": "error",
+          "name": "에러",
+          "nameEn": "Error",
+          "path": "/error",
+          "description": "에러 페이지"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "totalRoutes": 24,
+    "maxDepth": 2,
+    "createdAt": "2024-11-24",
+    "techStack": {
+      "frontend": "React Native",
+      "backend": "FastAPI",
+      "database": "PostgreSQL + MongoDB",
+      "ai": "Claude 3.5 Sonnet"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "benchmark": "chat_stream_fake_adapter",
+  "iterations": 25,
+  "unit": "milliseconds",
+  "p50": 0.451,
+  "p95": 0.76,
+  "min": 0.394,
+  "max": 2.34,
+  "scope": "FastAPI route + SSE framing + fake persistence; excludes LLM, network, and MongoDB latency"
+}

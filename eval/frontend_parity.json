@@ -1,0 +1,20 @@
+{
+  "source": "frontend",
+  "legacy_trees": [
+    "logs/rollback/new_frontend-rollback",
+    "logs/rollback/stitch_frontend-rollback"
+  ],
+  "route_missing": [],
+  "api_missing": {},
+  "feature_test_missing": [],
+  "legacy_public_assets": [
+    "favicon.png",
+    "vite.svg"
+  ],
+  "canonical_public_assets": [
+    "favicon.png",
+    "vite.svg"
+  ],
+  "legacy_only_public_assets": [],
+  "status": "PASS"
+}

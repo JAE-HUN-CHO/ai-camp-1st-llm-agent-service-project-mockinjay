@@ -1,0 +1,22 @@
+services:
+  mongodb:
+    image: mongodb/mongodb-atlas-local:8.0.6
+    hostname: mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-careguide}
+      MONGODB_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-careguide_local}
+      MONGOT_LOG_FILE: /dev/stderr
+      RUNNER_LOG_FILE: /dev/stderr
+    volumes:
+      - ./data/.mongo/db:/data/db
+      - ./data/.mongo/configdb:/data/configdb
+      - ./data/.mongo/mongot:/data/mongot
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host localhost --eval 'db.adminCommand({ping:1}).ok' | grep 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 45s

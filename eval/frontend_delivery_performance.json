@@ -1,0 +1,17 @@
+{
+  "benchmark": "canonical_frontend_preview_delivery",
+  "iterations": 5,
+  "routes": [
+    "/",
+    "/chat",
+    "/diet-care",
+    "/health",
+    "/trends",
+    "/mypage"
+  ],
+  "requests": 30,
+  "unit": "milliseconds",
+  "p50": 0.437,
+  "p95": 1.139,
+  "scope": "Vite preview HTTP delivery; excludes browser render and rerender cost"
+}
