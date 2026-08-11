@@ -13,8 +13,16 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 import ClinicalTrialsTab from '../ClinicalTrialsTab';
 import { ClinicalTrial } from '../../../types/trends';
+import api from '../../../services/api';
+
+vi.mock('../../../services/api', () => ({
+  default: { post: vi.fn() },
+}));
+
+const mockApiPost = vi.mocked(api.post);
 
 // ==================== Mock Data ====================
 
@@ -54,28 +62,19 @@ const mockResponse = {
 
 // ==================== Test Setup ====================
 
-// Mock fetch globally
-global.fetch = jest.fn();
-
 // Helper to mock successful API response
 const mockFetchSuccess = (data = mockResponse) => {
-  (global.fetch as jest.Mock).mockResolvedValueOnce({
-    ok: true,
-    json: async () => data,
-  });
+  mockApiPost.mockResolvedValueOnce({ data } as never);
 };
 
 // Helper to mock API error
 const mockFetchError = (statusText = 'Internal Server Error') => {
-  (global.fetch as jest.Mock).mockResolvedValueOnce({
-    ok: false,
-    statusText,
-  });
+  mockApiPost.mockRejectedValueOnce(new Error(statusText));
 };
 
 // Helper to mock network failure
 const mockFetchNetworkError = () => {
-  (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+  mockApiPost.mockRejectedValueOnce(new Error('Network error'));
 };
 
 // Reset mocks before each test
@@ -131,16 +130,10 @@ describe('ClinicalTrialsTab', () => {
       render(<ClinicalTrialsTab />);
 
       await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith('/api/clinical-trials/list', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            condition: 'kidney',
-            page: 1,
-            page_size: 10,
-          }),
+        expect(mockApiPost).toHaveBeenCalledWith('/api/clinical-trials/list', {
+          condition: 'kidney',
+          page: 1,
+          page_size: 10,
         });
       });
     });
@@ -236,15 +229,13 @@ describe('ClinicalTrialsTab', () => {
       fireEvent.click(nextButton);
 
       await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-        expect(global.fetch).toHaveBeenLastCalledWith(
+        expect(mockApiPost).toHaveBeenCalledTimes(2);
+        expect(mockApiPost).toHaveBeenLastCalledWith(
           '/api/clinical-trials/list',
           expect.objectContaining({
-            body: JSON.stringify({
-              condition: 'kidney',
-              page: 2,
-              page_size: 10,
-            }),
+            condition: 'kidney',
+            page: 2,
+            page_size: 10,
           })
         );
       });
@@ -263,14 +254,12 @@ describe('ClinicalTrialsTab', () => {
       fireEvent.click(page3Button);
 
       await waitFor(() => {
-        expect(global.fetch).toHaveBeenLastCalledWith(
+        expect(mockApiPost).toHaveBeenLastCalledWith(
           '/api/clinical-trials/list',
           expect.objectContaining({
-            body: JSON.stringify({
-              condition: 'kidney',
-              page: 3,
-              page_size: 10,
-            }),
+            condition: 'kidney',
+            page: 3,
+            page_size: 10,
           })
         );
       });
@@ -407,7 +396,7 @@ describe('ClinicalTrialsTab', () => {
       rerender(<ClinicalTrialsTab onTrialClick={mockOnTrialClick} />);
 
       // Should still only have called fetch once (on mount)
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(mockApiPost).toHaveBeenCalledTimes(1);
     });
 
     it('should scroll to top when changing pages', async () => {

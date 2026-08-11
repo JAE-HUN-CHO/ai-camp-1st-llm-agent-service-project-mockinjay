@@ -16,6 +16,7 @@ import React, { useState, useEffect, useCallback, memo } from 'react';
 import { Loader2 } from 'lucide-react';
 import ClinicalTrialCard from './ClinicalTrialCard';
 import type { ClinicalTrial } from '../../types/trends';
+import api from '../../services/api';
 
 // ==================== Types ====================
 
@@ -116,23 +117,11 @@ const ClinicalTrialsTab: React.FC<ClinicalTrialsTabProps> = memo(({ onTrialClick
     setLoadingTrials(true);
 
     try {
-      const response = await fetch('/api/clinical-trials/list', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          condition: 'kidney',
-          page: page,
-          page_size: 10,
-        }),
+      const { data } = await api.post<ClinicalTrialsResponse>('/api/clinical-trials/list', {
+        condition: 'kidney',
+        page,
+        page_size: 10,
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch clinical trials: ${response.statusText}`);
-      }
-
-      const data: ClinicalTrialsResponse = await response.json();
 
       // Save to cache for 24 hours
       setCachedTrials(page, data);

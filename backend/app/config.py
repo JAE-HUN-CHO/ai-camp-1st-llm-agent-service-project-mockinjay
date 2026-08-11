@@ -8,12 +8,15 @@ from typing import List
 import secrets
 
 
+DEFAULT_MONGODB_URI = "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin"
+
+
 class Settings(BaseSettings):
     """Application settings with validation"""
 
     # MongoDB Configuration
     mongodb_uri: str = Field(
-        default="mongodb://localhost:27017",
+        default=DEFAULT_MONGODB_URI,
         description="MongoDB connection URI"
     )
     db_name: str = Field(

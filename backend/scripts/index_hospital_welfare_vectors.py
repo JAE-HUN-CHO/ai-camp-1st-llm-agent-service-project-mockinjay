@@ -50,7 +50,10 @@ class HospitalWelfareIndexer:
     WELFARE_NAMESPACE = "welfare_programs"
 
     def __init__(self):
-        self.uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        self.uri = os.getenv(
+            "MONGODB_URI",
+            "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+        )
         self.db_name = "careguide"
         self.client = None
         self.db = None

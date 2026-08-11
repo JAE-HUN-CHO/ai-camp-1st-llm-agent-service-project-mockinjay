@@ -16,6 +16,7 @@ import { Bookmark, Loader2, RefreshCw, ExternalLink, Globe, Languages } from 'lu
 import { useNavigate } from 'react-router-dom';
 import { ImageWithFallback } from '../ui/image-with-fallback';
 import { translateToKorean } from '../../services/translateApi';
+import api from '../../services/api';
 
 // ==================== Types ====================
 
@@ -174,25 +175,13 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
     setIsCached(false);
 
     try {
-      const response = await fetch('/api/news/list', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: newsLanguage === 'en' ? 'kidney health' : '신장 건강',
-          language: newsLanguage,
-          page: 1,
-          page_size: 15,
-          source: 'auto',
-        }),
+      const { data } = await api.post<NewsApiResponse>('/api/news/list', {
+        query: newsLanguage === 'en' ? 'kidney health' : '신장 건강',
+        language: newsLanguage,
+        page: 1,
+        page_size: 15,
+        source: 'auto',
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch news: ${response.statusText}`);
-      }
-
-      const data: NewsApiResponse = await response.json();
 
       // Save to cache
       setCachedNews(newsLanguage, data);

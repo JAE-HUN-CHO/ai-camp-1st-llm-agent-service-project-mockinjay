@@ -41,6 +41,23 @@ from Agent.quiz.agent import QuizAgent
 from Agent.trend_visualization.agent import TrendVisualizationAgent
 from Agent.core.contracts import AgentRequest
 from app.services.agent_runtime import AgentRuntime, get_agent_runtime
+from app.api.dependencies import get_request_user_id, require_user_match
+
+
+def _authorize_user(request: Request, requested_user_id: Optional[str]) -> str:
+    """Bind caller-supplied user filters to the authenticated JWT subject."""
+    current_user_id = get_request_user_id(request)
+    require_user_match(requested_user_id, current_user_id)
+    return current_user_id
+
+
+def _authorize_session(request: Request, context_system, session_id: str) -> str:
+    """Ensure an existing session belongs to the authenticated subject."""
+    current_user_id = get_request_user_id(request)
+    session = context_system.session_manager.get_session(session_id)
+    if session and session.get("user_id") != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied: session ownership mismatch")
+    return current_user_id
 
 
 async def close_parlant_server(agent_runtime: AgentRuntime | None = None):
@@ -91,6 +108,7 @@ async def get_user_rooms(user_id: str, request: Request):
         List of chat rooms with last message info
     """
     try:
+        current_user_id = _authorize_user(request, user_id)
         context_system = get_context_system(request)
         if not user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
@@ -99,10 +117,10 @@ async def get_user_rooms(user_id: str, request: Request):
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
 
-        rooms = await db_manager.get_user_rooms(user_id)
+        rooms = await db_manager.get_user_rooms(current_user_id)
 
         return {
-            "user_id": user_id,
+            "user_id": current_user_id,
             "rooms": rooms,
             "count": len(rooms)
         }
@@ -127,7 +145,15 @@ async def get_room_history(room_id: str, request: Request, limit: int = 50):
         List of conversations in the room
     """
     try:
+        current_user_id = _authorize_user(request, None)
         context_system = get_context_system(request)
+        db_manager = context_system.context_engineer.db_manager
+        await db_manager.connect()
+        owned_room = await db_manager.db.chat_rooms.find_one(
+            {"room_id": room_id, "user_id": current_user_id, "is_deleted": False}
+        )
+        if not owned_room:
+            raise HTTPException(status_code=404, detail="Room not found")
         conversations = await context_system.context_engineer.db_manager.get_conversations_by_room(
             room_id, limit
         )
@@ -175,7 +201,10 @@ async def get_agent_history(
         List of conversations for the specified agent
     """
     try:
+        current_user_id = _authorize_user(request, user_id)
         context_system = get_context_system(request)
+        if session_id:
+            _authorize_session(request, context_system, session_id)
         # Validate agent_type
         valid_agents = ["nutrition", "medical_welfare", "research_paper", "quiz", "trend_visualization"]
         if agent_type not in valid_agents:
@@ -188,12 +217,12 @@ async def get_agent_history(
         if session_id and agent_type:
             # Get from MongoDB by session and agent
             conversations = await context_system.context_engineer.db_manager.get_conversations_by_session_and_agent(
-                session_id, agent_type, limit
+                session_id, agent_type, limit, user_id=current_user_id
             )
-        elif user_id and agent_type:
+        elif current_user_id and agent_type:
             # Get from MongoDB by user and agent
             conversations = await context_system.context_engineer.db_manager.get_conversations_by_agent(
-                user_id, agent_type, limit
+                current_user_id, agent_type, limit
             )
         else:
             raise HTTPException(
@@ -244,16 +273,15 @@ async def get_all_history(
         List of all conversations
     """
     try:
+        current_user_id = _authorize_user(request, user_id)
+        if session_id:
+            context_system = get_context_system(request)
+            _authorize_session(request, context_system, session_id)
         context_system = get_context_system(request)
-        if not user_id:
-            raise HTTPException(
-                status_code=400,
-                detail="user_id is required"
-            )
 
         # Get all conversations for the user
         conversations = await context_system.context_engineer.db_manager.get_recent_conversations(
-            user_id, limit
+            current_user_id, limit
         )
 
         # Format response
@@ -289,7 +317,7 @@ async def chat_message(request: Request):
         body = await request.json()
         query = body.get("query") or body.get("message")
         session_id = body.get("session_id", "default")
-        user_id = body.get("user_id") # Optional
+        user_id = _authorize_user(request, body.get("user_id"))
         room_id = body.get("room_id") # Optional - for multiple chat rooms
 
         if not query:
@@ -299,10 +327,7 @@ async def chat_message(request: Request):
         context = body.get("context", {})
 
         # Resolve user_id from session if not provided
-        if not user_id and session_id:
-            session = context_system.session_manager.get_session(session_id)
-            if session:
-                user_id = session.get("user_id")
+        _authorize_session(request, context_system, session_id)
 
         if user_id:
             try:
@@ -435,6 +460,8 @@ async def chat_message(request: Request):
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat processing error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -450,7 +477,7 @@ async def chat_stream(request: Request):
         body = await request.json()
         query = body.get("query") or body.get("message")
         session_id = body.get("session_id", "default")
-        user_id = body.get("user_id") # Optional
+        user_id = _authorize_user(request, body.get("user_id"))
         room_id = body.get("room_id") # Optional - for multiple chat rooms
 
         # Debug: Log session and room info for room-based session separation
@@ -463,10 +490,7 @@ async def chat_stream(request: Request):
         context = body.get("context", {})
         
         # Resolve user_id from session if not provided
-        if not user_id and session_id:
-            session = context_system.session_manager.get_session(session_id)
-            if session:
-                user_id = session.get("user_id")
+        _authorize_session(request, context_system, session_id)
 
         if user_id:
             try:

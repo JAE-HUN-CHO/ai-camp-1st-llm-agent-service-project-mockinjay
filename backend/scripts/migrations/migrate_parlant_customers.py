@@ -10,7 +10,7 @@ Usage:
     python -m scripts.migrations.migrate_parlant_customers
 
 Or with environment variables:
-    MONGODB_URI=mongodb://localhost:27017 \
+    MONGODB_URI=mongodb://careguide:careguide_local@localhost:27017/?authSource=admin \
     PARLANT_HOST=127.0.0.1 \
     RESEARCH_PORT=8800 \
     python -m scripts.migrations.migrate_parlant_customers
@@ -38,7 +38,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration from environment variables
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_URI = os.getenv(
+    "MONGODB_URI",
+    "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+)
 DATABASE_NAME = os.getenv("DATABASE_NAME", "careguide")
 PARLANT_HOST = os.getenv("PARLANT_HOST", "127.0.0.1")
 RESEARCH_PORT = int(os.getenv("RESEARCH_PORT", "8800"))

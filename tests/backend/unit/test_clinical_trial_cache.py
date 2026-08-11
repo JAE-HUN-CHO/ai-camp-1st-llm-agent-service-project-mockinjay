@@ -62,3 +62,42 @@ async def test_list_returns_stale_cache_when_provider_fails(monkeypatch) -> None
 
     assert response["trials"] == []
     assert response["stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_provider_walks_clinical_trials_next_page_token(monkeypatch) -> None:
+    requests = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def get(self, _url, params):
+            requests.append(params)
+            if len(requests) == 1:
+                return FakeResponse({"studies": [], "totalCount": 25, "nextPageToken": "page-2"})
+            return FakeResponse({"studies": []})
+
+    monkeypatch.setattr(clinical_trials.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+
+    data = await clinical_trials.fetch_clinical_trials(page=2, page_size=10)
+
+    assert len(requests) == 2
+    assert requests[0]["countTotal"] == "true"
+    assert "pageToken" not in requests[0]
+    assert requests[1]["pageToken"] == "page-2"
+    assert "countTotal" not in requests[1]
+    assert data["totalCount"] == 25

@@ -34,7 +34,10 @@ async def embed_kidney_data_to_local_vector():
     print("=" * 80)
     print(f"시작 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    mongodb_uri = os.getenv(
+        "MONGODB_URI",
+        "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+    )
 
     # Manager 초기화
     mongodb_manager = MongoDBManager(mongodb_uri, db_name="careguide")

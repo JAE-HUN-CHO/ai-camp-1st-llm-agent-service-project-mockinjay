@@ -5,8 +5,8 @@ CareGuide는 만성 신장질환(CKD) 환자 대상 의료/복지 LLM Agent 서�
 
 ## Project Snapshot
 
-- **Backend**: FastAPI + Parlant SDK (port 8800), 4개 Agent (Medical_Welfare, Nutrition, Research_Paper, Quiz)
-- **Frontend (canonical)**: `new_frontend/` (Vite + React + TypeScript + Tailwind) — see ADR-001
+- **Backend**: FastAPI + Parlant SDK (port 8000), 4개 Agent (Medical_Welfare, Nutrition, Research_Paper, Quiz)
+- **Frontend (canonical)**: `frontend/` (Vite + React + TypeScript + Tailwind), consolidated from `new_frontend/`
 - **DB**: MongoDB (**local Docker** for development) — see ADR-005
 - **Vector**: MongoDB Vector Search (1536d, cosine, text-embedding-3-small)
 - **Architecture decisions**: `docs/adr/`
@@ -39,7 +39,7 @@ This project is configured for the Matt Pocock engineering skill suite (`to-issu
 - **`to-prd`**: append PRDs as `docs/converted/PRD_<topic>.md` and open a GitHub issue tagged `type:prd`.
 - **`triage`**: drive issue state via the canonical state machine in `docs/agents/triage-labels.md`. Never assign a label not listed there.
 - **`diagnose`**: when investigating runtime issues, start from `docs/agents/BUG_FIX_REPORT.md` and `docs/agents/FINAL_COMPLETE_REPORT.md` for prior diagnoses.
-- **`tdd`**: respect existing test layout under `backend/tests/` and `new_frontend/src/__tests__/`. Use `pytest` for backend and `vitest` for frontend.
+- **`tdd`**: respect existing test layout under `backend/tests/` and `frontend/src/__tests__/`. Use `pytest` for backend and `vitest` for frontend.
 - **`improve-codebase-architecture`**: read all `docs/adr/*.md` first; refactors must reference at least one ADR or open a new one.
 - **`zoom-out`**: anchor on `docs/agents/domain.md` and `docs/adr/ADR-002-parlant-orchestration.md` for architectural posture.
 
@@ -48,14 +48,14 @@ This project is configured for the Matt Pocock engineering skill suite (`to-issu
 - **No payment integration** — see ADR-006 (Accepted). Do not add Stripe / KCP / Toss / Kakao Pay code, even as mock buttons.
 - **Clinical trials feature is in scope** — see ADR-004 (Accepted, Option B). Surface ClinicalTrials.gov data in UI; treat as part of MVP.
 - **MongoDB is local Docker only** for development — see ADR-005 (Accepted, revised). Atlas is **not** the default; production deployment is out of MVP scope.
-- **No new frontend frameworks** — `new_frontend/` is canonical (ADR-001). `frontend/` and `stitch_frontend/` are deprecated; do not add features there.
+- **Single frontend root** — `frontend/` is the canonical product root. `new_frontend/` and `stitch_frontend/` are retired prototypes; do not add features there.
 
 ## Verification before closing a task
 
 After code edits, run lightweight verification on changed files:
 
 - Backend: `pytest -q backend/tests/<changed-area>` + `ruff check backend/app/`
-- Frontend: `cd new_frontend && npm run build` + `npm run lint`
+- Frontend: `cd frontend && npm run build` + `npm run lint`
 - Integration: `docker compose up mongodb` then a smoke test against `backend/app/main.py`
 
 ## Where to add new docs

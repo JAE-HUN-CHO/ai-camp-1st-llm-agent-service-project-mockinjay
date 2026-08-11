@@ -54,6 +54,12 @@ def test_chat_stream_emits_sse_and_persists_final_response(monkeypatch) -> None:
     app = FastAPI()
     app.state.context_system = context_system
     app.state.agent_runtime = runtime
+
+    @app.middleware("http")
+    async def set_authenticated_user(request, call_next):
+        request.state.user_id = "user-1"
+        return await call_next(request)
+
     app.include_router(chat.router)
     monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
 
@@ -86,6 +92,12 @@ def test_chat_stream_requires_query() -> None:
         session_manager=SimpleNamespace(get_session=lambda _session_id: None),
         context_engineer=SimpleNamespace(db_manager=_FakeContextManager()),
     )
+
+    @app.middleware("http")
+    async def set_authenticated_user(request, call_next):
+        request.state.user_id = "user-1"
+        return await call_next(request)
+
     app.include_router(chat.router)
 
     with TestClient(app) as client:

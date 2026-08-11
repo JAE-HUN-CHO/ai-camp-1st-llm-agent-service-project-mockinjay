@@ -195,7 +195,10 @@ async def embed_collection(
 
 
 async def main(selected_collections: List[str]):
-    mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    mongodb_uri = os.getenv(
+        "MONGODB_URI",
+        "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+    )
 
     client = AsyncIOMotorClient(mongodb_uri)
     db_name = os.getenv("MONGODB_DB", "careguide")

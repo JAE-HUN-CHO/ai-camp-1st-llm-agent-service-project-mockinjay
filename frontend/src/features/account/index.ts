@@ -5,8 +5,6 @@ export { default as ChangePasswordPage } from './ChangePasswordPage';
 export { default as NotificationSettingsPage } from './NotificationSettingsPage';
 export { default as NotificationPage } from './NotificationPage';
 export { default as BookmarkPage } from './BookmarkPage';
-export { default as SubscribePage } from './SubscribePage';
-
 export const ACCOUNT_ROUTES = ['/mypage', '/mypage/profile', '/notifications'] as const;
 
 export type AccountRoute = (typeof ACCOUNT_ROUTES)[number];

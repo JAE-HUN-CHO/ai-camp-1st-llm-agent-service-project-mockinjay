@@ -6,7 +6,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   User,
   Settings,
-  CreditCard,
   Bell,
   FileText,
   LogOut,
@@ -166,7 +165,6 @@ const MyPageEnhanced: React.FC = () => {
         { icon: User, label: '프로필 정보', onClick: () => setIsProfileModalOpen(true), badge: undefined },
         { icon: Heart, label: '건강 프로필', onClick: () => setIsHealthModalOpen(true), badge: undefined },
         { icon: Settings, label: '환경 설정', onClick: () => setIsSettingsModalOpen(true), badge: undefined },
-        { icon: CreditCard, label: '구독 및 결제', onClick: () => navigate('/subscribe'), badge: undefined },
         { icon: Bell, label: '알림 설정', onClick: () => navigate('/notification-settings'), badge: undefined },
       ],
     },

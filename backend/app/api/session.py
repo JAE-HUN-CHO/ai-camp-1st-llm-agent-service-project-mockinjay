@@ -14,10 +14,20 @@ from app.models.chat import (
 )
 from app.models.responses import SuccessResponse
 from app.features.chat.runtime import get_context_system, get_stream_registry
+from app.api.dependencies import get_request_user_id, require_user_match
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/session", tags=["session"])
+
+
+def _authorize_session(http_request: Request, context_system, session_id: str):
+    """Return an owned session or reject cross-user access."""
+    current_user_id = get_request_user_id(http_request)
+    session = context_system.session_manager.get_session(session_id)
+    if session and session.get("user_id") != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied: session ownership mismatch")
+    return current_user_id, session
 
 @router.post("/create", response_model=SuccessResponse, status_code=201)
 async def create_session(request: SessionCreate, http_request: Request):
@@ -34,10 +44,12 @@ async def create_session(request: SessionCreate, http_request: Request):
         If room_id is not provided, a new room will be auto-created
     """
     try:
+        current_user_id = get_request_user_id(http_request)
+        require_user_match(request.user_id, current_user_id)
         context_system = get_context_system(http_request)
         # Create session using SessionManager
         session_id = context_system.session_manager.create_session(
-            user_id=request.user_id,
+            user_id=current_user_id,
             room_id=request.room_id
         )
 
@@ -55,13 +67,15 @@ async def create_session(request: SessionCreate, http_request: Request):
             message="Session created successfully",
             data={
                 "session_id": session_id,
-                "user_id": request.user_id,
+                "user_id": current_user_id,
                 "room_id": session["room_id"],
                 "created_at": session["created_at"].isoformat(),
                 "expires_at": expires_at.isoformat()
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
@@ -83,7 +97,7 @@ async def get_session(session_id: str, request: Request):
     """
     try:
         context_system = get_context_system(request)
-        session = context_system.session_manager.get_session(session_id)
+        _, session = _authorize_session(request, context_system, session_id)
 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -132,7 +146,7 @@ async def reset_session(session_id: str, request: SessionReset, http_request: Re
     """
     try:
         context_system = get_context_system(http_request)
-        session = context_system.session_manager.get_session(session_id)
+        _, session = _authorize_session(http_request, context_system, session_id)
 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -200,7 +214,7 @@ async def stop_stream(session_id: str, request: Request):
     """
     try:
         context_system = get_context_system(request)
-        session = context_system.session_manager.get_session(session_id)
+        _, session = _authorize_session(request, context_system, session_id)
 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -264,7 +278,7 @@ async def clear_session_history(
     """
     try:
         context_system = get_context_system(request)
-        session = context_system.session_manager.get_session(session_id)
+        _, session = _authorize_session(request, context_system, session_id)
 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -329,6 +343,7 @@ async def delete_session(session_id: str, request: Request):
     """
     try:
         context_system = get_context_system(request)
+        _authorize_session(request, context_system, session_id)
         success = context_system.session_manager.delete_session(session_id)
 
         if not success:

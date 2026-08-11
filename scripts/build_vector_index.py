@@ -69,7 +69,13 @@ def ensure_vector_index(uri: str, database_name: str, *, dry_run: bool = False) 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--uri", default=os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+    parser.add_argument(
+        "--uri",
+        default=os.getenv(
+            "MONGODB_URI",
+            "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+        ),
+    )
     parser.add_argument("--db", default=os.getenv("DB_NAME", "careguide"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

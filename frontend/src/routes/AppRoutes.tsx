@@ -55,7 +55,6 @@ const ProfileInfoPage = lazy(() => import('../features/account/ProfileInfoPage')
 const ChangePasswordPage = lazy(() => import('../features/account/ChangePasswordPage'));
 const NotificationSettingsPage = lazy(() => import('../features/account/NotificationSettingsPage'));
 const NotificationPage = lazy(() => import('../features/account/NotificationPage'));
-const SubscribePage = lazy(() => import('../features/account/SubscribePage'));
 
 // Legal pages
 const TermsConditionsPage = lazy(() => import('../pages/LegalPages').then(m => ({ default: m.TermsConditionsPage })));
@@ -276,14 +275,6 @@ const AppRoutes: React.FC = () => {
             element={
               <ProtectedRoute>
                 <ChangePasswordPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path={ROUTES.SUBSCRIBE}
-            element={
-              <ProtectedRoute>
-                <SubscribePage />
               </ProtectedRoute>
             }
           />

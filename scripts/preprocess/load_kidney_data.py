@@ -33,7 +33,10 @@ async def load_kidney_data_to_mongodb():
     print(f"시작 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
     # MongoDB Manager 초기화
-    mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    mongodb_uri = os.getenv(
+        "MONGODB_URI",
+        "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+    )
     manager = MongoDBManager(mongodb_uri, db_name="careguide")
 
     try:

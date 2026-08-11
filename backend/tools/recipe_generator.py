@@ -64,7 +64,10 @@ class RecipeGenerator:
     def _init_connection(self):
         """MongoDB 연결 초기화"""
         try:
-            mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+            mongo_uri = os.getenv(
+                "MONGODB_URI",
+                "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+            )
             self.client = MongoClient(mongo_uri)
             self.db = self.client['careguide']
             logger.info("✅ MongoDB connection initialized for recipe generator")

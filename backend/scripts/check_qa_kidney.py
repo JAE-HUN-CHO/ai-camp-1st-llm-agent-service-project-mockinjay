@@ -7,7 +7,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 async def check_qa_kidney():
-    client = AsyncIOMotorClient(os.getenv('MONGODB_URI', 'mongodb://localhost:27017'))
+    client = AsyncIOMotorClient(os.getenv(
+        'MONGODB_URI',
+        'mongodb://careguide:careguide_local@localhost:27017/?authSource=admin',
+    ))
     db = client['careguide']
 
     # Get sample documents

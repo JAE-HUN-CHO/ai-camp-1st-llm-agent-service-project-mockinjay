@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 from app.db.connection import get_users_collection
@@ -7,6 +7,24 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 security = HTTPBearer()
+
+
+def get_request_user_id(request: Request) -> str:
+    """Return the JWT subject populated by AuthenticationMiddleware."""
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 정보가 없습니다",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return str(user_id)
+
+
+def require_user_match(requested_user_id: str | None, current_user_id: str) -> None:
+    """Reject caller-supplied identities that differ from the JWT subject."""
+    if requested_user_id and requested_user_id != current_user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied: user mismatch")
 
 async def get_current_user(credentials = Depends(security)) -> str:
     """

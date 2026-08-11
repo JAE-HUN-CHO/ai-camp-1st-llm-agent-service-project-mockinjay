@@ -167,33 +167,47 @@ async def fetch_clinical_trials(
         if status:
             query_parts.append(f"AREA[OverallStatus]{status}")
 
-        params = {
+        base_params = {
             "query.term": " AND ".join(query_parts),
             "pageSize": page_size,
             "format": "json",
             "sort": "LastUpdatePostDate:desc"  # Sort by last update date, newest first
         }
 
-        # For pagination, use countTotal on first request
-        if page == 1:
-            params["countTotal"] = "true"
-
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # First request to get total count
-            if page == 1:
-                response = await client.get(base_url, params=params)
-            else:
-                # For subsequent pages, calculate the pageToken
-                # pageToken is typically the next page token from previous response
-                # For now, we'll use a simple approach
-                params["pageSize"] = page_size
-                response = await client.get(base_url, params=params)
+            # ClinicalTrials.gov v2 uses an opaque nextPageToken rather than
+            # offset pagination. Walk pages in order so a requested page can
+            # be resolved even when its token was not previously cached.
+            data: Dict[str, Any] = {}
+            next_page_token: Optional[str] = None
+            resolved_page = 0
+            total_count: Optional[int] = None
+            for requested_page in range(1, page + 1):
+                params = dict(base_params)
+                if requested_page == 1:
+                    params["countTotal"] = "true"
+                elif next_page_token:
+                    params["pageToken"] = next_page_token
+                else:
+                    break
 
-            response.raise_for_status()
-            data = response.json()
+                response = await client.get(base_url, params=params)
+                response.raise_for_status()
+                data = response.json()
+                resolved_page = requested_page
+                if requested_page == 1:
+                    total_count = data.get("totalCount")
+                next_page_token = data.get("nextPageToken")
+
+            if resolved_page != page:
+                raise HTTPException(status_code=404, detail="Clinical trial page is not available")
+            if total_count is not None:
+                data["totalCount"] = total_count
 
             return data
 
+    except HTTPException:
+        raise
     except httpx.HTTPError as e:
         logger.error(f"HTTP error fetching clinical trials: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch clinical trials: {str(e)}")

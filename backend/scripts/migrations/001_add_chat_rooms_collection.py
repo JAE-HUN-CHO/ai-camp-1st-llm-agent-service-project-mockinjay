@@ -25,7 +25,10 @@ async def upgrade():
     """
     Create chat_rooms collection with indexes
     """
-    uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    uri = os.getenv(
+        "MONGODB_URI",
+        "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+    )
     db_name = os.getenv("MONGODB_DB_NAME", "careguide")
 
     client = AsyncIOMotorClient(uri)
@@ -133,7 +136,10 @@ async def downgrade():
     """
     Remove chat_rooms collection and indexes (rollback)
     """
-    uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    uri = os.getenv(
+        "MONGODB_URI",
+        "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+    )
     db_name = os.getenv("MONGODB_DB_NAME", "careguide")
 
     client = AsyncIOMotorClient(uri)

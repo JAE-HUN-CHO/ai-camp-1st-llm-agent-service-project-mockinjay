@@ -18,7 +18,10 @@ load_dotenv()
 ollama_client = OllamaClient()
 
 # MongoDB 연결
-MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
+MONGODB_URI = os.getenv(
+    'MONGODB_URI',
+    'mongodb://careguide:careguide_local@localhost:27017/?authSource=admin',
+)
 
 # 카테고리 매핑 (qa_kidney 카테고리 -> 퀴즈 카테고리)
 CATEGORY_MAPPING = {

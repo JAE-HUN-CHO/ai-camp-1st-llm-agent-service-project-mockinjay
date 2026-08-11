@@ -23,16 +23,15 @@ PUBLIC_PATHS = {
     "/api/auth/register",
     "/api/auth/signup",
     "/api/auth/dev-login",
+    "/api/chat/info",
 }
 
 # Path prefixes that are public
 PUBLIC_PREFIXES = [
     "/uploads/",
     "/test/",
-    "/api/chat/",           # 채팅 엔드포인트 (개발 중 공개)
     "/api/community/",      # 커뮤니티 엔드포인트 (개발 중 공개)
     "/api/quiz/",           # 퀴즈 엔드포인트 (개발 중 공개)
-    "/api/session/",        # 세션 엔드포인트 (개발 중 공개)
     "/api/trends/",         # 트렌드 엔드포인트 (개발 중 공개)
     "/api/diet/",           # 영양 엔드포인트 (개발 중 공개)
     "/api/clinical-trials/", # 임상시험 엔드포인트 (공개)

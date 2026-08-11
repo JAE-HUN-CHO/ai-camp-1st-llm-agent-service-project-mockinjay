@@ -16,7 +16,10 @@ class ContextManager:
     """
 
     def __init__(self, uri: str = None, db_name: str = "careguide"):
-        self.uri = uri or os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        self.uri = uri or os.getenv(
+            "MONGODB_URI",
+            "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+        )
         self.db_name = db_name
         self.client: Optional[AsyncIOMotorClient] = None
         self.db = None
@@ -99,7 +102,13 @@ class ContextManager:
         # Return in chronological order for context
         return sorted(results, key=lambda x: x["timestamp"])
 
-    async def get_conversations_by_session_and_agent(self, session_id: str, agent_type: str, limit: int = 50) -> List[Dict]:
+    async def get_conversations_by_session_and_agent(
+        self,
+        session_id: str,
+        agent_type: str,
+        limit: int = 50,
+        user_id: Optional[str] = None,
+    ) -> List[Dict]:
         """
         Get conversations for a specific session and agent type.
 
@@ -114,9 +123,11 @@ class ContextManager:
         if self.db is None:
             await self.connect()
 
-        cursor = self.db.conversation_history.find(
-            {"session_id": session_id, "agent_type": agent_type}
-        ).sort("timestamp", -1).limit(limit)
+        query = {"session_id": session_id, "agent_type": agent_type}
+        if user_id:
+            query["user_id"] = user_id
+
+        cursor = self.db.conversation_history.find(query).sort("timestamp", -1).limit(limit)
 
         results = await cursor.to_list(length=limit)
         # Return in chronological order for context

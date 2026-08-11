@@ -63,7 +63,10 @@ async def verify_setup():
     print("=" * 80 + "\n")
 
     from parlant.database.mongodb_manager import MongoDBManager
-    mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    mongodb_uri = os.getenv(
+        "MONGODB_URI",
+        "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+    )
 
     # MongoDB 검증
     print("🔍 MongoDB 데이터 검증 중...")

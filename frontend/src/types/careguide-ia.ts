@@ -146,7 +146,6 @@ export const ROUTES = {
   LOGIN: '/login',
   CHANGE_PASSWORD: '/changepw',
   MY_PAGE: '/mypage',
-  SUBSCRIBE: '/subscribe',
   NOTIFICATION: '/notification',
   SUPPORT: '/support',
   TERMS_CONDITIONS: '/terms-conditions',
@@ -364,13 +363,6 @@ export const CAREGUIDE_IA: ParentRoute[] = [
         nameEn: 'My page',
         path: ROUTES.MY_PAGE,
         description: '프로필 관리, 뱃지, 포인트, 논문 북마크 조회, 설정',
-        depth: 2,
-      },
-      {
-        id: 'subscribe',
-        name: '구독',
-        path: ROUTES.SUBSCRIBE,
-        description: '프리미엄 구독 관리',
         depth: 2,
       },
       {

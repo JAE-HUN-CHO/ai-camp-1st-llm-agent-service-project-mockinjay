@@ -71,7 +71,10 @@ class HospitalManager:
             max_pool_size: Maximum connection pool size
             min_pool_size: Minimum connection pool size
         """
-        self.uri = uri or os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        self.uri = uri or os.getenv(
+            "MONGODB_URI",
+            "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin",
+        )
         self.db_name = db_name
 
         self.client: Optional[AsyncIOMotorClient] = None
