@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, List
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient
 
 from prompts import (
     format_classification_prompt,
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 async def classify_intent_with_llm(query: str) -> Dict[str, Any]:
     """
-    Classify intent using OpenAI GPT with sophisticated prompts
+    Classify intent using the local Ollama model with sophisticated prompts
 
     Args:
         query: User query to classify
@@ -39,14 +39,14 @@ async def classify_intent_with_llm(query: str) -> Dict[str, Any]:
     Returns:
         Classification result with intents, confidence, reasoning, etc.
     """
-    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    client = OllamaClient()
 
     # Use formatted prompt from prompts.py
     messages = format_classification_prompt(query)
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
             messages=messages,
             temperature=0.0,
             max_tokens=512

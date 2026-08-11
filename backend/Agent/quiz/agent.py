@@ -31,6 +31,7 @@ backend_path = Path(__file__).parent.parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 from app.db.connection import db
+from app.services.mypage.points_service import PointsService
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class QuizAgent(LocalAgent):
 
     def __init__(self):
         super().__init__(agent_type="quiz")
-        self.openai_client = OpenAIClient(model="gpt-4o-mini")
+        self.openai_client = OpenAIClient(model="qwen3.6:27b-mlx")
         self.vector_client = VectorClient()
         self.mongodb_client = MongoDBClient()
     
@@ -945,6 +946,17 @@ class QuizAgent(LocalAgent):
                     new_stats["level"] = "beginner"
 
             await stats_collection.insert_one(new_stats)
+
+        # Persist quiz score in the canonical points ledger. The event key is
+        # stable for the session, so repeated completion requests are safe.
+        if user_id and session["score"] > 0:
+            await PointsService().add_points(
+                user_id=user_id,
+                amount=session["score"],
+                source="quiz_completion",
+                description=f"퀴즈 세션 완료: {quiz_session_id}",
+                idempotency_key=f"quiz_completion:{quiz_session_id}",
+            )
 
         # 카테고리별 성과 계산
         category_performance = await self._calculate_category_performance(session)

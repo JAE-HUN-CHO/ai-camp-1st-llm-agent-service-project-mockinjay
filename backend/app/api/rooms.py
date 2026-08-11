@@ -2,7 +2,7 @@
 Rooms API Router
 Handles chat room CRUD operations and room-specific history
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from typing import Optional
 import logging
 import uuid
@@ -14,16 +14,23 @@ from app.models.chat import (
     RoomCreateWithSession, RoomResponseWithSession
 )
 from app.models.responses import SuccessResponse, ErrorResponse
-from app.core.context_system import context_system
+from app.features.chat.runtime import get_context_system
 from Agent.core.contracts import AgentRequest
+from app.api.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/rooms", tags=["rooms"])
 
 
+def _require_user_match(requested_user_id: str, current_user_id: str) -> None:
+    """Reject caller-supplied room identities that differ from the JWT subject."""
+    if requested_user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Access denied: user mismatch")
+
+
 @router.post("", response_model=SuccessResponse, status_code=201)
-async def create_room(request: RoomCreate):
+async def create_room(request: RoomCreate, http_request: Request, current_user_id: str = Depends(get_current_user)):
     """
     Create a new chat room for a user
 
@@ -38,6 +45,9 @@ async def create_room(request: RoomCreate):
         500: Database error
     """
     try:
+        context_system = get_context_system(http_request)
+        _require_user_match(request.user_id, current_user_id)
+
         # Generate unique room ID
         room_id = f"room_{str(uuid.uuid4())}"
 
@@ -102,7 +112,11 @@ async def create_room(request: RoomCreate):
 
 
 @router.post("/with-session", response_model=SuccessResponse, status_code=201)
-async def create_room_with_parlant_session(request: RoomCreateWithSession):
+async def create_room_with_parlant_session(
+    request: RoomCreateWithSession,
+    http_request: Request,
+    current_user_id: str = Depends(get_current_user),
+):
     """
     Create a new chat room with proactive Parlant session creation.
     새로운 채팅 방을 생성하고 Parlant 세션을 미리 생성합니다.
@@ -130,6 +144,9 @@ async def create_room_with_parlant_session(request: RoomCreateWithSession):
         500: Database or Parlant server error
     """
     try:
+        context_system = get_context_system(http_request)
+        _require_user_match(request.user_id, current_user_id)
+
         # Generate unique room ID
         room_id = f"room_{str(uuid.uuid4())}"
 
@@ -246,10 +263,12 @@ async def create_room_with_parlant_session(request: RoomCreateWithSession):
 
 @router.get("", response_model=SuccessResponse)
 async def list_user_rooms(
+    http_request: Request,
     user_id: str = Query(..., description="User ID"),
     limit: int = Query(50, ge=1, le=100, description="Number of rooms to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    sort_by: str = Query("last_activity", description="Sort field: last_activity, created_at, room_name")
+    sort_by: str = Query("last_activity", description="Sort field: last_activity, created_at, room_name"),
+    current_user_id: str = Depends(get_current_user),
 ):
     """
     List all chat rooms for a user with pagination
@@ -264,6 +283,9 @@ async def list_user_rooms(
         List of rooms with last message info and pagination metadata
     """
     try:
+        context_system = get_context_system(http_request)
+        _require_user_match(user_id, current_user_id)
+
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
 
@@ -340,7 +362,7 @@ async def list_user_rooms(
 
 
 @router.get("/{room_id}", response_model=SuccessResponse)
-async def get_room(room_id: str):
+async def get_room(room_id: str, http_request: Request, current_user_id: str = Depends(get_current_user)):
     """
     Get details for a specific room
 
@@ -354,12 +376,14 @@ async def get_room(room_id: str):
         404: Room not found
     """
     try:
+        context_system = get_context_system(http_request)
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
 
         room = await db_manager.db.chat_rooms.find_one({
             "room_id": room_id,
-            "is_deleted": False
+            "is_deleted": False,
+            "user_id": current_user_id,
         })
 
         if not room:
@@ -401,7 +425,13 @@ async def get_room(room_id: str):
 
 
 @router.patch("/{room_id}", response_model=SuccessResponse)
-async def update_room(room_id: str, request: RoomUpdate, user_id: str = Query(..., description="User ID for ownership verification")):
+async def update_room(
+    room_id: str,
+    request: RoomUpdate,
+    http_request: Request,
+    user_id: str = Query(..., description="User ID for ownership verification"),
+    current_user_id: str = Depends(get_current_user),
+):
     """
     Update room name and/or metadata
 
@@ -418,6 +448,9 @@ async def update_room(room_id: str, request: RoomUpdate, user_id: str = Query(..
         404: Room not found
     """
     try:
+        context_system = get_context_system(http_request)
+        _require_user_match(user_id, current_user_id)
+
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
 
@@ -467,7 +500,12 @@ async def update_room(room_id: str, request: RoomUpdate, user_id: str = Query(..
 
 
 @router.delete("/{room_id}", response_model=SuccessResponse)
-async def delete_room(room_id: str, user_id: str = Query(..., description="User ID for ownership verification")):
+async def delete_room(
+    room_id: str,
+    http_request: Request,
+    user_id: str = Query(..., description="User ID for ownership verification"),
+    current_user_id: str = Depends(get_current_user),
+):
     """
     Delete a room and all associated conversations
 
@@ -483,6 +521,9 @@ async def delete_room(room_id: str, user_id: str = Query(..., description="User 
         404: Room not found
     """
     try:
+        context_system = get_context_system(http_request)
+        _require_user_match(user_id, current_user_id)
+
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
 
@@ -539,8 +580,10 @@ async def delete_room(room_id: str, user_id: str = Query(..., description="User 
 @router.get("/{room_id}/history", response_model=SuccessResponse)
 async def get_room_history(
     room_id: str,
+    http_request: Request,
     limit: int = Query(50, ge=1, le=200, description="Number of conversations to return"),
-    offset: int = Query(0, ge=0, description="Pagination offset")
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    current_user_id: str = Depends(get_current_user),
 ):
     """
     Get conversation history for a specific room
@@ -557,13 +600,15 @@ async def get_room_history(
         404: Room not found
     """
     try:
+        context_system = get_context_system(http_request)
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
 
         # Verify room exists
         room = await db_manager.db.chat_rooms.find_one({
             "room_id": room_id,
-            "is_deleted": False
+            "is_deleted": False,
+            "user_id": current_user_id,
         })
 
         if not room:

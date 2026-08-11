@@ -1,5 +1,5 @@
 """
-Nutrition RAG - CLIP + Pinecone Hybrid Search
+Nutrition RAG - local image encoder + MongoDB vector hybrid search
 음식 이미지-텍스트 동시 검색을 위한 RAG 시스템
 """
 
@@ -12,7 +12,6 @@ import base64
 import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
-from pinecone import Pinecone, ServerlessSpec
 from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
@@ -31,51 +30,22 @@ class NutritionRAG:
         self.model.to(self.device)
         self.model.eval()
 
-        # Pinecone 초기화
+        # Hosted vector stores are not used. MongoDB Atlas Local is the
+        # persistence target; this legacy CLIP surface remains read-only until
+        # its Mongo vector adapter is wired in.
         self.pc = None
         self.index = None
-        self._init_pinecone()
 
         # BM25 for keyword search (in-memory cache)
         self.bm25 = None
         self.food_corpus = []
 
-    def _init_pinecone(self):
-        """Pinecone vector DB 초기화"""
-        api_key = os.getenv("PINECONE_API_KEY")
-        if not api_key:
-            logger.warning("⚠️ PINECONE_API_KEY not found - RAG disabled")
-            return
-
-        try:
-            self.pc = Pinecone(api_key=api_key)
-            index_name = "nutrition-ckd"
-
-            # Check if index exists
-            existing_indexes = self.pc.list_indexes()
-            if index_name not in [idx.name for idx in existing_indexes]:
-                logger.info(f"📦 Creating Pinecone index: {index_name}")
-                self.pc.create_index(
-                    name=index_name,
-                    dimension=512,  # CLIP embedding dimension
-                    metric="cosine",
-                    spec=ServerlessSpec(cloud="aws", region="us-east-1")
-                )
-
-            self.index = self.pc.Index(index_name)
-            logger.info(f"✅ Pinecone index '{index_name}' ready")
-
-        except Exception as e:
-            logger.error(f"❌ Pinecone initialization failed: {e}")
-            self.pc = None
-            self.index = None
-
     def _unflatten_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Pinecone 메타데이터에서 nutrition 필드를 복원
+        Vector metadata에서 nutrition 필드를 복원
 
         Args:
-            metadata: Flattened metadata from Pinecone
+            metadata: Flattened metadata from the vector store
 
         Returns:
             Unflattened metadata with nutrition dict
@@ -174,14 +144,14 @@ class NutritionRAG:
             List of {dish_name, ingredients, recipe, nutrition, score}
         """
         if not self.index:
-            logger.warning("Pinecone not available - using dummy data")
+            logger.warning("MongoDB vector adapter not available - using dummy data")
             return self._get_dummy_food_data(top_k)
 
         try:
             # Image embedding
             image_emb = self.encode_image(image_input)
 
-            # Pinecone search
+            # MongoDB vector search
             results = self.index.query(
                 vector=image_emb.tolist(),
                 top_k=top_k,
@@ -221,14 +191,14 @@ class NutritionRAG:
             List of {dish_name, ingredients, recipe, nutrition, score}
         """
         if not self.index:
-            logger.warning("Pinecone not available - using dummy data")
+            logger.warning("MongoDB vector adapter not available - using dummy data")
             return self._get_dummy_food_data(top_k)
 
         try:
             # Text embedding
             text_emb = self.encode_text(query)
 
-            # Pinecone search
+            # MongoDB vector search
             results = self.index.query(
                 vector=text_emb.tolist(),
                 top_k=top_k,
@@ -334,7 +304,7 @@ class NutritionRAG:
         image: Optional[Image.Image] = None
     ):
         """
-        음식 데이터를 Pinecone에 추가
+        음식 데이터를 MongoDB vector adapter에 전달
 
         Args:
             food_id: Unique ID
@@ -345,7 +315,7 @@ class NutritionRAG:
             image: 음식 이미지 (선택)
         """
         if not self.index:
-            logger.warning("Pinecone not available - skipping upsert")
+            logger.warning("MongoDB vector adapter not available - skipping upsert")
             return
 
         try:
@@ -357,7 +327,7 @@ class NutritionRAG:
                 text = f"{dish_name} {' '.join(ingredients)} {recipe}"
                 embedding = self.encode_text(text)
 
-            # Flatten nutrition metadata (Pinecone doesn't support nested dicts)
+            # Flatten nutrition metadata for vector storage
             metadata = {
                 "dish_name": dish_name,
                 "ingredients": ingredients,
@@ -369,7 +339,7 @@ class NutritionRAG:
                 for key, value in nutrition.items():
                     metadata[f"nutrition_{key}"] = float(value) if value else 0.0
 
-            # Upsert to Pinecone
+            # Upsert through the MongoDB vector adapter
             self.index.upsert(
                 vectors=[(
                     food_id,

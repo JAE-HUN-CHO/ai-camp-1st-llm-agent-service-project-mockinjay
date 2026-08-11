@@ -1,0 +1,856 @@
+{
+  "journey_metadata": {
+    "id": "J_PUBMED_COMPLETE",
+    "title": "CareGuide 논문 검색 Journey",
+    "version": "3.0_COMPLETE",
+    "description": "PubMed 논문 검색 및 사용자 유형별 맞춤 제공 (요구사항 100% 반영)",
+    "date": "2025-11-05",
+    "scope": "지식검색 AI 챗봇 내 논문 검색 기능",
+    "parlant_compatible": true,
+    "ui_responsive": true
+  },
+
+  "global_guidelines": {
+    "priority_1_emergency": {
+      "description": "응급 키워드 최우선 감지 및 처리 - 모든 흐름 중단",
+      "trigger_keywords": [
+        "흉통", "호흡곤란", "의식저하", "가슴통증", "숨막힘", "기절", "119",
+        "쓰러짐", "의식", "심장", "호흡"
+      ],
+      "action": "즉시 EMERGENCY_RESPONSE로 전환, 논문 검색 중단",
+      "priority": "CRITICAL"
+    },
+
+    "priority_2_user_profile": {
+      "description": "사용자 유형별 논문 접근 권한 및 응답 차별화 (엄격 적용)",
+      "rules": {
+        "researcher": {
+          "label": "연구자/전문가",
+          "pubmed_access": "항상 자동 활성화 (100% 논문 제공)",
+          "response_style": "학술적 정보 제공, 전문 용어 사용",
+          "max_papers": 10,
+          "detail_level": "제목 + 전체 초록 + 저자 전체 + DOI + 인용 횟수",
+          "keywords_required": false
+        },
+        "patient": {
+          "label": "질환자/경험자",
+          "pubmed_access": "키워드 있을 때 또는 스마트 추천 버블 클릭시",
+          "response_style": "실용적 정보 중심, 임상 적용 가능한 내용 강조",
+          "max_papers": 5,
+          "detail_level": "제목 + 초록 요약 + 실용적 인사이트",
+          "smart_recommendation": {
+            "enabled": true,
+            "trigger_conditions": [
+              "고급 의학 개념 언급 (바이오마커, eGFR, 크레아티닌, 단백뇨, 칼륨)",
+              "치료법/약물 효과 질문",
+              "메커니즘 설명 후",
+              "수치/통계 제공 후",
+              "새로운 치료법 언급",
+              "단계별 정보 제공 후"
+            ],
+            "bubble_template": {
+              "text": "💡 혹시 {keyword}에 대한 최신 연구 결과도 궁금하신가요?",
+              "buttons": [
+                {
+                  "text": "📚 연구 정보 보기",
+                  "action": "trigger_pubmed_search"
+                },
+                {
+                  "text": "❌ 괜찮아요",
+                  "action": "skip"
+                }
+              ],
+              "style": {
+                "background": "#F0F9FF",
+                "border": "1px solid #0EA5E9",
+                "position": "inline"
+              }
+            },
+            "frequency_limit": "대화당 최대 2회"
+          }
+        },
+        "general": {
+          "label": "일반인/노비스",
+          "pubmed_access": "키워드 있을 때만 (명시적 요청)",
+          "response_style": "간단한 요약 중심, 전문 용어 최소화",
+          "max_papers": 3,
+          "detail_level": "제목 + 1-2문장 요약",
+          "keywords_required": true
+        }
+      }
+    },
+
+    "priority_3_false_negative": {
+      "description": "의료 안전성 체크 - False Negative 절대 방지 (CHK-001 ~ CHK-009)",
+      "checks": {
+        "CHK_001_symptom_reassurance_block": {
+          "name": "증상 안심 답변 차단",
+          "forbidden_phrases": [
+            "괜찮습니다",
+            "정상입니다",
+            "문제없어요",
+            "별거 아니에요",
+            "걱정마세요",
+            "안심하세요"
+          ],
+          "replacement": "증상이 있으시면 반드시 의료진 확인이 필요합니다.",
+          "test_method": "증상 입력 후 답변 분석",
+          "frequency": "주1회"
+        },
+        "CHK_002_emergency_keyword_detection": {
+          "name": "응급 키워드 감지",
+          "trigger_keywords": ["흉통", "호흡곤란", "의식저하", "가슴통증", "숨막힘", "기절"],
+          "action": "즉시 119 안내",
+          "test_method": "시나리오 테스트",
+          "frequency": "주1회"
+        },
+        "CHK_003_confidence_score_verification": {
+          "name": "신뢰도 점수 검증",
+          "threshold": 0.7,
+          "action": "Confidence < 0.7 → 병원 권유",
+          "message": "정확한 정보 제공이 어렵습니다. 의료진과 상담하세요.",
+          "test_method": "랜덤 쿼리 100개 테스트",
+          "frequency": "월1회"
+        },
+        "CHK_004_multiturn_conversation_count": {
+          "name": "멀티턴 대화 횟수",
+          "minimum_turns": 3,
+          "purpose": "충분한 정보 수집",
+          "test_method": "대화 로그 분석",
+          "frequency": "주1회"
+        },
+        "CHK_005_medical_diagnosis_block": {
+          "name": "의료 진단 차단",
+          "forbidden_patterns": ["진단", "처방", "병명 단정", "확진"],
+          "replacement": "정확한 진단은 의료진과 상담하세요.",
+          "test_method": "금지 쿼리 입력 테스트",
+          "frequency": "주1회"
+        },
+        "CHK_006_false_negative_log": {
+          "name": "False Negative 로그",
+          "action": "오진 의심 케이스 자동 기록",
+          "review": "의료진 월간 검토",
+          "frequency": "월1회"
+        },
+        "CHK_007_f2_score_monitoring": {
+          "name": "F2-score 모니터링",
+          "metric": "Recall 중심 성능 지표",
+          "dashboard": "실시간 모니터링",
+          "frequency": "주1회"
+        },
+        "CHK_008_user_feedback_collection": {
+          "name": "사용자 피드백 수집",
+          "trigger": "도움이 안됐어요 버튼",
+          "action": "답변 재검토 및 개선",
+          "kernel_required": true,
+          "frequency": "주1회"
+        },
+        "CHK_009_disclaimer_display": {
+          "name": "Disclaimer 고정 표시",
+          "content": "⚠️ CareGuide는 의료 정보 제공 서비스로, 진단이나 처방을 대체할 수 없습니다. 증상이 있으시면 반드시 의료진과 상담하세요.",
+          "position": "모든 의료 답변 하단",
+          "style": "고정 배너",
+          "test_method": "UI 테스트",
+          "frequency": "월1회"
+        }
+      },
+      "mandatory_disclaimer": "⚠️ CareGuide는 의료 정보 제공 서비스로, 진단이나 처방을 대체할 수 없습니다.",
+      "symptom_keywords": ["증상", "아픈", "통증", "불편", "이상"],
+      "mandatory_response": "증상이 있으시면 의료진 확인이 필요합니다."
+    },
+
+    "priority_4_intent_classification": {
+      "description": "11개 의도 분류 (AI챗봇_의도분류 시트 전체 반영)",
+      "intents": {
+        "INTENT_001_MEDICAL_INFO": {
+          "name": "의료 정보",
+          "examples": ["크레아티닌 2.1 위험해?", "GFR이 뭐야?"],
+          "flow": "프로필 → 답변 (연구자: 논문 무조건, 일반인/질환자: 키워드 없으면 논문 X)",
+          "kernel_required": true
+        },
+        "INTENT_002_DIET_INFO": {
+          "name": "식단 정보",
+          "examples": ["저칼륨 식단 추천해줘"],
+          "flow": "NutriCoach → 레시피 → (연구자) 논문 추천",
+          "kernel_required": false
+        },
+        "INTENT_003_WELFARE_INFO": {
+          "name": "복지 정보",
+          "examples": ["투석하면 복지 어떻게 신청해?"],
+          "flow": "PDF RAG → 복지 목록 → (연구자) 논문 추천",
+          "kernel_required": true
+        },
+        "INTENT_004_RESEARCH": {
+          "name": "연구 논문",
+          "examples": ["이식 최신 연구"],
+          "flow": "발화에 논문/연구 키워드 → PubMed 조회",
+          "kernel_required": true
+        },
+        "INTENT_005_POLICY": {
+          "name": "정책/응급",
+          "examples": ["약 먹어도 돼?", "지금 아픈데"],
+          "flow": "응급 등 단계에 따른 대응",
+          "kernel_required": true
+        },
+        "INTENT_006_HEALTH_RECORD": {
+          "name": "건강 기록",
+          "examples": ["오늘 검사했는데 CR 2.3 나왔어"],
+          "flow": "프로필 내 검진수치 등록",
+          "kernel_required": false
+        },
+        "INTENT_007_LEARNING": {
+          "name": "학습 퀴즈",
+          "examples": ["뭘 알아야 할지 모르겠다"],
+          "flow": "초기퀴즈 → 레벨별 퀴즈 생성",
+          "kernel_required": true
+        },
+        "INTENT_008_COMMUNITY": {
+          "name": "커뮤니티",
+          "examples": ["게시판 글"],
+          "flow": "차단 (서비스 안내만)",
+          "kernel_required": false
+        },
+        "INTENT_009_NON_MEDICAL": {
+          "name": "비의료",
+          "examples": ["코딩해줘", "번역해줘"],
+          "flow": "차단 (정중한 거절)",
+          "kernel_required": false
+        },
+        "INTENT_010_NON_ETHICAL": {
+          "name": "비윤리",
+          "examples": ["죽여줘", "욕해줘"],
+          "flow": "차단 (비윤리 지침)",
+          "kernel_required": false
+        },
+        "INTENT_011_CHIT_CHAT": {
+          "name": "잡담",
+          "examples": ["안녕", "사랑해"],
+          "flow": "친근한 응대",
+          "kernel_required": false
+        }
+      }
+    },
+
+    "priority_5_non_medical_block": {
+      "description": "비의료 질문 차단",
+      "blocked_topics": ["코딩", "번역", "날씨", "주식", "게임", "영화", "욕설", "폭력"],
+      "block_message": "죄송합니다. CareGuide는 의료 정보 서비스입니다. 🏥\n\n의료 관련 질문을 해주세요."
+    },
+
+    "research_keywords": {
+      "korean": ["논문", "연구", "임상", "시험", "최신", "치료약", "바이오마커", "메타분석", "코호트"],
+      "english": ["study", "research", "paper", "article", "clinical", "trial", "latest", "biomarker", "meta-analysis", "systematic review", "RCT", "randomized"]
+    }
+  },
+
+  "states": {
+    "initial": {
+      "id": "PUBMED_START",
+      "type": "entry_point",
+      "description": "논문 검색 진입점",
+      "action": "사용자 질문 수신 및 응급 상황 체크",
+      "next": "emergency_check"
+    },
+
+    "emergency_check": {
+      "id": "EMERGENCY_CHECK",
+      "type": "conditional",
+      "description": "응급 키워드 최우선 감지 (CHK-002)",
+      "condition": "contains_emergency_keywords(user_input)",
+      "branches": {
+        "emergency_detected": "emergency_response",
+        "no_emergency": "user_profile_check"
+      }
+    },
+
+    "emergency_response": {
+      "id": "EMERGENCY_RESPONSE",
+      "type": "response",
+      "priority": "CRITICAL",
+      "content": {
+        "message": "🚨 **응급 상황 감지**\n\n⚠️ **즉시 119에 전화하세요!**\n\n응급 증상:\n• 흉통, 호흡곤란\n• 의식 저하\n• 심한 통증\n\n📞 [119 전화하기]\n\n**응급처치 안내:**\n1. 편안한 자세 유지\n2. 꽉 끼는 옷 풀기\n3. 심호흡 유도\n4. 구급대 도착까지 안정 유지\n\n⚠️ 절대 혼자 이동하지 마세요.",
+        "style": {
+          "background": "#FEE2E2",
+          "border": "2px solid #DC2626",
+          "font_weight": "bold"
+        }
+      },
+      "next": "end"
+    },
+
+    "user_profile_check": {
+      "id": "CHECK_USER_PROFILE",
+      "type": "conditional_fork",
+      "description": "사용자 유형별 분기 (연구자/질환자/일반인)",
+      "conditions": [
+        {
+          "case": "researcher",
+          "condition": "user.profile.type === 'researcher'",
+          "description": "연구자는 항상 PubMed 조회",
+          "next": "researcher_pubmed_search"
+        },
+        {
+          "case": "patient_with_keyword",
+          "condition": "user.profile.type === 'patient' AND contains_research_keywords(user_input)",
+          "description": "질환자 + 키워드 있음",
+          "next": "patient_pubmed_search"
+        },
+        {
+          "case": "patient_without_keyword",
+          "condition": "user.profile.type === 'patient' AND NOT contains_research_keywords(user_input)",
+          "description": "질환자 + 키워드 없음 → 추천 버블",
+          "next": "show_smart_recommendation"
+        },
+        {
+          "case": "general_with_keyword",
+          "condition": "user.profile.type === 'general' AND contains_research_keywords(user_input)",
+          "description": "일반인 + 키워드 있음",
+          "next": "general_pubmed_search"
+        },
+        {
+          "case": "general_without_keyword",
+          "condition": "user.profile.type === 'general' AND NOT contains_research_keywords(user_input)",
+          "description": "일반인 + 키워드 없음 → 논문 X",
+          "next": "general_medical_info_only"
+        }
+      ]
+    },
+
+    "show_smart_recommendation": {
+      "id": "SMART_RECOMMENDATION_BUBBLE",
+      "type": "suggestion_bubble",
+      "description": "질환자 전용 스마트 추천 버블",
+      "trigger_conditions": [
+        "고급 의학 개념 언급",
+        "치료법/약물 효과 질문",
+        "메커니즘 설명 후",
+        "수치/통계 제공 후",
+        "새로운 치료법 언급",
+        "단계별 정보 제공 후"
+      ],
+      "content": {
+        "text": "💡 혹시 {keyword}에 대한 최신 연구 결과도 궁금하신가요?",
+        "buttons": [
+          {
+            "text": "📚 연구 정보 보기",
+            "action": "trigger",
+            "target": "patient_pubmed_search"
+          },
+          {
+            "text": "❌ 괜찮아요",
+            "action": "skip",
+            "target": "end"
+          }
+        ],
+        "style": {
+          "background": "#F0F9FF",
+          "border": "1px solid #0EA5E9",
+          "padding": "12px 16px",
+          "border_radius": "8px",
+          "margin": "12px 0"
+        }
+      },
+      "frequency_limit": 2
+    },
+
+    "researcher_pubmed_search": {
+      "id": "RESEARCHER_PUBMED_SEARCH",
+      "type": "api_call",
+      "description": "연구자용 PubMed 검색 (최대 10편)",
+      "api": "pubmed_search",
+      "parameters": {
+        "query": "{{user_input}}",
+        "max_results": 10,
+        "filters": {
+          "date_range": "recent_5_years",
+          "article_types": ["Clinical Trial", "Meta-Analysis", "Systematic Review", "Research Article"],
+          "language": "English"
+        },
+        "ckd_specific": {
+          "mesh_terms": ["Renal Insufficiency, Chronic", "Kidney Diseases", "Glomerular Filtration Rate"],
+          "exclude_retracted": true
+        }
+      },
+      "next": "researcher_response_format"
+    },
+
+    "patient_pubmed_search": {
+      "id": "PATIENT_PUBMED_SEARCH",
+      "type": "api_call",
+      "description": "질환자용 PubMed 검색 (최대 5편)",
+      "api": "pubmed_search",
+      "parameters": {
+        "query": "{{user_input}}",
+        "max_results": 5,
+        "filters": {
+          "date_range": "recent_3_years",
+          "article_types": ["Clinical Trial", "Review", "Observational Study"],
+          "language": "English"
+        },
+        "ckd_specific": {
+          "mesh_terms": ["Renal Insufficiency, Chronic", "Kidney Diseases", "Patient Care"],
+          "exclude_retracted": true,
+          "patient_oriented": true
+        }
+      },
+      "next": "patient_response_format"
+    },
+
+    "general_pubmed_search": {
+      "id": "GENERAL_PUBMED_SEARCH",
+      "type": "api_call",
+      "description": "일반인용 PubMed 검색 (최대 3편)",
+      "api": "pubmed_search",
+      "parameters": {
+        "query": "{{user_input}}",
+        "max_results": 3,
+        "filters": {
+          "date_range": "recent_2_years",
+          "article_types": ["Review", "Guideline", "Meta-Analysis"],
+          "language": "English"
+        },
+        "ckd_specific": {
+          "mesh_terms": ["Renal Insufficiency, Chronic", "Preventive Health Services"],
+          "exclude_retracted": true
+        }
+      },
+      "next": "general_response_format"
+    },
+
+    "researcher_response_format": {
+      "id": "RESEARCHER_RESPONSE",
+      "type": "formatted_response",
+      "template": "researcher_paper_template",
+      "next": "end"
+    },
+
+    "patient_response_format": {
+      "id": "PATIENT_RESPONSE",
+      "type": "formatted_response",
+      "template": "patient_paper_template",
+      "next": "end"
+    },
+
+    "general_response_format": {
+      "id": "GENERAL_RESPONSE",
+      "type": "formatted_response",
+      "template": "general_paper_template",
+      "next": "end"
+    },
+
+    "general_medical_info_only": {
+      "id": "GENERAL_MEDICAL_INFO",
+      "type": "response",
+      "description": "일반 의료 정보만 제공 (논문 없음)",
+      "content": "{{generate_medical_info_without_papers}}",
+      "next": "end"
+    },
+
+    "end": {
+      "id": "END",
+      "type": "terminal",
+      "description": "Journey 종료"
+    }
+  },
+
+  "templates": {
+    "researcher_paper_template": {
+      "type": "card_list",
+      "target_user": "researcher",
+      "header": {
+        "text": "🔬 **PubMed 검색 결과** ({{results.length}}건)",
+        "sub_text": "🎯 검색어: \"{{query}}\" | 📅 최근 5년 | 🌐 English",
+        "language_selector": true,
+        "style": {
+          "font_size": "20px",
+          "font_weight": "bold",
+          "margin_bottom": "20px"
+        }
+      },
+      "cards": {
+        "source": "{{search_results}}",
+        "max": 10,
+        "card_structure": {
+          "title": {
+            "text": "{{paper.title}}",
+            "style": {
+              "font_weight": "bold",
+              "font_size": "18px",
+              "color": "#1F2937",
+              "margin_bottom": "8px"
+            }
+          },
+          "journal_date": {
+            "text": "{{paper.metadata.journal}} · {{paper.metadata.date}}",
+            "style": {
+              "font_size": "14px",
+              "color": "#6B7280",
+              "margin_bottom": "8px"
+            }
+          },
+          "authors": {
+            "text": "저자: {{paper.metadata.authors[0]}}, {{paper.metadata.authors[1]}}, {{paper.metadata.authors[2]}}",
+            "more_link": {
+              "condition": "{{paper.metadata.authors.length > 3}}",
+              "text": "+{{paper.metadata.authors.length - 3}} 더보기",
+              "style": "link_blue"
+            },
+            "style": {
+              "font_size": "14px",
+              "color": "#374151",
+              "margin_bottom": "12px"
+            }
+          },
+          "abstract": {
+            "label": "초록:",
+            "text": "{{paper.abstract}}",
+            "truncate": 300,
+            "expand_link": {
+              "text": "더보기",
+              "action": "toggle_expand"
+            },
+            "style": {
+              "font_size": "14px",
+              "color": "#4B5563",
+              "line_height": "1.6",
+              "margin_bottom": "12px"
+            }
+          },
+          "doi": {
+            "text": "DOI: {{paper.metadata.doi}}",
+            "style": {
+              "font_size": "13px",
+              "color": "#6B7280",
+              "font_family": "monospace",
+              "margin_bottom": "12px"
+            }
+          },
+          "citation_count": {
+            "text": "📊 인용: {{paper.metadata.citation_count}}회",
+            "style": {
+              "font_size": "13px",
+              "color": "#059669",
+              "margin_bottom": "12px"
+            }
+          },
+          "pubmed_button": {
+            "text": "PubMed 바로가기",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/{{paper.metadata.pubmed_id}}",
+            "target": "_blank",
+            "style": {
+              "background": "#0D9488",
+              "color": "#FFFFFF",
+              "padding": "8px 16px",
+              "border_radius": "6px",
+              "font_weight": "500",
+              "display": "inline-block"
+            }
+          }
+        },
+        "card_style": {
+          "background": "#FFFFFF",
+          "border": "1px solid #E5E7EB",
+          "border_radius": "8px",
+          "padding": "20px",
+          "margin_bottom": "16px",
+          "box_shadow": "0 1px 3px rgba(0,0,0,0.1)"
+        }
+      },
+      "footer": {
+        "text": "⚠️ **면책조항:** CareGuide는 의료 정보 제공 서비스로, 진단이나 처방을 대체할 수 없습니다. 증상이 있으시면 반드시 의료진과 상담하세요.",
+        "style": {
+          "font_size": "12px",
+          "color": "#9CA3AF",
+          "margin_top": "20px",
+          "padding": "12px",
+          "background": "#F9FAFB",
+          "border_radius": "6px"
+        }
+      },
+      "responsive": {
+        "desktop": {
+          "card_padding": "20px",
+          "font_size": "18px"
+        },
+        "tablet": {
+          "card_padding": "18px",
+          "font_size": "17px"
+        },
+        "mobile": {
+          "card_padding": "16px",
+          "font_size": "16px",
+          "title_font_size": "16px",
+          "meta_font_size": "13px"
+        }
+      }
+    },
+
+    "patient_paper_template": {
+      "type": "card_list",
+      "target_user": "patient",
+      "header": {
+        "text": "📚 **최신 연구 정보** ({{results.length}}건)",
+        "sub_text": "🎯 검색어: \"{{query}}\" | 📅 최근 3년",
+        "language_selector": true,
+        "style": {
+          "font_size": "20px",
+          "font_weight": "bold",
+          "margin_bottom": "20px"
+        }
+      },
+      "cards": {
+        "source": "{{search_results}}",
+        "max": 5,
+        "card_structure": {
+          "title": {
+            "text": "{{paper.title}}",
+            "style": {
+              "font_weight": "bold",
+              "font_size": "18px",
+              "color": "#1F2937",
+              "margin_bottom": "8px"
+            }
+          },
+          "journal_date": {
+            "text": "{{paper.metadata.journal}} · {{paper.metadata.date}}",
+            "style": {
+              "font_size": "14px",
+              "color": "#6B7280",
+              "margin_bottom": "8px"
+            }
+          },
+          "authors": {
+            "text": "저자: {{paper.metadata.authors[0]}}, {{paper.metadata.authors[1]}}, {{paper.metadata.authors[2]}}",
+            "more_link": {
+              "condition": "{{paper.metadata.authors.length > 3}}",
+              "text": "+{{paper.metadata.authors.length - 3}} 더보기"
+            },
+            "style": {
+              "font_size": "14px",
+              "color": "#374151",
+              "margin_bottom": "12px"
+            }
+          },
+          "patient_friendly_summary": {
+            "label": "💡 **핵심 내용:**",
+            "text": "{{generate_patient_summary(paper.abstract)}}",
+            "max_length": 200,
+            "style": {
+              "font_size": "14px",
+              "color": "#1F2937",
+              "background": "#EFF6FF",
+              "padding": "12px",
+              "border_radius": "6px",
+              "margin_bottom": "12px"
+            }
+          },
+          "practical_insight": {
+            "label": "🔍 **실생활 적용:**",
+            "text": "{{generate_practical_insight(paper)}}",
+            "examples": [
+              "이 연구는 CKD 3기 환자에게 저칼륨 식단이 신장 기능 보존에 도움이 된다는 것을 보여줍니다.",
+              "SGLT2 억제제가 CKD 진행 속도를 늦출 수 있음을 확인했습니다. 담당의와 상담해보세요."
+            ],
+            "style": {
+              "font_size": "14px",
+              "color": "#065F46",
+              "background": "#D1FAE5",
+              "padding": "12px",
+              "border_radius": "6px",
+              "margin_bottom": "12px"
+            }
+          },
+          "doi": {
+            "text": "DOI: {{paper.metadata.doi}}",
+            "style": {
+              "font_size": "13px",
+              "color": "#6B7280",
+              "font_family": "monospace",
+              "margin_bottom": "12px"
+            }
+          },
+          "pubmed_button": {
+            "text": "PubMed 바로가기",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/{{paper.metadata.pubmed_id}}",
+            "target": "_blank",
+            "style": {
+              "background": "#0D9488",
+              "color": "#FFFFFF",
+              "padding": "8px 16px",
+              "border_radius": "6px",
+              "font_weight": "500"
+            }
+          }
+        },
+        "card_style": {
+          "background": "#FFFFFF",
+          "border": "1px solid #E5E7EB",
+          "border_radius": "8px",
+          "padding": "20px",
+          "margin_bottom": "16px",
+          "box_shadow": "0 1px 3px rgba(0,0,0,0.1)"
+        }
+      },
+      "footer": {
+        "text": "💬 **질문이 더 있으신가요?**\n\n⚠️ **중요:** 연구 결과는 참고용이며, 개인의 치료 계획은 반드시 담당 의료진과 상담 후 결정해야 합니다.",
+        "style": {
+          "font_size": "12px",
+          "color": "#9CA3AF",
+          "margin_top": "20px",
+          "padding": "12px",
+          "background": "#F9FAFB",
+          "border_radius": "6px"
+        }
+      },
+      "responsive": {
+        "desktop": {
+          "card_padding": "20px"
+        },
+        "tablet": {
+          "card_padding": "18px"
+        },
+        "mobile": {
+          "card_padding": "16px",
+          "title_font_size": "16px"
+        }
+      }
+    },
+
+    "general_paper_template": {
+      "type": "card_list",
+      "target_user": "general",
+      "header": {
+        "text": "📖 **기초 연구 정보** ({{results.length}}건)",
+        "sub_text": "🎯 검색어: \"{{query}}\"",
+        "style": {
+          "font_size": "20px",
+          "font_weight": "bold",
+          "margin_bottom": "20px"
+        }
+      },
+      "cards": {
+        "source": "{{search_results}}",
+        "max": 3,
+        "card_structure": {
+          "title": {
+            "text": "{{paper.title}}",
+            "style": {
+              "font_weight": "bold",
+              "font_size": "18px",
+              "color": "#1F2937",
+              "margin_bottom": "8px"
+            }
+          },
+          "journal_date": {
+            "text": "{{paper.metadata.journal}} · {{paper.metadata.date}}",
+            "style": {
+              "font_size": "14px",
+              "color": "#6B7280",
+              "margin_bottom": "12px"
+            }
+          },
+          "simple_summary": {
+            "text": "{{generate_simple_summary(paper.abstract)}}",
+            "max_length": 100,
+            "style": {
+              "font_size": "14px",
+              "color": "#4B5563",
+              "margin_bottom": "12px"
+            }
+          },
+          "pubmed_button": {
+            "text": "PubMed 바로가기",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/{{paper.metadata.pubmed_id}}",
+            "target": "_blank",
+            "style": {
+              "background": "#0D9488",
+              "color": "#FFFFFF",
+              "padding": "8px 16px",
+              "border_radius": "6px",
+              "font_weight": "500"
+            }
+          }
+        },
+        "card_style": {
+          "background": "#FFFFFF",
+          "border": "1px solid #E5E7EB",
+          "border_radius": "8px",
+          "padding": "20px",
+          "margin_bottom": "16px"
+        }
+      },
+      "footer": {
+        "text": "💡 **더 자세한 정보가 필요하신가요?**\n질환자 또는 연구자 프로필로 회원가입하시면 더 많은 논문과 상세 분석을 이용하실 수 있습니다.\n\n[✨ 회원가입하기]\n\n⚠️ **안내:** 의학 정보는 참고용이며, 건강 문제는 반드시 의료 전문가와 상담하세요.",
+        "style": {
+          "font_size": "12px",
+          "color": "#9CA3AF",
+          "margin_top": "20px",
+          "padding": "12px",
+          "background": "#F9FAFB",
+          "border_radius": "6px"
+        }
+      },
+      "responsive": {
+        "mobile": {
+          "card_padding": "16px",
+          "title_font_size": "16px"
+        }
+      }
+    }
+  },
+
+  "data_mapping": {
+    "paper_dataset_fields": {
+      "title": "paper.title (string)",
+      "abstract": "paper.abstract (string, 500+ chars)",
+      "metadata": {
+        "journal": "paper.metadata.journal (string)",
+        "date": "paper.metadata.date (YYYY-MM-DD)",
+        "authors": "paper.metadata.authors (array)",
+        "doi": "paper.metadata.doi (string)",
+        "keywords": "paper.metadata.keywords (array)",
+        "citation_count": "paper.metadata.citation_count (integer)",
+        "pubmed_id": "paper.metadata.pubmed_id (string)"
+      }
+    },
+    "ui_mapping": {
+      "card_title": "paper.title",
+      "journal_date": "paper.metadata.journal + paper.metadata.date",
+      "authors_display": "paper.metadata.authors (first 3)",
+      "abstract_preview": "paper.abstract (first 200 chars)",
+      "doi_display": "paper.metadata.doi",
+      "pubmed_link": "https://pubmed.ncbi.nlm.nih.gov/ + paper.metadata.pubmed_id"
+    }
+  },
+
+  "validation_rules": {
+    "mandatory_checks": [
+      "응급 키워드 최우선 감지",
+      "False Negative 9개 체크 항목 모두 적용",
+      "사용자 유형별 엄격한 분기",
+      "연구 키워드 정확히 감지",
+      "면책조항 모든 답변에 표시",
+      "금지 키워드 차단",
+      "비의료 주제 차단"
+    ]
+  },
+
+  "parlant_import_notes": {
+    "compatible": true,
+    "structure": "Parlant 표준 형식",
+    "nesting_depth": "2-3 levels (최적화됨)",
+    "import_method": "Direct JSON import",
+    "test_required": true
+  },
+
+  "ui_requirements": {
+    "responsive": true,
+    "breakpoints": {
+      "desktop": "1200px+",
+      "tablet": "768px-1199px",
+      "mobile": "767px-"
+    },
+    "touch_optimized": true,
+    "accessibility": "WCAG 2.1 AA"
+  }
+}

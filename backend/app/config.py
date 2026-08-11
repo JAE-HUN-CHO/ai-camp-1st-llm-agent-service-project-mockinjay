@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     # CORS Settings (stored as string, parsed to list)
     cors_origins_raw: str = Field(
-        default="http://localhost:5173,http://localhost:5174,http://localhost:5175",
+        default="http://localhost:3333,http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5180",
         description="Comma-separated list of allowed CORS origins",
         alias="CORS_ORIGINS"
     )
@@ -43,12 +43,6 @@ class Settings(BaseSettings):
     debug: bool = Field(
         default=True,
         description="Debug mode"
-    )
-
-    # OpenAI API
-    openai_api_key: str = Field(
-        default="",
-        description="OpenAI API key"
     )
 
     @property

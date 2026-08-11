@@ -27,8 +27,7 @@ import base64
 from typing import Dict, Any, List, Optional
 from io import BytesIO
 
-import openai
-from openai import OpenAI, AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient, OllamaSyncClient, OllamaProviderError
 
 from app.models.diet_care import (
     NutritionAnalysisResult,
@@ -76,15 +75,9 @@ class NutritionAnalyzerService:
     }
 
     def __init__(self):
-        """Initialize OpenAI client and configuration."""
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            logger.warning("OPENAI_API_KEY not set - nutrition analysis will fail")
-            self.client = None
-            self.async_client = None
-        else:
-            self.client = OpenAI(api_key=api_key)
-            self.async_client = AsyncOpenAI(api_key=api_key)
+        """Initialize the local Ollama clients and configuration."""
+        self.client = OllamaSyncClient()
+        self.async_client = OllamaClient()
 
         logger.info("NutritionAnalyzerService initialized")
 
@@ -129,7 +122,7 @@ class NutritionAnalyzerService:
 
         # Call GPT-4 Vision API
         try:
-            response = await self._call_openai_api(image_base64, analysis_prompt)
+            response = await self._call_local_ollama(image_base64, analysis_prompt)
 
             # Parse and validate response
             analysis_result = self._parse_api_response(response, user_profile)
@@ -170,11 +163,8 @@ class NutritionAnalyzerService:
         analysis_prompt = self._build_analysis_prompt(user_profile, prompt)
 
         try:
-            if not self.client:
-                raise OpenAIAPIError("OpenAI API key not configured")
-
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model="qwen3.6:27b-mlx",
                 messages=[
                     {
                         "role": "system",
@@ -347,13 +337,13 @@ Respond ONLY with valid JSON following the specified format."""
 
         return "\n".join(prompt_parts)
 
-    async def _call_openai_api(
+    async def _call_local_ollama(
         self,
         image_base64: str,
         prompt: str
     ) -> Any:
         """
-        Call OpenAI GPT-4 Vision API asynchronously.
+        Call the local Ollama vision model asynchronously.
 
         Args:
             image_base64: Base64 encoded image
@@ -363,14 +353,11 @@ Respond ONLY with valid JSON following the specified format."""
             API response object
 
         Raises:
-            OpenAIAPIError: If API call fails
+            OpenAIAPIError: compatibility error when local inference fails
         """
-        if not self.async_client:
-            raise OpenAIAPIError("OpenAI API key not configured")
-
         try:
             response = await self.async_client.chat.completions.create(
-                model="gpt-4o",
+                model="qwen3.6:27b-mlx",
                 messages=[
                     {
                         "role": "system",
@@ -397,17 +384,11 @@ Respond ONLY with valid JSON following the specified format."""
 
             return response
 
-        except openai.APIError as e:
-            logger.error(f"OpenAI API error: {e}")
+        except OllamaProviderError as e:
+            logger.error("Ollama API error: %s", e)
             raise OpenAIAPIError(
-                reason=f"OpenAI API error: {str(e)}",
+                reason=f"Ollama API error: {str(e)}",
                 status_code=getattr(e, 'status_code', None)
-            )
-        except openai.RateLimitError as e:
-            logger.error(f"OpenAI rate limit exceeded: {e}")
-            raise OpenAIAPIError(
-                reason="API rate limit exceeded. Please try again later.",
-                status_code=429
             )
         except Exception as e:
             logger.error(f"Unexpected API error: {e}", exc_info=True)
@@ -419,7 +400,7 @@ Respond ONLY with valid JSON following the specified format."""
         user_profile: Optional[UserProfile]
     ) -> NutritionAnalysisResult:
         """
-        Parse OpenAI API response into NutritionAnalysisResult.
+        Parse local Ollama response into NutritionAnalysisResult.
 
         Args:
             response: API response object

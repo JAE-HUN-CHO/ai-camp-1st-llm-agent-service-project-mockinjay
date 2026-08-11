@@ -10,10 +10,12 @@ import numpy as np
 import time
 import logging
 
-from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
 import os
 from dotenv import load_dotenv
+try:
+    from app.adapters.ollama.client import OllamaSyncClient
+except ImportError:
+    from backend.app.adapters.ollama.client import OllamaSyncClient
 try:
     from app.db.mongodb_manager import MongoDBManager as OptimizedMongoDBManager
 except ImportError:
@@ -37,7 +39,7 @@ logger = logging.getLogger(__name__)
 class EmbeddingCache:
     """High-performance embedding cache with disk persistence"""
 
-    def __init__(self, cache_dir: str = "./embedding_cache", max_memory_items: int = 10000):
+    def __init__(self, cache_dir: str = "./data/cache/embedding", max_memory_items: int = 10000):
         """
         Initialize embedding cache
 
@@ -46,7 +48,7 @@ class EmbeddingCache:
             max_memory_items: Maximum items in memory cache
         """
         self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_memory_items = max_memory_items
 
         # In-memory LRU cache
@@ -137,7 +139,13 @@ class EmbeddingCache:
 
 
 class OptimizedVectorDBManager:
-    """Optimized Pinecone Vector DB Manager with caching and batch processing"""
+    """Local Ollama embedding manager with a MongoDB-vector migration seam.
+
+    Hosted vector and embedding clients are intentionally not supported.
+    MongoDB Atlas Local is the persistence target; this compatibility class
+    keeps embedding and cache behavior available while callers migrate their
+    writes/searches to the Mongo vector adapter.
+    """
 
     def __init__(
         self,
@@ -147,22 +155,22 @@ class OptimizedVectorDBManager:
         use_overlap: bool = True,
         overlap_size: float = 0.25,
         overlap_method: str = "suffix",
-        embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2',
+        embedding_model: str = 'nomic-embed-text-v2-moe',
         batch_size: int = 32,
         use_cache: bool = True,
-        cache_dir: str = "./embedding_cache"
+        cache_dir: str = "./data/cache/embedding"
     ):
         """
         Initialize Optimized Vector DB Manager
 
         Args:
-            index_name: Pinecone index name
+            index_name: MongoDB vector index name
             use_chunking: Whether to use RecursiveChunker for text splitting
             chunk_size: Maximum tokens per chunk
             use_overlap: Whether to use OverlapRefinery
             overlap_size: Size of overlap context
             overlap_method: Method for adding context
-            embedding_model: Sentence transformer model name
+            embedding_model: Ollama embedding model name
             batch_size: Batch size for embedding generation
             use_cache: Whether to use embedding cache
             cache_dir: Directory for cache storage
@@ -175,22 +183,13 @@ class OptimizedVectorDBManager:
         self.overlap_method = overlap_method
         self.batch_size = batch_size
 
-        # Pinecone initialization
-        api_key = os.getenv("PINECONE_API_KEY")
-        if not api_key:
-            raise ValueError("PINECONE_API_KEY not found in .env")
-
-        self.pc = Pinecone(api_key=api_key)
+        # Hosted vector providers are removed. MongoDB owns persistence.
+        self.pc = None
         self.index = None
-
-        # Sentence Transformer model
-        logger.info(f"Loading Sentence Transformer model: {embedding_model}...")
-        self.model = SentenceTransformer(embedding_model)
-        self.dimension = self.model.get_sentence_embedding_dimension()
-        logger.info(f"Model loaded (dimension: {self.dimension})")
-
-        # Enable multi-process encoding for better performance
-        self.model.max_seq_length = 512  # Optimize for our chunk size
+        self.model = OllamaSyncClient()
+        self.embedding_model = embedding_model
+        self.dimension = int(os.getenv("OLLAMA_EMBEDDING_DIMENSIONS", "1536"))
+        logger.info("Using local Ollama embeddings: %s (%sd)", embedding_model, self.dimension)
 
         # Embedding cache
         self.use_cache = use_cache
@@ -228,25 +227,8 @@ class OptimizedVectorDBManager:
             self.overlap_refinery = None
 
     async def create_index(self):
-        """Create or connect to Pinecone index"""
-        existing_indexes = [idx.name for idx in self.pc.list_indexes()]
-
-        if self.index_name not in existing_indexes:
-            logger.info(f"Creating Pinecone index: {self.index_name}")
-            self.pc.create_index(
-                name=self.index_name,
-                dimension=self.dimension,
-                metric="cosine",
-                spec=ServerlessSpec(
-                    cloud="aws",
-                    region="us-east-1"
-                )
-            )
-            logger.info("Index created successfully")
-        else:
-            logger.info(f"Connected to existing index: {self.index_name}")
-
-        self.index = self.pc.Index(self.index_name)
+        """Keep compatibility with old callers; Mongo index setup is elsewhere."""
+        logger.info("MongoDB vector index setup is owned by the MongoDB adapter; no hosted index is created")
 
     @lru_cache(maxsize=1000)
     def generate_embedding_single_cached(self, text: str) -> List[float]:
@@ -258,7 +240,10 @@ class OptimizedVectorDBManager:
                 return cached.tolist()
 
         # Generate embedding
-        embedding = self.model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
+        embedding = np.asarray(
+            self.model.embeddings.create(model=self.embedding_model, input=text).data[0].embedding,
+            dtype=np.float32,
+        )
 
         # Store in cache
         if self.use_cache:
@@ -299,13 +284,8 @@ class OptimizedVectorDBManager:
             batch_embeddings = []
             for i in range(0, len(texts_to_encode), self.batch_size):
                 batch = texts_to_encode[i:i + self.batch_size]
-                batch_vecs = self.model.encode(
-                    batch,
-                    convert_to_numpy=True,
-                    normalize_embeddings=True,
-                    show_progress_bar=False
-                )
-                batch_embeddings.extend(batch_vecs)
+                batch_vecs = self.model.embeddings.create(model=self.embedding_model, input=batch).data
+                batch_embeddings.extend(np.asarray(item.embedding, dtype=np.float32) for item in batch_vecs)
 
             # Store in cache and add to results
             for text, vec, idx in zip(texts_to_encode, batch_embeddings, text_indices):
@@ -361,7 +341,7 @@ class OptimizedVectorDBManager:
 
         Args:
             docs: MongoDB documents
-            namespace: Pinecone namespace
+            namespace: MongoDB vector namespace
             id_field: Document ID field
             text_fields: Text fields to embed
         """
@@ -422,7 +402,7 @@ class OptimizedVectorDBManager:
         logger.info(f"Generating embeddings for {len(all_texts)} text chunks...")
         embeddings = self.generate_embeddings_batch(all_texts)
 
-        # Step 3: Create vectors for Pinecone
+        # Step 3: Build MongoDB-vector records for the owning adapter.
         for embedding, (chunk_id, metadata) in zip(embeddings, text_metadata):
             vectors.append({
                 "id": chunk_id,
@@ -430,12 +410,9 @@ class OptimizedVectorDBManager:
                 "metadata": metadata
             })
 
-        # Step 4: Upload to Pinecone in batches
-        logger.info(f"Uploading {len(vectors)} vectors to Pinecone...")
-        batch_size = 100
-        for i in range(0, len(vectors), batch_size):
-            batch = vectors[i:i+batch_size]
-            self.index.upsert(vectors=batch, namespace=namespace)
+        # Persistence is intentionally not performed by this legacy seam.
+        # The MongoDB adapter owns collection/index writes and authorization.
+        logger.warning("Built %d Ollama vectors for namespace %s; MongoDB adapter must persist them", len(vectors), namespace)
 
         elapsed = time.time() - start_time
 
@@ -450,7 +427,7 @@ class OptimizedVectorDBManager:
         )
 
     def flatten_metadata(self, doc: Dict) -> Dict:
-        """Flatten metadata for Pinecone storage"""
+        """Flatten metadata for vector storage"""
         doc_id = str(doc.get("_id", ""))
 
         flat = {
@@ -496,8 +473,8 @@ class OptimizedVectorDBManager:
         Args:
             query: Search query
             top_k: Number of results
-            namespace: Pinecone namespace
-            filter: Optional Pinecone metadata filter (e.g., {"has_dialysis_unit": True})
+            namespace: MongoDB vector namespace
+            filter: Optional vector metadata filter (e.g., {"has_dialysis_unit": True})
 
         Returns:
             List of search results
@@ -517,7 +494,10 @@ class OptimizedVectorDBManager:
         if filter:
             query_params["filter"] = filter
 
-        # Search in Pinecone
+        if self.index is None:
+            logger.warning("Semantic search requested before MongoDB vector adapter was configured")
+            return []
+
         results = self.index.query(**query_params)
 
         # Format results
@@ -551,7 +531,7 @@ class OptimizedVectorDBManager:
         Args:
             queries: List of search queries
             top_k: Number of results per query
-            namespace: Pinecone namespace
+            namespace: MongoDB vector namespace
 
         Returns:
             Dictionary mapping query to results
@@ -582,8 +562,8 @@ class OptimizedVectorDBManager:
     def close(self):
         """Clean up resources"""
         self.executor.shutdown(wait=True)
-        if hasattr(self, 'model'):
-            del self.model
+        if hasattr(self, "model"):
+            self.model.close()
 
 
 # Backward compatibility wrapper

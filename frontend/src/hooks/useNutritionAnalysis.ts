@@ -5,21 +5,24 @@
 
 import { useReducer, useCallback, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
-import { analyzeNutrition } from '../services/dietCareApi';
-import type { NutritionAnalysis, MealType } from '../types/diet-care';
+import { analyzeNutrition, createSession } from '../services/dietCareApi';
+import type { NutritionAnalysisResult, NutritionAnalysisRequest } from '../types/diet-care';
 import { useAuth } from '../contexts/AuthContext';
 
-type AnalysisState = 'idle' | 'analyzing' | 'success' | 'error';
+type AnalysisState = 'idle' | 'creating_session' | 'analyzing' | 'success' | 'error';
 
 interface State {
   readonly status: AnalysisState;
-  readonly result: NutritionAnalysis | null;
+  readonly result: NutritionAnalysisResult | null;
   readonly error: string | null;
+  readonly sessionId: string | null;
 }
 
 type Action =
+  | { type: 'START_SESSION' }
+  | { type: 'SESSION_CREATED'; sessionId: string }
   | { type: 'START_ANALYSIS' }
-  | { type: 'ANALYSIS_SUCCESS'; result: NutritionAnalysis }
+  | { type: 'ANALYSIS_SUCCESS'; result: NutritionAnalysisResult }
   | { type: 'ANALYSIS_ERROR'; error: string }
   | { type: 'RESET' };
 
@@ -27,12 +30,17 @@ const initialState: State = {
   status: 'idle',
   result: null,
   error: null,
+  sessionId: null,
 };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
+    case 'START_SESSION':
+      return { ...state, status: 'creating_session', error: null };
+    case 'SESSION_CREATED':
+      return { ...state, status: 'analyzing', sessionId: action.sessionId };
     case 'START_ANALYSIS':
-      return { ...state, status: 'analyzing', error: null };
+      return { ...state, status: 'analyzing' };
     case 'ANALYSIS_SUCCESS':
       return { ...state, status: 'success', result: action.result, error: null };
     case 'ANALYSIS_ERROR':
@@ -46,9 +54,9 @@ function reducer(state: State, action: Action): State {
 
 export interface UseNutritionAnalysisReturn {
   status: AnalysisState;
-  result: NutritionAnalysis | null;
+  result: NutritionAnalysisResult | null;
   error: string | null;
-  analyze: (imageUrl: string, mealType: MealType) => Promise<void>;
+  analyze: (image: File, text?: string) => Promise<void>;
   reset: () => void;
   abort: () => void;
 }
@@ -60,17 +68,31 @@ export function useNutritionAnalysis(
   const [state, dispatch] = useReducer(reducer, initialState);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const analyze = useCallback(async (imageUrl: string, mealType: MealType) => {
+  const analyze = useCallback(async (image: File, text?: string) => {
+    // Cancel any existing request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
 
     try {
-      dispatch({ type: 'START_ANALYSIS' });
+      dispatch({ type: 'START_SESSION' });
 
-      const response = await analyzeNutrition(imageUrl, mealType);
-      dispatch({ type: 'ANALYSIS_SUCCESS', result: response });
+      // Create session
+      const sessionResponse = await createSession(user?.id);
+      dispatch({ type: 'SESSION_CREATED', sessionId: sessionResponse.session_id });
+
+      // Analyze nutrition
+      const request: NutritionAnalysisRequest = {
+        session_id: sessionResponse.session_id,
+        image,
+        text: text || (language === 'ko'
+          ? '이 음식의 영양 성분을 분석해주세요.'
+          : 'Please analyze the nutritional content of this food.'),
+      };
+
+      const response = await analyzeNutrition(request);
+      dispatch({ type: 'ANALYSIS_SUCCESS', result: response.analysis });
       toast.success(language === 'ko' ? '분석이 완료되었습니다.' : 'Analysis complete.');
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
@@ -97,6 +119,7 @@ export function useNutritionAnalysis(
     }
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {

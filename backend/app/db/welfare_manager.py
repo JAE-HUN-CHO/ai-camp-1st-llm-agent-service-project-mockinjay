@@ -188,7 +188,7 @@ class WelfareManager:
         }
 
     async def _ensure_vector_manager(self) -> bool:
-        """Initialize Pinecone vector manager if enabled."""
+        """Initialize the local MongoDB vector manager if enabled."""
         if not self.enable_vector_search or self._vector_init_failed:
             return False
 
@@ -557,7 +557,7 @@ class WelfareManager:
         disease: Optional[str],
         ckd_stage: Optional[int]
     ) -> Tuple[List[Dict], SearchStatus]:
-        """Semantic welfare search via Pinecone with status reporting."""
+        """Semantic welfare search via local vectors with status reporting."""
         if not query:
             return [], SearchStatus.SUCCESS
 

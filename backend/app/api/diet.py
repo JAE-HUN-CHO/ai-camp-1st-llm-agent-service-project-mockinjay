@@ -1,19 +1,16 @@
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request
 from typing import Optional
 import logging
-from Agent.nutrition.agent import NutritionAgent
 from Agent.core.contracts import AgentRequest
-from app.core.context_system import context_system
+from app.features.chat.runtime import get_context_system
+from app.services.agent_runtime import get_agent_runtime
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/diet-care", tags=["Diet Care"])
 
-# Global instances for nutrition agent
-nutrition_agent = NutritionAgent()
-session_manager = context_system.session_manager
-
 async def _analyze_nutrition_internal(
+    http_request: Request,
     session_id: str,
     text: Optional[str],
     user_profile: str,
@@ -27,7 +24,8 @@ async def _analyze_nutrition_internal(
         raise HTTPException(status_code=400, detail="Either text or image is required")
 
     # Check session
-    session = session_manager.get_session(session_id)
+    context_system = get_context_system(http_request)
+    session = context_system.session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
@@ -49,7 +47,7 @@ async def _analyze_nutrition_internal(
 
     try:
         # Create AgentRequest for the nutrition agent
-        request = AgentRequest(
+        agent_request = AgentRequest(
             query=user_input,
             session_id=session_id,
             context=context,
@@ -57,7 +55,7 @@ async def _analyze_nutrition_internal(
         )
 
         # Call nutrition agent with AgentRequest
-        response = await nutrition_agent.process(request)
+        response = await get_agent_runtime(http_request).nutrition_agent.process(agent_request)
 
         logger.info(f"✅ Nutrition analysis complete: {response.status}")
 
@@ -84,13 +82,17 @@ async def _analyze_nutrition_internal(
 
 @router.post("/nutri-coach")
 async def analyze_nutrition_legacy(
+    request: Request,
     session_id: str = Form(...),
     text: Optional[str] = Form(None),
     user_profile: str = Form("general"),
     image: Optional[UploadFile] = File(None)
 ):
     """영양 분석 API - 텍스트 또는 이미지 분석 (Legacy endpoint for /diet-care/nutri-coach)"""
-    return await _analyze_nutrition_internal(session_id, text, user_profile, image)
+    context_system = get_context_system(request)
+    if not context_system.session_manager.get_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    return await _analyze_nutrition_internal(request, session_id, text, user_profile, image)
 
 @router.post("/diet-log")
 async def log_diet():

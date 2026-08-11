@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api import chat, trends, community, auth, user, notification, header, footer, quiz, nutrition, rooms, session, mypage, bookmarks
+from app.api import chat, trends, community, auth, user, notification, header, footer, quiz, nutrition, rooms, session, mypage, bookmarks, user_health_records
 
 # Create the master router matching CareGuide IA
 router = APIRouter()
@@ -66,3 +66,8 @@ router.include_router(notification.router)
 router.include_router(quiz.router, prefix="/api/quiz", tags=["quiz"])
 router.include_router(header.router)
 router.include_router(footer.router)
+
+# --------------------------------------------------------------------------
+# Health Records (IA: /health-records -> API: /api/health-records)
+# --------------------------------------------------------------------------
+router.include_router(user_health_records.router)

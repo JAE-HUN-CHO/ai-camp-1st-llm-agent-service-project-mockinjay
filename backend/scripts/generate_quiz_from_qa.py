@@ -9,13 +9,13 @@ import random
 from datetime import datetime
 from typing import List, Dict, Any
 from motor.motor_asyncio import AsyncIOMotorClient
-from openai import AsyncOpenAI
+from backend.app.adapters.ollama.client import OllamaClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# OpenAI 클라이언트
-openai_client = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Ollama 클라이언트
+ollama_client = OllamaClient()
 
 # MongoDB 연결
 MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
@@ -68,7 +68,7 @@ async def get_qa_samples(db, category_filter: List[str] = None, limit: int = 200
 
 
 async def generate_ox_questions_batch(qa_pairs: List[Dict], difficulty: str) -> List[Dict]:
-    """OpenAI를 사용하여 Q&A를 O/X 퀴즈로 변환"""
+    """Ollama를 사용하여 Q&A를 O/X 퀴즈로 변환"""
 
     difficulty_instructions = {
         'easy': """쉬운 난이도 문제를 만들어주세요:
@@ -119,8 +119,8 @@ async def generate_ox_questions_batch(qa_pairs: List[Dict], difficulty: str) -> 
 JSON 배열만 출력하세요."""
 
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        response = await ollama_client.chat.completions.create(
+            model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
             messages=[
                 {"role": "system", "content": "당신은 의료 교육 퀴즈 전문가입니다. 만성콩팥병에 대한 정확한 O/X 퀴즈를 생성합니다."},
                 {"role": "user", "content": prompt}

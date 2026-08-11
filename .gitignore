@@ -218,6 +218,12 @@ __marimo__/
 
 
 data/raw/*
+
+# Local runtime state (never a source-of-truth artifact)
+/data/.mongo/
+/backend/uploads/
+tests/**/__pycache__/
+**/.pytest_cache/
 data/preprocess/*
 parlant-data/*
 parlant/parlant-data/*
@@ -378,11 +384,10 @@ processed/*.jsonl
 *.pdf
 data/raw/healthcareproviders/
 .serena/
-docs
-
 # Backup files
 *.backup
 *.bak
 *~
 .playwright-mcp
 eval/*.csv
+.omx/

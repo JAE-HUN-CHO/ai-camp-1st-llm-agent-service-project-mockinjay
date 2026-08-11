@@ -63,9 +63,8 @@ function paperToBookmark(
   const timestamp = new Date().toISOString();
   return {
     id: `bookmark_${paper.pmid}_${Date.now()}`,
-    pmid: paper.pmid,
-    paperId: paper.pmid,
     userId,
+    paperId: paper.pmid,
     createdAt: timestamp,
     title: paper.title,
     authors: paper.authors || [],
@@ -84,7 +83,7 @@ function paperToBookmark(
  */
 function loadBookmarksFromStorage(userId: string): BookmarkedPaper[] {
   try {
-    const allBookmarks = storage.get<BookmarkedPaper[]>(BOOKMARKS_STORAGE_KEY as 'careguide_token') || [];
+    const allBookmarks = storage.get<BookmarkedPaper[]>(BOOKMARKS_STORAGE_KEY) || [];
     return allBookmarks.filter((b) => b.userId === userId);
   } catch (error) {
     console.error('Error loading bookmarks from storage:', error);
@@ -98,7 +97,7 @@ function loadBookmarksFromStorage(userId: string): BookmarkedPaper[] {
 function saveBookmarksToStorage(userId: string, bookmarks: BookmarkedPaper[]): void {
   try {
     // Get all bookmarks from storage
-    const allBookmarks = storage.get<BookmarkedPaper[]>(BOOKMARKS_STORAGE_KEY as 'careguide_token') || [];
+    const allBookmarks = storage.get<BookmarkedPaper[]>(BOOKMARKS_STORAGE_KEY) || [];
 
     // Remove old bookmarks for this user
     const otherUsersBookmarks = allBookmarks.filter((b) => b.userId !== userId);
@@ -107,7 +106,7 @@ function saveBookmarksToStorage(userId: string, bookmarks: BookmarkedPaper[]): v
     const updatedBookmarks = [...otherUsersBookmarks, ...bookmarks];
 
     // Save back to storage
-    storage.set(BOOKMARKS_STORAGE_KEY as 'careguide_token', updatedBookmarks as unknown as string);
+    storage.set(BOOKMARKS_STORAGE_KEY, updatedBookmarks);
   } catch (error) {
     console.error('Error saving bookmarks to storage:', error);
     throw new Error('북마크 저장에 실패했습니다');
@@ -244,11 +243,10 @@ export async function updateBookmark(
       throw new Error('북마크를 찾을 수 없습니다');
     }
 
-    const existingBookmark = bookmarks[bookmarkIndex]!;
     const updatedBookmark = {
-      ...existingBookmark,
+      ...bookmarks[bookmarkIndex],
       ...updates,
-    } as BookmarkedPaper;
+    };
 
     const updatedBookmarks = [...bookmarks];
     updatedBookmarks[bookmarkIndex] = updatedBookmark;

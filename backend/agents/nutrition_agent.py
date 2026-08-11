@@ -19,7 +19,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 load_dotenv()
@@ -32,9 +31,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.tools.nutrient_lookup import NutrientLookupTool
 from backend.tools.rag_recipe_tool import RAGRecipeTool
-
-# API 키
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # CKD 단계별 기본 목표치
 CKD_TARGETS = {
@@ -65,19 +61,29 @@ class NutritionState(TypedDict):
     waiting_for_input: bool
 
 
-# ===== LLM Setup =====
-llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0.3,
-    openai_api_key=OPENAI_API_KEY
-)
+# ===== Local LLM Setup =====
+from backend.app.adapters.ollama.client import OllamaSyncClient
 
-vision_llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0.3,
-    openai_api_key=OPENAI_API_KEY,
-    max_tokens=1000
-)
+
+class _OllamaChat:
+    """Minimal LangChain-compatible invoke surface backed only by Ollama."""
+
+    def __init__(self, max_tokens: int | None = None):
+        self.client = OllamaSyncClient()
+        self.max_tokens = max_tokens
+
+    def invoke(self, messages):
+        response = self.client.chat.completions.create(
+            model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
+            messages=messages,
+            temperature=0.3,
+            max_tokens=self.max_tokens,
+        )
+        return AIMessage(content=response.choices[0].message.content)
+
+
+llm = _OllamaChat()
+vision_llm = _OllamaChat(max_tokens=1000)
 
 
 # ===== Tools =====
@@ -256,7 +262,7 @@ def process_custom_targets(state: NutritionState) -> NutritionState:
 
 
 def analyze_image(state: NutritionState) -> NutritionState:
-    """GPT-4o Vision으로 음식 사진 분석"""
+    """로컬 Ollama vision 모델로 음식 사진 분석"""
     image_data = state.get("image_data")
 
     if not image_data:

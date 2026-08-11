@@ -1,0 +1,14 @@
+{
+  "benchmark": "mongodb_indexed_room_history",
+  "iterations": 10,
+  "fixture": {
+    "rooms": 100,
+    "history_per_room": 5
+  },
+  "unit": "milliseconds",
+  "rooms_p50": 0.607,
+  "rooms_p95": 0.764,
+  "history_p50": 0.47,
+  "history_p95": 0.596,
+  "scope": "synthetic local Atlas Local fixture with compound indexes; excludes application serialization"
+}

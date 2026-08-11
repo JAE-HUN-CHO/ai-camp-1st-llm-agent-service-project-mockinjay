@@ -73,7 +73,7 @@ async def update_health_record(
         raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다")
     
     # 업데이트할 데이터만 추출
-    update_data = {k: v for k, v in record_update.model_dump().items() if v is not None}
+    update_data = record_update.model_dump(exclude_unset=True)
     
     if not update_data:
         raise HTTPException(status_code=400, detail="업데이트할 데이터가 없습니다")

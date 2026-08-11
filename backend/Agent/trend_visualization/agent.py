@@ -6,7 +6,7 @@ from datetime import datetime
 import os
 import asyncio
 import json
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient
 
 # 프로젝트 경로 설정
 backend_path = Path(__file__).parent.parent.parent
@@ -67,7 +67,7 @@ class TrendVisualizationAgent(LocalAgent):
         super().__init__(agent_type="trend_visualization")
         self.pubmed = PubMedClient()
         self._initialized = False
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = OllamaClient()
         
         # LangGraph workflow 구성
         self.workflow = self._build_workflow()
@@ -117,7 +117,7 @@ class TrendVisualizationAgent(LocalAgent):
         max_tokens: Optional[int] = None
     ) -> str:
         response = await self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens

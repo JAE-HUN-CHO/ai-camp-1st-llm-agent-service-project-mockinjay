@@ -2,7 +2,7 @@
 Session Control API Router
 Handles session lifecycle, reset operations, and stream control
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
@@ -13,19 +13,14 @@ from app.models.chat import (
     SessionResetResponse, StreamControlResponse
 )
 from app.models.responses import SuccessResponse
-from app.core.context_system import context_system
+from app.features.chat.runtime import get_context_system, get_stream_registry
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/session", tags=["session"])
 
-# Global dictionary to track active streams
-# In production, this should be Redis for multi-instance support
-active_streams: dict = {}
-
-
 @router.post("/create", response_model=SuccessResponse, status_code=201)
-async def create_session(request: SessionCreate):
+async def create_session(request: SessionCreate, http_request: Request):
     """
     Create a new session for a user
 
@@ -39,6 +34,7 @@ async def create_session(request: SessionCreate):
         If room_id is not provided, a new room will be auto-created
     """
     try:
+        context_system = get_context_system(http_request)
         # Create session using SessionManager
         session_id = context_system.session_manager.create_session(
             user_id=request.user_id,
@@ -72,7 +68,7 @@ async def create_session(request: SessionCreate):
 
 
 @router.get("/{session_id}", response_model=SuccessResponse)
-async def get_session(session_id: str):
+async def get_session(session_id: str, request: Request):
     """
     Get session details
 
@@ -86,6 +82,7 @@ async def get_session(session_id: str):
         404: Session not found or expired
     """
     try:
+        context_system = get_context_system(request)
         session = context_system.session_manager.get_session(session_id)
 
         if not session:
@@ -115,7 +112,7 @@ async def get_session(session_id: str):
 
 
 @router.post("/{session_id}/reset", response_model=SuccessResponse)
-async def reset_session(session_id: str, request: SessionReset):
+async def reset_session(session_id: str, request: SessionReset, http_request: Request):
     """
     Reset a session or specific agent within a session
 
@@ -134,6 +131,7 @@ async def reset_session(session_id: str, request: SessionReset):
         This clears in-memory history. MongoDB history is preserved unless explicitly deleted.
     """
     try:
+        context_system = get_context_system(http_request)
         session = context_system.session_manager.get_session(session_id)
 
         if not session:
@@ -185,7 +183,7 @@ async def reset_session(session_id: str, request: SessionReset):
 
 
 @router.post("/{session_id}/stop", response_model=SuccessResponse)
-async def stop_stream(session_id: str):
+async def stop_stream(session_id: str, request: Request):
     """
     Stop an active streaming operation for a session
 
@@ -201,13 +199,15 @@ async def stop_stream(session_id: str):
         cancellation token pattern.
     """
     try:
+        context_system = get_context_system(request)
         session = context_system.session_manager.get_session(session_id)
 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found or expired")
 
         # Check if there's an active stream for this session
-        stream_info = active_streams.get(session_id)
+        stream_registry = get_stream_registry(request)
+        stream_info = stream_registry.get(session_id)
 
         if not stream_info:
             return SuccessResponse(
@@ -245,6 +245,7 @@ async def stop_stream(session_id: str):
 @router.delete("/{session_id}/history", response_model=SuccessResponse)
 async def clear_session_history(
     session_id: str,
+    request: Request,
     room_id: Optional[str] = Query(None, description="Optional room_id to clear specific room history")
 ):
     """
@@ -262,6 +263,7 @@ async def clear_session_history(
         Use with caution!
     """
     try:
+        context_system = get_context_system(request)
         session = context_system.session_manager.get_session(session_id)
 
         if not session:
@@ -311,7 +313,7 @@ async def clear_session_history(
 
 
 @router.delete("/{session_id}", response_model=SuccessResponse)
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, request: Request):
     """
     Delete a session
 
@@ -326,14 +328,14 @@ async def delete_session(session_id: str):
         is preserved. Use /history endpoint to clear MongoDB data.
     """
     try:
+        context_system = get_context_system(request)
         success = context_system.session_manager.delete_session(session_id)
 
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        # Remove from active_streams if present
-        if session_id in active_streams:
-            del active_streams[session_id]
+        # Remove stream state owned by this application instance.
+        get_stream_registry(request).pop(session_id, None)
 
         logger.info(f"Deleted session {session_id}")
 
@@ -352,5 +354,4 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
 
 
-# Export active_streams for use in chat.py
-__all__ = ["router", "active_streams"]
+__all__ = ["router"]

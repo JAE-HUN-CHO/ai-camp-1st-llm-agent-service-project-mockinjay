@@ -1,15 +1,17 @@
 /**
  * Chat System Type Definitions
  * 채팅 시스템 타입 정의
+ *
+ * This file contains all TypeScript interfaces and types for the chat system.
+ * 이 파일은 채팅 시스템을 위한 모든 TypeScript 인터페이스와 타입을 포함합니다.
  */
 
 import type { IntentCategory } from './intent';
-
-// AgentType defined locally to avoid circular dependency
-export type AgentType = 'medical_welfare' | 'nutrition' | 'research_paper' | 'router';
+import type { AgentType } from '../services/intentRouter';
 
 /**
  * Chat Message Interface
+ * 채팅 메시지 인터페이스
  */
 export interface ChatMessage {
   id: string;
@@ -28,17 +30,8 @@ export interface ChatMessage {
 }
 
 /**
- * Source Interface for citations
- */
-export interface Source {
-  title: string;
-  url: string;
-  snippet: string;
-  relevance: number;
-}
-
-/**
  * Chat Room Interface
+ * 채팅 방 인터페이스
  */
 export interface ChatRoom {
   id: string;
@@ -51,10 +44,15 @@ export interface ChatRoom {
   updatedAt: Date;
   isPinned?: boolean;
   isArchived?: boolean;
+  // Parlant session info (populated when room is created with backend)
+  // Parlant 세션 정보 (백엔드에서 방 생성 시 채워짐)
+  parlantSessionId?: string;
+  parlantCustomerId?: string;
 }
 
 /**
  * Chat Session Interface
+ * 채팅 세션 인터페이스
  */
 export interface ChatSession {
   sessionId: string;
@@ -68,12 +66,13 @@ export interface ChatSession {
 
 /**
  * Stored Message Format (for localStorage serialization)
+ * LocalStorage 저장을 위한 메시지 포맷
  */
 export interface StoredMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: string;
+  timestamp: string; // ISO string format for localStorage
   intents?: IntentCategory[];
   agents?: AgentType[];
   confidence?: number;
@@ -87,22 +86,24 @@ export interface StoredMessage {
 
 /**
  * Stored Room Format (for localStorage serialization)
+ * LocalStorage 저장을 위한 방 포맷
  */
 export interface StoredRoom {
   id: string;
   title: string;
   agentType: AgentType | 'auto';
   lastMessage?: string;
-  lastMessageTime?: string;
+  lastMessageTime?: string; // ISO string
   messageCount: number;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: string; // ISO string
+  updatedAt: string; // ISO string
   isPinned?: boolean;
   isArchived?: boolean;
 }
 
 /**
  * Chat Stream Chunk Interface
+ * 채팅 스트림 청크 인터페이스
  */
 export interface ChatStreamChunk {
   content?: string;
@@ -120,6 +121,7 @@ export interface ChatStreamChunk {
 
 /**
  * Chat Stream Options
+ * 채팅 스트림 옵션
  */
 export interface ChatStreamOptions {
   onChunk?: (content: string, isComplete: boolean) => void;
@@ -130,6 +132,7 @@ export interface ChatStreamOptions {
 
 /**
  * Chat Input State
+ * 채팅 입력 상태
  */
 export interface ChatInputState {
   text: string;
@@ -139,6 +142,7 @@ export interface ChatInputState {
 
 /**
  * Chat UI State
+ * 채팅 UI 상태
  */
 export interface ChatUIState {
   isTyping: boolean;
@@ -150,6 +154,7 @@ export interface ChatUIState {
 
 /**
  * Chat Room Creation Options
+ * 채팅 방 생성 옵션
  */
 export interface CreateRoomOptions {
   title?: string;
@@ -159,6 +164,7 @@ export interface CreateRoomOptions {
 
 /**
  * Chat History Response (from API)
+ * 채팅 히스토리 응답 (API로부터)
  */
 export interface ChatHistoryResponse {
   count: number;
@@ -173,6 +179,7 @@ export interface ChatHistoryResponse {
 
 /**
  * Chat Room Filter Options
+ * 채팅 방 필터 옵션
  */
 export interface RoomFilterOptions {
   agentType?: AgentType | 'auto' | 'all';
@@ -182,12 +189,14 @@ export interface RoomFilterOptions {
 }
 
 /**
- * User Role Type (for chat context)
+ * User Profile Type
+ * 사용자 프로필 타입
  */
-export type UserRole = 'general' | 'patient' | 'researcher';
+export type UserProfile = 'general' | 'patient' | 'researcher';
 
 /**
  * Chat Action Type for useReducer
+ * useReducer를 위한 채팅 액션 타입
  */
 export type ChatAction =
   | { type: 'ADD_MESSAGE'; payload: ChatMessage }
@@ -201,6 +210,7 @@ export type ChatAction =
 
 /**
  * Room Action Type for useReducer
+ * useReducer를 위한 방 액션 타입
  */
 export type RoomAction =
   | { type: 'ADD_ROOM'; payload: ChatRoom }

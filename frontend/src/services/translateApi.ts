@@ -4,11 +4,14 @@
  * https://mymemory.translated.net/doc/spec.php
  */
 
+import { pruneExpired } from '../shared/cache/ttl';
+
 const MYMEMORY_API_URL = 'https://api.mymemory.translated.net/get';
 
 // 번역 캐시 (localStorage 사용)
 const CACHE_KEY = 'translation_cache';
 const CACHE_MAX_SIZE = 500; // 최대 캐시 항목 수
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface TranslationCache {
   [key: string]: {
@@ -26,8 +29,12 @@ function getFromCache(text: string): string | null {
     if (!cache) return null;
 
     const parsed: TranslationCache = JSON.parse(cache);
+    const fresh = pruneExpired(parsed, CACHE_TTL_MS);
+    if (Object.keys(fresh).length !== Object.keys(parsed).length) {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
+    }
     const key = generateCacheKey(text);
-    const entry = parsed[key];
+    const entry = fresh[key];
 
     if (entry) {
       return entry.text;
@@ -49,11 +56,7 @@ function saveToCache(originalText: string, translatedText: string): void {
     // 캐시 크기 제한 (오래된 항목 삭제)
     const keys = Object.keys(parsed);
     if (keys.length >= CACHE_MAX_SIZE) {
-      const sortedKeys = keys.sort((a, b) => {
-        const aEntry = parsed[a];
-        const bEntry = parsed[b];
-        return (aEntry?.timestamp ?? 0) - (bEntry?.timestamp ?? 0);
-      });
+      const sortedKeys = keys.sort((a, b) => parsed[a].timestamp - parsed[b].timestamp);
       const keysToRemove = sortedKeys.slice(0, Math.floor(CACHE_MAX_SIZE / 4));
       keysToRemove.forEach((key) => delete parsed[key]);
     }

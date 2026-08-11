@@ -1,6 +1,6 @@
 """
 Quiz Agent 통합 테스트
-실제 OpenAI API, Vector DB, MongoDB를 사용한 E2E 테스트
+실제 Ollama, Vector DB, MongoDB를 사용한 E2E 테스트
 """
 
 import asyncio
@@ -346,14 +346,14 @@ async def main():
     print("Quiz Agent 통합 테스트 시작")
     print("🚀"*40)
 
-    # API 키 확인
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        print("\n❌ ERROR: OPENAI_API_KEY 환경 변수가 설정되지 않았습니다!")
-        print("   export OPENAI_API_KEY='your-api-key'")
+    # Local model configuration check. The Ollama daemon is an external
+    # integration prerequisite and is intentionally not started by tests.
+    ollama_model = os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx")
+    if not ollama_model:
+        print("\n❌ ERROR: OLLAMA_MODEL is not configured")
         return
 
-    print(f"✅ OpenAI API Key: {openai_key[:10]}...")
+    print(f"✅ Ollama model configured: {ollama_model}")
 
     try:
         # 전체 플로우 테스트

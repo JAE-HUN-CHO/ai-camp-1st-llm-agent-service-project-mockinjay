@@ -1,56 +1,59 @@
-const APP_ENVS = ['development', 'production'] as const;
-type AppEnvironment = (typeof APP_ENVS)[number];
+/**
+ * Environment Configuration
+ * Central management of environment variables
+ */
 
-export interface EnvironmentConfig {
+interface EnvironmentConfig {
   apiBaseUrl: string;
   appName: string;
-  appEnv: AppEnvironment;
+  appEnv: 'development' | 'production';
   isDevelopment: boolean;
   isProduction: boolean;
 }
 
-const REQUIRED_ENV_KEYS = ['VITE_API_BASE_URL', 'VITE_APP_NAME', 'VITE_APP_ENV'] as const;
-type RequiredEnvKey = (typeof REQUIRED_ENV_KEYS)[number];
+/**
+ * Validates that all required environment variables are present
+ */
+function validateEnv(): void {
+  const required = ['VITE_API_BASE_URL', 'VITE_APP_NAME', 'VITE_APP_ENV'];
+  const missing = required.filter(key => !import.meta.env[key]);
 
-function validateEnv(env: ImportMetaEnv): void {
-  const missingKeys = REQUIRED_ENV_KEYS.filter(key => env[key] === undefined);
-
-  if (missingKeys.length > 0) {
+  if (missing.length > 0) {
     throw new Error(
-      `Missing required environment variables: ${missingKeys.join(', ')}. ` +
-        'Ensure the variables exist in your Vite environment files (.env, .env.local, etc.).'
+      `Missing required environment variables: ${missing.join(', ')}\n` +
+      'Please check your .env.development or .env.production file.'
     );
   }
 }
 
-export function getEnvVar(key: RequiredEnvKey, defaultValue?: string): string {
+/**
+ * Get environment variable with type safety
+ */
+function getEnvVar(key: string, defaultValue?: string): string {
   const value = import.meta.env[key];
-
-  // Allow empty string for VITE_API_BASE_URL (uses Vite proxy in development)
-  if (key === 'VITE_API_BASE_URL' && value === '') {
-    return '';
-  }
-
-  if (value === undefined || value === null || value === '') {
+  if (value === undefined) {
     if (defaultValue !== undefined) {
       return defaultValue;
     }
     throw new Error(`Environment variable ${key} is not defined`);
   }
-
-  return String(value);
+  return value;
 }
 
-validateEnv(import.meta.env);
+// Validate environment variables on load
+validateEnv();
 
-const appEnv = getEnvVar('VITE_APP_ENV') as AppEnvironment;
-
-const environment: EnvironmentConfig = {
+/**
+ * Application environment configuration
+ * All environment variables should be accessed through this object
+ */
+export const env: EnvironmentConfig = {
   apiBaseUrl: getEnvVar('VITE_API_BASE_URL'),
   appName: getEnvVar('VITE_APP_NAME'),
-  appEnv,
-  isDevelopment: appEnv === 'development',
-  isProduction: appEnv === 'production',
+  appEnv: getEnvVar('VITE_APP_ENV') as 'development' | 'production',
+  isDevelopment: getEnvVar('VITE_APP_ENV') === 'development',
+  isProduction: getEnvVar('VITE_APP_ENV') === 'production',
 };
 
-export const env: Readonly<EnvironmentConfig> = Object.freeze(environment);
+// Freeze the object to prevent modifications
+Object.freeze(env);

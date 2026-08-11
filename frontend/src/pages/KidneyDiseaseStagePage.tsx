@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check } from 'lucide-react';
 
-export function KidneyDiseaseStagePage() {
+export default function KidneyDiseaseStagePage() {
   const navigate = useNavigate();
-  
+
   // This would come from user profile data
   const [diseaseInfo, setDiseaseInfo] = useState<string>('만성신장병 3기');
-  
+
   const diseaseOptions = [
     '만성신장병 1기',
     '만성신장병 2기',
@@ -26,24 +26,23 @@ export function KidneyDiseaseStagePage() {
 
   const handleSave = () => {
     alert('질환 정보가 수정되었습니다.');
-    navigate('/mypage/profile');
+    navigate('/mypage');
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--color-bg-white)' }}>
+    <div className="min-h-screen flex flex-col bg-white">
       {/* Header */}
-      <div className="p-6 flex items-center justify-between border-b" style={{ borderColor: '#E5E7EB' }}>
+      <div className="p-6 flex items-center justify-between border-b border-[#E5E7EB]">
         <button
-          onClick={() => navigate('/mypage/profile')}
-          className="flex items-center gap-2 hover:opacity-70 transition-opacity"
-          style={{ color: 'var(--color-text-secondary)' }}
+          onClick={() => navigate('/mypage')}
+          className="flex items-center gap-2 hover:opacity-70 transition-opacity text-[#6B7280]"
         >
           <ArrowLeft size={24} />
         </button>
-        
-        <h2 style={{ color: 'var(--color-text-primary)' }}>질환 단계</h2>
-        
-        <div style={{ width: '24px' }} />
+
+        <h2 className="text-[#1F2937] font-medium">질환 단계</h2>
+
+        <div className="w-6" />
       </div>
 
       {/* Form Content */}
@@ -51,10 +50,10 @@ export function KidneyDiseaseStagePage() {
         <div className="max-w-md mx-auto">
           <div className="space-y-6">
             <div>
-              <h2 className="mb-2" style={{ color: 'var(--color-text-primary)' }}>
+              <h2 className="mb-2 text-[#1F2937] font-medium">
                 병원에서 만성신장병 진단을 받으셨나요?
               </h2>
-              <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
+              <p className="text-[#6B7280] text-sm">
                 해당하는 항목을 선택해주세요.
               </p>
             </div>
@@ -66,26 +65,21 @@ export function KidneyDiseaseStagePage() {
                   <button
                     key={option}
                     onClick={() => handleDiseaseToggle(option)}
-                    className="w-full flex items-center gap-3 p-4 rounded-xl transition-all"
-                    style={{
-                      background: isSelected ? '#E6F9F7' : 'var(--color-bg-input)',
-                      border: `2px solid ${isSelected ? 'var(--color-primary)' : 'transparent'}`
-                    }}
+                    className={`w-full flex items-center gap-3 p-4 rounded-xl transition-all ${
+                      isSelected ? 'bg-[#E6F9F7] border-2 border-[#00C9B7]' : 'bg-[#F9FAFB] border-2 border-transparent'
+                    }`}
                   >
-                    <div 
-                      className="w-6 h-6 rounded-full flex items-center justify-center transition-all"
-                      style={{
-                        background: isSelected ? 'var(--color-primary)' : '#E5E7EB'
-                      }}
+                    <div
+                      className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                        isSelected ? 'bg-[#00C9B7]' : 'bg-[#E5E7EB]'
+                      }`}
                     >
                       {isSelected && <Check size={16} color="white" />}
                     </div>
-                    <span 
-                      className="flex-1 text-left"
-                      style={{ 
-                        color: isSelected ? 'var(--color-primary)' : 'var(--color-text-primary)',
-                        fontWeight: isSelected ? '600' : '400'
-                      }}
+                    <span
+                      className={`flex-1 text-left ${
+                        isSelected ? 'text-[#00C9B7] font-semibold' : 'text-[#1F2937]'
+                      }`}
                     >
                       {option}
                     </span>

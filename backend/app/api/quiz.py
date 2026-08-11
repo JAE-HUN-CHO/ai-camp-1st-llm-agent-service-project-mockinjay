@@ -3,7 +3,7 @@ Quiz API endpoints (Agent-based)
 퀴즈 에이전트를 통한 API 엔드포인트
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 import sys
 from pathlib import Path
 
@@ -12,7 +12,7 @@ backend_path = Path(__file__).parent.parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-from Agent.agent_manager import AgentManager
+from app.services.agent_runtime import get_agent_runtime
 from app.models.quiz import (
     QuizSessionStart,
     QuizAnswerSubmit,
@@ -25,12 +25,8 @@ from app.models.quiz import (
 
 router = APIRouter()
 
-# Agent Manager 초기화
-agent_manager = AgentManager()
-
-
 @router.post("/session/start", status_code=201, response_model=QuizSessionResponse)
-async def start_quiz_session(request: QuizSessionStart):
+async def start_quiz_session(request: QuizSessionStart, http_request: Request):
     """
     퀴즈 세션 시작
 
@@ -45,6 +41,7 @@ async def start_quiz_session(request: QuizSessionStart):
     Raises:
         HTTPException: Agent 처리 실패
     """
+    agent_manager = get_agent_runtime(http_request).agent_manager
     # 사용자 세션 생성 (Agent Manager)
     session_id = agent_manager.create_user_session(request.userId)
 
@@ -89,7 +86,7 @@ async def start_quiz_session(request: QuizSessionStart):
 
 
 @router.post("/session/submit-answer", status_code=200, response_model=QuizAnswerResponse)
-async def submit_quiz_answer(request: QuizAnswerSubmit):
+async def submit_quiz_answer(request: QuizAnswerSubmit, http_request: Request):
     """
     퀴즈 답안 제출
 
@@ -104,6 +101,7 @@ async def submit_quiz_answer(request: QuizAnswerSubmit):
     Raises:
         HTTPException: 세션/문제 없음, Agent 처리 실패
     """
+    agent_manager = get_agent_runtime(http_request).agent_manager
     session_id = agent_manager.create_user_session(request.userId)
 
     context = {
@@ -147,7 +145,7 @@ async def submit_quiz_answer(request: QuizAnswerSubmit):
 
 
 @router.post("/session/complete", status_code=200, response_model=QuizSessionCompleteResponse)
-async def complete_quiz_session(sessionId: str):
+async def complete_quiz_session(sessionId: str, request: Request):
     """
     퀴즈 세션 완료
 
@@ -162,6 +160,7 @@ async def complete_quiz_session(sessionId: str):
     Raises:
         HTTPException: 세션 없음, 미완료 문제 존재
     """
+    agent_manager = get_agent_runtime(request).agent_manager
     temp_session_id = agent_manager.create_user_session("temp_user")
 
     context = {
@@ -204,7 +203,7 @@ async def complete_quiz_session(sessionId: str):
 
 
 @router.get("/stats", status_code=200, response_model=UserQuizStatsResponse)
-async def get_user_quiz_stats(userId: str):
+async def get_user_quiz_stats(userId: str, request: Request):
     """
     사용자 퀴즈 통계 조회
 
@@ -216,6 +215,7 @@ async def get_user_quiz_stats(userId: str):
     Returns:
         UserQuizStatsResponse: 사용자 통계
     """
+    agent_manager = get_agent_runtime(request).agent_manager
     session_id = agent_manager.create_user_session(userId)
 
     context = {
@@ -256,7 +256,7 @@ async def get_user_quiz_stats(userId: str):
 
 
 @router.get("/history", status_code=200, response_model=QuizHistoryResponse)
-async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
+async def get_quiz_history(userId: str, request: Request, limit: int = 10, offset: int = 0):
     """
     퀴즈 이력 조회
 
@@ -276,6 +276,7 @@ async def get_quiz_history(userId: str, limit: int = 10, offset: int = 0):
     if limit > 50:
         raise HTTPException(status_code=400, detail="limit은 최대 50까지 가능합니다")
 
+    agent_manager = get_agent_runtime(request).agent_manager
     session_id = agent_manager.create_user_session(userId)
 
     context = {

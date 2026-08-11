@@ -1,14 +1,23 @@
 /**
  * useChatRooms Hook
  * 채팅 방 관리 훅
+ *
+ * Manages chat room state, localStorage persistence, and CRUD operations.
+ * 채팅 방 상태, localStorage 지속성, CRUD 작업을 관리합니다.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { ChatRoom, StoredRoom, CreateRoomOptions, RoomFilterOptions, AgentType } from '../types/chat';
+import type { ChatRoom, StoredRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
+import type { AgentType } from '../services/intentRouter';
+import { createRoomWithSession } from '../services/api';
 
 const ROOMS_STORAGE_KEY = 'careguide_chat_rooms' as const;
 const CURRENT_ROOM_KEY = 'careguide_current_room' as const;
 
+/**
+ * Convert StoredRoom to ChatRoom (deserialize)
+ * StoredRoom을 ChatRoom으로 변환 (역직렬화)
+ */
 function deserializeRoom(stored: StoredRoom): ChatRoom {
   return {
     ...stored,
@@ -18,6 +27,10 @@ function deserializeRoom(stored: StoredRoom): ChatRoom {
   };
 }
 
+/**
+ * Convert ChatRoom to StoredRoom (serialize)
+ * ChatRoom을 StoredRoom으로 변환 (직렬화)
+ */
 function serializeRoom(room: ChatRoom): StoredRoom {
   return {
     ...room,
@@ -27,6 +40,10 @@ function serializeRoom(room: ChatRoom): StoredRoom {
   };
 }
 
+/**
+ * Generate a title based on agent type
+ * 에이전트 타입 기반으로 제목 생성
+ */
 function generateRoomTitle(agentType: AgentType | 'auto'): string {
   const titles: Record<AgentType | 'auto', string> = {
     auto: 'Auto 대화',
@@ -39,6 +56,8 @@ function generateRoomTitle(agentType: AgentType | 'auto'): string {
 }
 
 export function useChatRooms() {
+  // Load rooms from localStorage
+  // localStorage에서 방 로드
   const [rooms, setRooms] = useState<ChatRoom[]>(() => {
     try {
       const saved = localStorage.getItem(ROOMS_STORAGE_KEY);
@@ -65,6 +84,8 @@ export function useChatRooms() {
     }
   });
 
+  // Save rooms to localStorage whenever they change
+  // 방이 변경될 때마다 localStorage에 저장
   useEffect(() => {
     try {
       const serialized = rooms.map(serializeRoom);
@@ -74,6 +95,8 @@ export function useChatRooms() {
     }
   }, [rooms]);
 
+  // Save current room ID
+  // 현재 방 ID 저장
   useEffect(() => {
     try {
       if (currentRoomId) {
@@ -86,34 +109,106 @@ export function useChatRooms() {
     }
   }, [currentRoomId]);
 
-  const createRoom = useCallback((options: CreateRoomOptions = {}): ChatRoom => {
-    const now = new Date();
-    const newRoom: ChatRoom = {
-      id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-      title: options.title || generateRoomTitle(options.agentType || 'auto'),
-      agentType: options.agentType || 'auto',
-      messageCount: 0,
-      createdAt: now,
-      updatedAt: now,
-      isPinned: false,
-      isArchived: false,
-    };
+  /**
+   * Create a new chat room with Parlant session (async)
+   * Parlant 세션과 함께 새 채팅 방 생성 (비동기)
+   *
+   * @param options - Room creation options
+   * @param userId - User ID for backend session creation
+   * @param profile - User profile for Parlant customer tags
+   */
+  const createRoom = useCallback(
+    async (
+      options: CreateRoomOptions = {},
+      userId?: string,
+      profile: string = 'general'
+    ): Promise<ChatRoom> => {
+      const now = new Date();
+      const agentType = options.agentType || 'auto';
+      const title = options.title || generateRoomTitle(agentType);
 
-    setRooms((prev) => [newRoom, ...prev]);
-    setCurrentRoomId(newRoom.id);
+      // Parlant agents that need proactive session creation
+      const parlantAgents = ['medical_welfare', 'research_paper'];
+      const needsParlantSession = parlantAgents.includes(agentType) && userId;
 
-    return newRoom;
-  }, []);
+      if (needsParlantSession && userId) {
+        try {
+          // Call backend API to create room with Parlant session
+          // 백엔드 API를 호출하여 Parlant 세션과 함께 방 생성
+          const roomData = await createRoomWithSession(
+            userId,
+            agentType,
+            profile,
+            title
+          );
 
+          const newRoom: ChatRoom = {
+            id: roomData.id || roomData.room_id || `room_${Date.now()}`,
+            title: roomData.title || roomData.room_name || title,
+            agentType: (roomData.agent_type as AgentType) || agentType,
+            messageCount: roomData.message_count || 0,
+            createdAt: roomData.created_at ? new Date(roomData.created_at) : now,
+            updatedAt: roomData.updated_at ? new Date(roomData.updated_at) : now,
+            isPinned: false,
+            isArchived: false,
+            parlantSessionId: roomData.parlant_session_id,
+            parlantCustomerId: roomData.parlant_customer_id,
+          };
+
+          setRooms((prev) => [newRoom, ...prev]);
+          setCurrentRoomId(newRoom.id);
+
+          console.log(
+            `✅ Created room with Parlant session: ${newRoom.id} -> ${newRoom.parlantSessionId}`
+          );
+
+          return newRoom;
+        } catch (error) {
+          console.error('Failed to create room with session, falling back to local:', error);
+          // Fall through to local creation
+        }
+      }
+
+      // Fallback: Create room locally (for non-Parlant agents or when API fails)
+      // 폴백: 로컬에서 방 생성 (Parlant가 아닌 에이전트 또는 API 실패 시)
+      const newRoom: ChatRoom = {
+        id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        title,
+        agentType,
+        messageCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        isPinned: false,
+        isArchived: false,
+      };
+
+      setRooms((prev) => [newRoom, ...prev]);
+      setCurrentRoomId(newRoom.id);
+
+      return newRoom;
+    },
+    []
+  );
+
+  /**
+   * Delete a chat room
+   * 채팅 방 삭제
+   */
   const deleteRoom = useCallback((roomId: string) => {
     setRooms((prev) => prev.filter((room) => room.id !== roomId));
 
+    // If deleting current room, switch to another room or null
+    // 현재 방을 삭제하는 경우, 다른 방으로 전환하거나 null로 설정
     if (currentRoomId === roomId) {
       const remainingRooms = rooms.filter((room) => room.id !== roomId);
-      setCurrentRoomId(remainingRooms[0]?.id ?? null);
+      setCurrentRoomId(remainingRooms.length > 0 ? remainingRooms[0].id : null);
     }
   }, [currentRoomId, rooms]);
 
+  /**
+   * Update a chat room
+   * 채팅 방 업데이트
+   */
   const updateRoom = useCallback((roomId: string, updates: Partial<ChatRoom>) => {
     setRooms((prev) =>
       prev.map((room) =>
@@ -124,6 +219,10 @@ export function useChatRooms() {
     );
   }, []);
 
+  /**
+   * Pin/unpin a room
+   * 방 고정/고정 해제
+   */
   const togglePinRoom = useCallback((roomId: string) => {
     setRooms((prev) =>
       prev.map((room) =>
@@ -134,6 +233,10 @@ export function useChatRooms() {
     );
   }, []);
 
+  /**
+   * Archive/unarchive a room
+   * 방 보관/보관 해제
+   */
   const toggleArchiveRoom = useCallback((roomId: string) => {
     setRooms((prev) =>
       prev.map((room) =>
@@ -144,6 +247,10 @@ export function useChatRooms() {
     );
   }, []);
 
+  /**
+   * Update room with last message info
+   * 마지막 메시지 정보로 방 업데이트
+   */
   const updateRoomLastMessage = useCallback((
     roomId: string,
     message: string,
@@ -154,7 +261,7 @@ export function useChatRooms() {
         room.id === roomId
           ? {
               ...room,
-              lastMessage: message.substring(0, 100),
+              lastMessage: message.substring(0, 100), // Truncate to 100 chars
               lastMessageTime: timestamp,
               updatedAt: timestamp,
             }
@@ -163,6 +270,10 @@ export function useChatRooms() {
     );
   }, []);
 
+  /**
+   * Increment message count for a room
+   * 방의 메시지 카운트 증가
+   */
   const incrementMessageCount = useCallback((roomId: string) => {
     setRooms((prev) =>
       prev.map((room) =>
@@ -173,55 +284,95 @@ export function useChatRooms() {
     );
   }, []);
 
+  /**
+   * Clear all rooms
+   * 모든 방 삭제
+   */
   const clearAllRooms = useCallback(() => {
     setRooms([]);
     setCurrentRoomId(null);
   }, []);
 
+  /**
+   * Get current room
+   * 현재 방 가져오기
+   */
   const currentRoom = useMemo(() => {
     return rooms.find((room) => room.id === currentRoomId) || null;
   }, [rooms, currentRoomId]);
 
+  /**
+   * Filter rooms based on criteria
+   * 기준에 따라 방 필터링
+   */
   const filterRooms = useCallback((options: RoomFilterOptions = {}): ChatRoom[] => {
     return rooms.filter((room) => {
+      // Filter by agent type
+      // 에이전트 타입으로 필터링
       if (options.agentType && options.agentType !== 'all' && room.agentType !== options.agentType) {
         return false;
       }
+
+      // Filter by pinned status
+      // 고정 상태로 필터링
       if (options.isPinned !== undefined && room.isPinned !== options.isPinned) {
         return false;
       }
+
+      // Filter by archived status
+      // 보관 상태로 필터링
       if (options.isArchived !== undefined && room.isArchived !== options.isArchived) {
         return false;
       }
+
+      // Filter by search query
+      // 검색어로 필터링
       if (options.searchQuery) {
         const query = options.searchQuery.toLowerCase();
         const titleMatch = room.title.toLowerCase().includes(query);
         const messageMatch = room.lastMessage?.toLowerCase().includes(query);
         return titleMatch || messageMatch;
       }
+
       return true;
     });
   }, [rooms]);
 
+  /**
+   * Sort rooms (pinned first, then by last activity)
+   * 방 정렬 (고정된 방 먼저, 그 다음 최근 활동순)
+   */
   const sortedRooms = useMemo(() => {
     return [...rooms].sort((a, b) => {
+      // Pinned rooms come first
+      // 고정된 방이 먼저
       if (a.isPinned && !b.isPinned) return -1;
       if (!a.isPinned && b.isPinned) return 1;
+
+      // Then sort by last activity (most recent first)
+      // 그 다음 최근 활동순 (최신이 먼저)
       const aTime = a.lastMessageTime || a.updatedAt;
       const bTime = b.lastMessageTime || b.updatedAt;
       return bTime.getTime() - aTime.getTime();
     });
   }, [rooms]);
 
+  /**
+   * Get rooms excluding archived ones
+   * 보관된 방을 제외한 방 목록
+   */
   const activeRooms = useMemo(() => {
     return sortedRooms.filter((room) => !room.isArchived);
   }, [sortedRooms]);
 
   return {
+    // State
     rooms: sortedRooms,
     activeRooms,
     currentRoom,
     currentRoomId,
+
+    // Actions
     createRoom,
     deleteRoom,
     updateRoom,

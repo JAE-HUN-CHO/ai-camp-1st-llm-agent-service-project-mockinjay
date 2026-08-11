@@ -1,175 +1,329 @@
-import type { FC } from 'react';
-import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import type { ClinicalTrial } from '../../types/trends';
+/**
+ * ClinicalTrialCard Component
+ *
+ * A production-ready card component for displaying clinical trial information
+ * in the TrendsPage. Features status badges, condition/intervention tags,
+ * and accessible keyboard navigation.
+ *
+ * @example
+ * ```tsx
+ * import ClinicalTrialCard from '@/components/trends/ClinicalTrialCard';
+ *
+ * const trial = {
+ *   nctId: 'NCT12345678',
+ *   title: 'Study of Treatment for CKD',
+ *   status: 'Recruiting',
+ *   phase: 'Phase 3',
+ *   conditions: ['Chronic Kidney Disease', 'Diabetes'],
+ *   interventions: ['Drug: Experimental Treatment'],
+ *   startDate: '2024-01-15',
+ *   completionDate: '2026-12-31',
+ *   sponsor: 'University Medical Center',
+ *   briefSummary: 'This study evaluates...'
+ * };
+ *
+ * <ClinicalTrialCard
+ *   trial={trial}
+ *   onClick={() => handleTrialClick(trial.nctId)}
+ * />
+ * ```
+ */
 
-interface ClinicalTrialCardProps {
-  trial: ClinicalTrial;
+import React, { memo } from 'react';
+import { Calendar, Building2, FileText, ChevronRight } from 'lucide-react';
+
+// ==================== Types ====================
+
+export interface ClinicalTrial {
+  nctId: string;
+  title: string;
+  status: string;
+  phase: string;
+  conditions: string[];
+  interventions: string[];
+  startDate?: string;
+  completionDate?: string;
+  sponsor?: string;
+  briefSummary?: string;
 }
 
-const STATUS_CLASS_MAP: Record<string, string> = {
-  recruiting: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-  'not yet recruiting': 'bg-amber-100 text-amber-800 border border-amber-200',
-  'active, not recruiting': 'bg-blue-100 text-blue-800 border border-blue-200',
-  completed: 'bg-slate-100 text-slate-700 border border-slate-200',
-  terminated: 'bg-red-100 text-red-700 border border-red-200',
-  suspended: 'bg-orange-100 text-orange-800 border border-orange-200',
-  withdrawn: 'bg-rose-100 text-rose-800 border border-rose-200',
-  'enrolling by invitation': 'bg-indigo-100 text-indigo-800 border border-indigo-200',
-  'unknown status': 'bg-slate-100 text-slate-600 border border-slate-200',
+export interface ClinicalTrialCardProps {
+  trial: ClinicalTrial;
+  onClick: () => void;
+}
+
+// ==================== Constants ====================
+
+const STATUS_COLORS = {
+  Recruiting: {
+    bg: '#ECFDF5',
+    text: '#10B981',
+    border: '#A7F3D0',
+  },
+  Completed: {
+    bg: '#EFF6FF',
+    text: '#3B82F6',
+    border: '#BFDBFE',
+  },
+  Active: {
+    bg: '#F3E8FF',
+    text: '#8B5CF6',
+    border: '#DDD6FE',
+  },
+  'Active, not recruiting': {
+    bg: '#F3E8FF',
+    text: '#8B5CF6',
+    border: '#DDD6FE',
+  },
+  Terminated: {
+    bg: '#FEF2F2',
+    text: '#EF4444',
+    border: '#FECACA',
+  },
+  Withdrawn: {
+    bg: '#FEF2F2',
+    text: '#EF4444',
+    border: '#FECACA',
+  },
+  Suspended: {
+    bg: '#FEF3C7',
+    text: '#F59E0B',
+    border: '#FDE68A',
+  },
+  default: {
+    bg: '#F3F4F6',
+    text: '#6B7280',
+    border: '#E5E7EB',
+  },
+} as const;
+
+// ==================== Helper Functions ====================
+
+/**
+ * Get status color configuration based on trial status
+ */
+const getStatusColor = (status: string) => {
+  return STATUS_COLORS[status as keyof typeof STATUS_COLORS] || STATUS_COLORS.default;
 };
 
-const DEFAULT_STATUS_CLASS = 'bg-slate-100 text-slate-600 border border-slate-200';
+/**
+ * Format date string to locale format
+ */
+const formatDate = (dateString?: string): string => {
+  if (!dateString) return '';
 
-const getStatusClass = (status?: string): string => {
-  if (!status) {
-    return DEFAULT_STATUS_CLASS;
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ko-KR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  } catch {
+    return dateString;
   }
-
-  const normalized = status.toLowerCase();
-  return STATUS_CLASS_MAP[normalized] ?? DEFAULT_STATUS_CLASS;
 };
 
-const cleanList = (values?: string[]): string[] => {
-  return (values ?? []).map((value) => value.trim()).filter(Boolean);
+/**
+ * Truncate text with ellipsis
+ */
+const truncateText = (text: string, maxLength: number): string => {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + '...';
 };
 
-const summarizeLocations = (locations?: string[]): string => {
-  const cleaned = cleanList(locations);
-  if (!cleaned.length) {
-    return 'Locations not yet specified';
-  }
+// ==================== Component ====================
 
-  const first = cleaned[0] ?? '';
-  const rest = cleaned.slice(1);
-  return rest.length ? `${first} + ${rest.length} more` : first;
-};
+const ClinicalTrialCard: React.FC<ClinicalTrialCardProps> = memo(({ trial, onClick }) => {
+  const statusColor = getStatusColor(trial.status);
 
-const formatList = (values?: string[]): string => {
-  const cleaned = cleanList(values);
-  return cleaned.length ? cleaned.join(', ') : 'Not specified';
-};
-
-const formatDate = (value?: string): string => {
-  if (!value) {
-    return 'Date TBD';
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-};
-
-export const ClinicalTrialCard: FC<ClinicalTrialCardProps> = ({ trial }) => {
-  const [expanded, setExpanded] = useState(false);
-
-  const statusClass = useMemo(() => getStatusClass(trial.status), [trial.status]);
-  const locationSummary = useMemo(() => summarizeLocations(trial.locations), [trial.locations]);
-  const conditionsLabel = useMemo(() => formatList(trial.conditions), [trial.conditions]);
-  const startDateLabel = useMemo(() => formatDate(trial.startDate), [trial.startDate]);
-  const completionDateLabel = useMemo(() => formatDate(trial.completionDate), [trial.completionDate]);
-
-  const hasValidEnrollment = Number.isFinite(trial.enrollmentCount);
-  const enrollmentLabel = hasValidEnrollment
-    ? `${trial.enrollmentCount.toLocaleString()} participant${trial.enrollmentCount === 1 ? '' : 's'}`
-    : 'Enrollment TBD';
-
-  const hasUrl = Boolean(trial.url?.trim());
-  const summaryText = trial.briefSummary?.trim() || 'Summary not provided.';
-  const eligibilityText = trial.eligibilityCriteria?.trim() || 'Eligibility criteria not provided.';
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex flex-col gap-4 p-5">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1">
-              <h3 className="text-base font-semibold text-slate-900">{trial.title || 'Untitled clinical trial'}</h3>
-              <p className="text-xs text-slate-500">NCT ID: {trial.nctId || 'Unavailable'}</p>
-              {hasUrl && (
-                <a
-                  href={trial.url ?? '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500"
-                >
-                  ClinicalTrials.gov listing
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusClass}`}>
-              {trial.status || 'Status TBD'}
+    <div
+      onClick={onClick}
+      onKeyPress={handleKeyPress}
+      role="button"
+      tabIndex={0}
+      aria-label={`Clinical trial ${trial.nctId}: ${trial.title}`}
+      className="bg-white rounded-[16px] p-5 md:p-6 cursor-pointer transition-all duration-200
+        hover:shadow-lg border border-gray-100 hover:border-[#00C9B7]
+        focus:outline-none focus:ring-2 focus:ring-[#00C9B7] focus:ring-offset-2
+        group"
+      style={{
+        boxShadow: '0px 2px 8px 0px rgba(0,0,0,0.08)',
+      }}
+    >
+      {/* Header: NCT ID and Status Badge */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <span
+              className="text-xs font-semibold px-2.5 py-1 rounded-full"
+              style={{
+                backgroundColor: statusColor.bg,
+                color: statusColor.text,
+                border: `1px solid ${statusColor.border}`,
+              }}
+              aria-label={`Status: ${trial.status}`}
+            >
+              {trial.status}
+            </span>
+            {trial.phase && (
+              <span
+                className="text-xs font-medium text-gray-600 px-2.5 py-1 rounded-full bg-gray-100"
+                aria-label={`Phase: ${trial.phase}`}
+              >
+                {trial.phase}
+              </span>
+            )}
+          </div>
+          <span
+            className="text-sm font-mono text-[#00C9B7] font-semibold"
+            aria-label={`NCT ID: ${trial.nctId}`}
+          >
+            {trial.nctId}
+          </span>
+        </div>
+
+        <ChevronRight
+          size={20}
+          className="text-gray-400 group-hover:text-[#00C9B7] transition-colors flex-shrink-0 mt-1"
+          aria-hidden="true"
+        />
+      </div>
+
+      {/* Title */}
+      <h4
+        className="font-bold text-[#1F2937] mb-3 line-clamp-2 leading-tight"
+        style={{
+          fontSize: '16px',
+          lineHeight: '24px',
+          fontFamily: 'Noto Sans KR, sans-serif',
+        }}
+        title={trial.title}
+      >
+        {trial.title}
+      </h4>
+
+      {/* Brief Summary */}
+      {trial.briefSummary && (
+        <p
+          className="text-[#272727] text-sm leading-relaxed mb-4 line-clamp-2"
+          style={{
+            fontSize: '14px',
+            lineHeight: '20px',
+            fontFamily: 'Noto Sans KR, sans-serif',
+          }}
+          title={trial.briefSummary}
+        >
+          {trial.briefSummary}
+        </p>
+      )}
+
+      {/* Conditions Tags */}
+      {trial.conditions && trial.conditions.length > 0 && (
+        <div className="mb-3" role="region" aria-label="Conditions">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <FileText size={14} className="text-gray-500" aria-hidden="true" />
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+              Conditions
             </span>
           </div>
-
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Phase</p>
-              <p className="font-medium text-slate-800">{trial.phase || 'Not specified'}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Sponsor</p>
-              <p className="font-medium text-slate-800">{trial.sponsor || 'Not specified'}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Enrollment</p>
-              <p className="font-medium text-slate-800">{enrollmentLabel}</p>
-            </div>
+          <div className="flex flex-wrap gap-1.5">
+            {trial.conditions.slice(0, 3).map((condition, idx) => (
+              <span
+                key={idx}
+                className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full
+                  border border-blue-200"
+                title={condition}
+              >
+                {truncateText(condition, 30)}
+              </span>
+            ))}
+            {trial.conditions.length > 3 && (
+              <span
+                className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full"
+                aria-label={`${trial.conditions.length - 3} more conditions`}
+              >
+                +{trial.conditions.length - 3}
+              </span>
+            )}
           </div>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 gap-4 text-sm text-slate-600 md:grid-cols-2">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Conditions</p>
-            <p className="font-medium text-slate-800">{conditionsLabel}</p>
+      {/* Interventions Tags */}
+      {trial.interventions && trial.interventions.length > 0 && (
+        <div className="mb-4" role="region" aria-label="Interventions">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <FileText size={14} className="text-gray-500" aria-hidden="true" />
+            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+              Interventions
+            </span>
           </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Locations</p>
-            <p className="font-medium text-slate-800">{locationSummary}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Start date</p>
-            <p className="font-medium text-slate-800">{startDateLabel}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Completion date</p>
-            <p className="font-medium text-slate-800">{completionDateLabel}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {trial.interventions.slice(0, 3).map((intervention, idx) => (
+              <span
+                key={idx}
+                className="px-2.5 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-full
+                  border border-purple-200"
+                title={intervention}
+              >
+                {truncateText(intervention, 30)}
+              </span>
+            ))}
+            {trial.interventions.length > 3 && (
+              <span
+                className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full"
+                aria-label={`${trial.interventions.length - 3} more interventions`}
+              >
+                +{trial.interventions.length - 3}
+              </span>
+            )}
           </div>
         </div>
+      )}
 
-        <div className="border-t border-slate-100 pt-3">
-          <button
-            type="button"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((prev) => !prev)}
-            className="flex w-full items-center justify-between text-sm font-medium text-indigo-600 transition hover:text-indigo-500"
-          >
-            <span>{expanded ? 'Hide summary & eligibility' : 'View summary & eligibility'}</span>
-            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
+      {/* Footer: Sponsor and Dates */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
+        {trial.sponsor && (
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Building2 size={14} className="text-gray-400 flex-shrink-0" aria-hidden="true" />
+            <span className="truncate" title={trial.sponsor}>
+              {trial.sponsor}
+            </span>
+          </div>
+        )}
 
-          {expanded && (
-            <div className="mt-3 space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4 text-sm text-slate-700">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Brief summary</p>
-                <p className="mt-1 leading-relaxed">{summaryText}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Eligibility</p>
-                <p className="mt-1 whitespace-pre-line leading-relaxed">{eligibilityText}</p>
-              </div>
-            </div>
-          )}
-        </div>
+        {(trial.startDate || trial.completionDate) && (
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <Calendar size={14} className="text-gray-400 flex-shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {trial.startDate && (
+                <span>
+                  <span className="font-medium">Start:</span> {formatDate(trial.startDate)}
+                </span>
+              )}
+              {trial.startDate && trial.completionDate && <span className="mx-1.5">|</span>}
+              {trial.completionDate && (
+                <span>
+                  <span className="font-medium">End:</span> {formatDate(trial.completionDate)}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
       </div>
-    </article>
+    </div>
   );
-};
+});
+
+ClinicalTrialCard.displayName = 'ClinicalTrialCard';
+
+export default ClinicalTrialCard;

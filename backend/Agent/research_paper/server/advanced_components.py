@@ -16,9 +16,11 @@ import logging
 from typing import List, Dict, Optional, Tuple, Any
 from functools import lru_cache
 import numpy as np
-from sentence_transformers import SentenceTransformer, CrossEncoder
-import torch
-from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import CrossEncoder
+try:
+    from app.adapters.ollama.client import OllamaSyncClient
+except ModuleNotFoundError:
+    from backend.app.adapters.ollama.client import OllamaSyncClient
 import hashlib
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -281,9 +283,9 @@ class QueryRouter:
 # ==================== Phase 3.3: Medical Embeddings ====================
 
 class MedicalEmbeddings:
-    """Medical-specific embeddings using specialized models"""
+    """Medical embeddings backed exclusively by the local Ollama adapter."""
 
-    def __init__(self, model_name: str = "dmis-lab/biobert-base-cased-v1.2"):
+    def __init__(self, model_name: str = "nomic-embed-text-v2-moe"):
         """
         Initialize medical embedding model
 
@@ -291,22 +293,7 @@ class MedicalEmbeddings:
             model_name: BioBERT or other medical model
         """
         self.model_name = model_name
-        self.model = None
-        self.tokenizer = None
-        self._initialize_model()
-
-    def _initialize_model(self):
-        """Load medical embedding model"""
-        try:
-            logger.info(f"Loading medical embedding model: {self.model_name}")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModel.from_pretrained(self.model_name)
-            self.model.eval()
-            logger.info("Medical embedding model loaded successfully")
-        except Exception as e:
-            logger.warning(f"Failed to load medical model, falling back to general: {e}")
-            # Fallback to general model
-            self.model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        self.client = OllamaSyncClient()
 
     @lru_cache(maxsize=1000)
     def encode(self, text: str) -> np.ndarray:
@@ -319,27 +306,10 @@ class MedicalEmbeddings:
         Returns:
             Embedding vector
         """
-        if isinstance(self.model, SentenceTransformer):
-            return self.model.encode(text, normalize_embeddings=True)
-
-        # Use BioBERT or similar
-        inputs = self.tokenizer(
-            text,
-            return_tensors="pt",
-            truncation=True,
-            padding=True,
-            max_length=512
-        )
-
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            # Use CLS token embedding
-            embedding = outputs.last_hidden_state[:, 0, :].numpy()
-
-        # Normalize
-        embedding = embedding / np.linalg.norm(embedding)
-
-        return embedding.squeeze()
+        embedding = self.client.embeddings.create(model=self.model_name, input=text).data[0].embedding
+        vector = np.asarray(embedding, dtype=np.float32)
+        norm = np.linalg.norm(vector)
+        return vector / norm if norm else vector
 
     def expand_with_umls(self, text: str) -> str:
         """

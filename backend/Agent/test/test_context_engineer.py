@@ -13,8 +13,10 @@ backend_path = Path(__file__).parent.parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-# Configure logging
-log_filename = f"context_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+# Configure logging under the repository log root.
+LOG_DIR = Path(__file__).resolve().parents[3] / "logs" / "legacy"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+log_filename = str(LOG_DIR / f"context_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

@@ -3,7 +3,7 @@
 CareGuide Healthcare Chatbot v2 - OPTIMIZED
 - Hybrid Search Engine (Keyword + Semantic) with Parallel Processing
 - MongoDB with Connection Pooling & Optimized Indexes
-- Pinecone Vector Database with Embedding Cache
+- MongoDB local vector search with embedding cache
 - PubMed Advanced API with Batch Parallel Fetching
 - Multi-tier Caching (LRU + Disk + Redis)
 - Advanced Components (QueryRouter, PerformanceMonitor, CrossEncoder)

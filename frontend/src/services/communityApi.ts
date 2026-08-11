@@ -1,287 +1,202 @@
-import type { AxiosRequestConfig } from 'axios';
+/**
+ * Community API Service
+ * 커뮤니티 게시글 관련 API
+ */
 
 import api from './api';
-import type { Post, Comment, CreatePostRequest, UpdatePostRequest } from '../types/community';
+import { getAnonymousId } from '../utils/storage';
+import type {
+  Post,
+  PostCard,
+  PostListResponse,
+  FeaturedPostsResponse,
+  PostDetail,
+  PostDetailResponse,
+  PostCreateRequest,
+  PostUpdateRequest,
+  Comment,
+  CommentCreateRequest,
+  CommentUpdateRequest,
+  UploadImageResponse,
+  PostType,
+} from '../types/community';
 
-const COMMUNITY_BASE_URL = '/api/community';
-const POSTS_ENDPOINT = `${COMMUNITY_BASE_URL}/posts`;
-const COMMENTS_ENDPOINT = `${COMMUNITY_BASE_URL}/comments`;
-const ANONYMOUS_ID_KEY = 'careguide_anonymous_id';
-const SECURE_TOKEN_STORAGE_KEY = 'app.security.token';
-const LEGACY_TOKEN_KEY = 'careguide_token';
-const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 10;
+const COMMUNITY_BASE = '/api/community';
 
-type FetchPostsResponse = {
-  posts?: Post[];
-  total?: number;
-  count?: number;
-  totalCount?: number;
+// ==================== Posts API ====================
+
+/**
+ * Fetch posts with infinite scroll (cursor-based pagination)
+ */
+export const fetchPosts = async (params: {
+  limit?: number;
+  cursor?: string | null;
+  postType?: PostType;
+  sortBy?: 'createdAt' | 'likes' | 'lastActivityAt';
+}): Promise<PostListResponse> => {
+  const { data } = await api.get<PostListResponse>(`${COMMUNITY_BASE}/posts`, { params });
+  return data;
 };
 
-type PostDetailResponsePayload = Post | { post?: Post; comments?: Comment[] };
-
-type LikeResponsePayload = {
-  likeCount?: number;
-  likes?: number;
-  liked?: boolean;
+/**
+ * Fetch top 3 featured posts
+ */
+export const fetchFeaturedPosts = async (): Promise<PostCard[]> => {
+  const { data } = await api.get<FeaturedPostsResponse>(`${COMMUNITY_BASE}/posts/featured`);
+  return data.featuredPosts;
 };
 
-type CommentCreatePayload = {
-  postId: string;
-  content: string;
-  isAnonymous?: boolean;
-  anonymousId?: string;
+/**
+ * Fetch single post by ID
+ */
+export const fetchPostById = async (postId: string): Promise<Post> => {
+  const { data } = await api.get<Post>(`${COMMUNITY_BASE}/posts/${postId}`);
+  return data;
 };
 
-const isBrowser = typeof window !== 'undefined';
+/**
+ * Fetch post detail page with comments
+ */
+export const fetchPostDetailPage = async (postId: string): Promise<PostDetailResponse> => {
+  const { data } = await api.get<PostDetailResponse>(`${COMMUNITY_BASE}/posts/${postId}`);
+  return data;
+};
 
-function getLocalStorage(): Storage | null {
-  if (!isBrowser) {
-    return null;
+/**
+ * Create new post
+ */
+export const createPost = async (postData: PostCreateRequest): Promise<Post> => {
+  const { data } = await api.post<Post>(`${COMMUNITY_BASE}/posts`, postData);
+  return data;
+};
+
+/**
+ * Update post
+ */
+export const updatePost = async (postId: string, postData: PostUpdateRequest): Promise<Post> => {
+  const { data } = await api.put<Post>(`${COMMUNITY_BASE}/posts/${postId}`, postData);
+  return data;
+};
+
+/**
+ * Delete post (hard delete)
+ * Only the post author can delete their post.
+ */
+export const deletePost = async (postId: string): Promise<void> => {
+  await api.delete(`${COMMUNITY_BASE}/posts/${postId}`, {
+    params: { anonymousId: getAnonymousId() }
+  });
+};
+
+/**
+ * Toggle like on a post
+ */
+export const toggleLike = async (postId: string, isLiked: boolean): Promise<void> => {
+  if (isLiked) {
+    await api.delete(`${COMMUNITY_BASE}/posts/${postId}/like`);
+  } else {
+    await api.post(`${COMMUNITY_BASE}/posts/${postId}/like`, {});
   }
+};
 
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
+/**
+ * Like a post
+ */
+export const likePost = async (postId: string): Promise<void> => {
+  await api.post(`${COMMUNITY_BASE}/posts/${postId}/like`);
+};
 
-function generateAnonymousToken(): string {
-  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+/**
+ * Unlike a post
+ */
+export const unlikePost = async (postId: string): Promise<void> => {
+  await api.delete(`${COMMUNITY_BASE}/posts/${postId}/like`);
+};
 
-  if (cryptoObj?.randomUUID) {
-    return `anon_${cryptoObj.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  }
+// ==================== Comments API ====================
 
-  if (cryptoObj?.getRandomValues) {
-    const buffer = new Uint8Array(8);
-    cryptoObj.getRandomValues(buffer);
-    return `anon_${Array.from(buffer, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-  }
+/**
+ * Create comment
+ */
+export const createComment = async (commentData: CommentCreateRequest): Promise<Comment> => {
+  const { data } = await api.post<Comment>(`${COMMUNITY_BASE}/comments`, commentData);
+  return data;
+};
 
-  return `anon_${Math.random().toString(36).slice(2, 12)}`;
-}
+/**
+ * Update comment
+ */
+export const updateComment = async (
+  commentId: string,
+  commentData: CommentUpdateRequest
+): Promise<Comment> => {
+  const { data } = await api.put<Comment>(`${COMMUNITY_BASE}/comments/${commentId}`, commentData);
+  return data;
+};
 
-export function getAnonymousId(): string {
-  const storage = getLocalStorage();
-  if (!storage) {
-    return generateAnonymousToken();
-  }
+/**
+ * Delete comment
+ * Comment author OR post author can delete the comment.
+ */
+export const deleteComment = async (commentId: string): Promise<void> => {
+  await api.delete(`${COMMUNITY_BASE}/comments/${commentId}`, {
+    params: { anonymousId: getAnonymousId() }
+  });
+};
 
-  const existing = storage.getItem(ANONYMOUS_ID_KEY);
-  if (existing) {
-    return existing;
-  }
+// ==================== Image Upload API ====================
 
-  const anonymousId = generateAnonymousToken();
+/**
+ * Upload image
+ */
+export const uploadImage = async (file: File): Promise<UploadImageResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
 
-  try {
-    storage.setItem(ANONYMOUS_ID_KEY, anonymousId);
-  } catch (error) {
-    console.warn('[communityApi] Failed to persist anonymous ID', error);
-  }
-
-  return anonymousId;
-}
-
-function parseSecureToken(payload: string): string | null {
-  try {
-    const parsed = JSON.parse(payload) as { token?: string; expiresAt?: number };
-    if (!parsed.token) {
-      return null;
-    }
-
-    if (typeof parsed.expiresAt === 'number' && parsed.expiresAt <= Date.now()) {
-      return null;
-    }
-
-    return parsed.token;
-  } catch {
-    return null;
-  }
-}
-
-function hasAuthToken(): boolean {
-  const storage = getLocalStorage();
-  if (!storage) {
-    return false;
-  }
-
-  const securePayload = storage.getItem(SECURE_TOKEN_STORAGE_KEY);
-  if (securePayload && parseSecureToken(securePayload)) {
-    return true;
-  }
-
-  const legacyToken = storage.getItem(LEGACY_TOKEN_KEY);
-  return Boolean(legacyToken);
-}
-
-function withAnonymousHeader<T>(config?: AxiosRequestConfig<T>): AxiosRequestConfig<T> {
-  if (hasAuthToken()) {
-    return config ?? {};
-  }
-
-  const anonymousId = getAnonymousId();
-
-  return {
-    ...(config ?? {}),
+  // Use axios without Content-Type header (let browser set it automatically)
+  const { data } = await api.post<UploadImageResponse>(`${COMMUNITY_BASE}/uploads`, formData, {
     headers: {
-      ...(config?.headers ?? {}),
-      anonymous_id: anonymousId,
+      'Content-Type': 'multipart/form-data',
     },
-  };
-}
+  });
 
-function extractPost(payload: unknown): Post {
-  if (payload && typeof payload === 'object') {
-    const withPost = payload as PostDetailResponsePayload;
-    if ('post' in withPost && withPost.post) {
-      return withPost.post as Post;
-    }
+  return data;
+};
 
-    if ('id' in (payload as Record<string, unknown>)) {
-      return payload as Post;
-    }
-  }
+// ==================== Auth API (Dev only) ====================
 
-  throw new Error('게시글 정보를 불러오지 못했습니다.');
-}
+/**
+ * Dev login for testing
+ */
+export const devLogin = async (): Promise<{
+  token: string;
+  userId: string;
+  user: { name: string };
+}> => {
+  const { data } = await api.post('/api/auth/dev-login');
+  return data;
+};
 
-function extractComments(payload: unknown): Comment[] {
-  if (Array.isArray(payload)) {
-    return payload as Comment[];
-  }
+// ==================== Legacy API Functions (for backward compatibility) ====================
 
-  if (payload && typeof payload === 'object') {
-    const withComments = payload as { comments?: Comment[] };
-    if (Array.isArray(withComments.comments)) {
-      return withComments.comments;
-    }
-  }
+/**
+ * @deprecated Use fetchPosts instead
+ */
+export const getPosts = async (
+  limit = 20,
+  cursor?: string,
+  postType?: PostType,
+  sortBy: 'createdAt' | 'likes' | 'lastActivityAt' = 'lastActivityAt'
+): Promise<PostListResponse> => {
+  return fetchPosts({ limit, cursor, postType, sortBy });
+};
 
-  return [];
-}
+/**
+ * @deprecated Use fetchPostById instead
+ */
+export const getPostDetail = async (postId: string): Promise<Post> => {
+  return fetchPostById(postId);
+};
 
-function resolveLikeCount(payload?: LikeResponsePayload): number {
-  if (!payload) {
-    return 0;
-  }
-
-  if (typeof payload.likeCount === 'number') {
-    return payload.likeCount;
-  }
-
-  if (typeof payload.likes === 'number') {
-    return payload.likes;
-  }
-
-  return 0;
-}
-
-export async function fetchPosts(
-  category?: string,
-  page: number = DEFAULT_PAGE,
-  pageSize: number = DEFAULT_PAGE_SIZE
-): Promise<{ posts: Post[]; total: number }> {
-  const params: Record<string, unknown> = {
-    page,
-    pageSize,
-  };
-
-  if (category) {
-    params.category = category;
-  }
-
-  const config = withAnonymousHeader({ params });
-  const { data } = await api.get<FetchPostsResponse>(POSTS_ENDPOINT, config);
-
-  const posts = Array.isArray(data?.posts) ? data.posts : [];
-  const total =
-    typeof data?.total === 'number'
-      ? data.total
-      : typeof data?.count === 'number'
-        ? data.count
-        : typeof data?.totalCount === 'number'
-          ? data.totalCount
-          : posts.length;
-
-  return { posts, total };
-}
-
-export async function fetchPost(postId: string): Promise<Post> {
-  if (!postId) {
-    throw new Error('게시글 ID를 입력해주세요.');
-  }
-
-  const config = withAnonymousHeader();
-  const { data } = await api.get<PostDetailResponsePayload>(`${POSTS_ENDPOINT}/${postId}`, config);
-  return extractPost(data);
-}
-
-export async function createPost(payload: CreatePostRequest): Promise<Post> {
-  const config = withAnonymousHeader<CreatePostRequest>();
-  const response = await api.post<Post>(POSTS_ENDPOINT, payload, config);
-  return response.data;
-}
-
-export async function updatePost(postId: string, payload: UpdatePostRequest): Promise<Post> {
-  const config = withAnonymousHeader<UpdatePostRequest>();
-  const response = await api.put<Post>(`${POSTS_ENDPOINT}/${postId}`, payload, config);
-  return response.data;
-}
-
-export async function deletePost(postId: string): Promise<void> {
-  const config = withAnonymousHeader();
-  await api.delete(`${POSTS_ENDPOINT}/${postId}`, config);
-}
-
-export async function fetchComments(postId: string): Promise<Comment[]> {
-  const config = withAnonymousHeader();
-  const { data } = await api.get<PostDetailResponsePayload | Comment[]>(`${POSTS_ENDPOINT}/${postId}`, config);
-  return extractComments(data);
-}
-
-export async function createComment(
-  postId: string,
-  content: string,
-  isAnonymous: boolean = false
-): Promise<Comment> {
-  const payload: CommentCreatePayload = {
-    postId,
-    content,
-    isAnonymous,
-  };
-
-  if (!hasAuthToken()) {
-    payload.anonymousId = getAnonymousId();
-  }
-
-  const config = withAnonymousHeader<CommentCreatePayload>();
-  const response = await api.post<Comment>(COMMENTS_ENDPOINT, payload, config);
-  return response.data;
-}
-
-export async function deleteComment(commentId: string): Promise<void> {
-  const config = withAnonymousHeader();
-  await api.delete(`${COMMENTS_ENDPOINT}/${commentId}`, config);
-}
-
-export async function likePost(postId: string): Promise<{ likeCount: number; liked: boolean }> {
-  const config = withAnonymousHeader();
-  const { data } = await api.post<LikeResponsePayload>(`${POSTS_ENDPOINT}/${postId}/like`, {}, config);
-  return {
-    likeCount: resolveLikeCount(data),
-    liked: data?.liked ?? true,
-  };
-}
-
-export async function unlikePost(postId: string): Promise<{ likeCount: number; liked: boolean }> {
-  const config = withAnonymousHeader();
-  const { data } = await api.delete<LikeResponsePayload>(`${POSTS_ENDPOINT}/${postId}/like`, config);
-  return {
-    likeCount: resolveLikeCount(data),
-    liked: data?.liked ?? false,
-  };
-}
+// Re-export types for convenience
+export type { Post, PostCard, PostDetail, Comment, PostType };

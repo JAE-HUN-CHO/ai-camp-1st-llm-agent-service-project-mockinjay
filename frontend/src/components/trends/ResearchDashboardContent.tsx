@@ -1,480 +1,426 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { compareKeywords } from '../../services/trendsApi';
-import type { ChartConfig as TrendChartConfig } from '../../types/trends';
+/**
+ * ResearchDashboardContent Component
+ *
+ * Real PubMed research trends dashboard with:
+ * - API-driven data from compareKeywords
+ * - 24-hour localStorage caching
+ * - Popular keywords with trend indicators
+ * - Interactive line chart
+ * - AI analysis summary
+ */
+import React, { useState, useEffect, useCallback } from 'react';
+import { TrendingUp, TrendingDown, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import { compareKeywords, type TrendResponse, type ChartConfig } from '../../services/trendsApi';
 
-const DEFAULT_KEYWORDS = ['chronic kidney disease', 'dialysis', 'kidney transplant', 'CKD nutrition'];
-const CACHE_PREFIX = 'research-dashboard';
-const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-const FALLBACK_COLORS = ['#2563eb', '#dc2626', '#059669', '#eab308'];
-const IS_BROWSER = typeof window !== 'undefined';
+// Default CKD-related keywords
+const DEFAULT_KEYWORDS = ['chronic kidney disease', 'dialysis', 'kidney transplant', 'renal diet'];
 
-type ComparisonChartConfig = TrendChartConfig & {
-  data?: {
-    labels?: Array<string | number>;
-    datasets?: Array<{
-      label?: string;
-      data?: Array<number | string>;
-      borderColor?: string;
-      backgroundColor?: string;
-    }>;
-  };
-};
+// Chart colors (brand colors)
+const CHART_COLORS = [
+  '#00C9B7', // Mint (brand)
+  '#9F7AEA', // Purple (brand)
+  '#3B82F6', // Blue
+  '#F59E0B', // Orange
+];
 
-type CachedDashboardPayload = {
+// Cache key and duration (24 hours)
+const CACHE_KEY = 'research_dashboard_cache';
+const CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+interface CachedData {
   timestamp: number;
-  chartData: ComparisonChartConfig | null;
-  summary: string;
-  keywords: string[];
-};
+  trendData: TrendDataPoint[];
+  keywords: KeywordTrend[];
+  chartConfig: ChartConfig | null;
+  answerText: string;
+}
 
-type SeriesDescriptor = {
-  label: string;
-  values: number[];
-  color: string;
-};
-
-type KeywordStat = {
-  keyword: string;
-  lastValue: number | null;
-  previousValue: number | null;
-  yoyChange: number | null;
-  color: string;
-};
-
-type ChartPoint = {
+interface TrendDataPoint {
   year: string;
-  [series: string]: string | number;
-};
+  [key: string]: string | number;
+}
 
-const isValidChartConfig = (value: unknown): value is ComparisonChartConfig => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
+interface KeywordTrend {
+  text: string;
+  change: number;
+  trending: 'up' | 'down';
+}
 
-  const candidate = value as ComparisonChartConfig;
-  if (!candidate.data || typeof candidate.data !== 'object') {
-    return false;
-  }
+export interface ResearchDashboardContentProps {
+  onKeywordClick?: (keyword: string) => void;
+  language?: 'ko' | 'en';
+}
 
-  const { labels, datasets } = candidate.data;
-  return Array.isArray(labels) && Array.isArray(datasets);
-};
-
-const ResearchDashboardContent: React.FC = () => {
-  const [chartData, setChartData] = useState<ComparisonChartConfig | null>(null);
-  const [keywords, setKeywords] = useState<string[]>(DEFAULT_KEYWORDS);
-  const [loading, setLoading] = useState(false);
+const ResearchDashboardContent: React.FC<ResearchDashboardContentProps> = ({
+  onKeywordClick,
+  language = 'ko',
+}) => {
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [aiSummary, setAiSummary] = useState('');
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
-  const [keywordInput, setKeywordInput] = useState(DEFAULT_KEYWORDS.join(', '));
+  const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
+  const [keywords, setKeywords] = useState<KeywordTrend[]>([]);
+  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null);
+  const [answerText, setAnswerText] = useState<string>('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const normalizeKeywords = useCallback((value: string | string[]): string[] => {
-    const initial = Array.isArray(value) ? value : value.split(',');
-    const seen = new Set<string>();
-    const normalized: string[] = [];
+  // Korean label mapping
+  const getKoreanLabel = (label: string): string => {
+    const mapping: Record<string, string> = {
+      'chronic kidney disease': '만성콩팥병',
+      'dialysis': '투석 치료',
+      'kidney transplant': '신장 이식',
+      'renal diet': '신장병 식단',
+    };
+    return mapping[label.toLowerCase()] || label;
+  };
 
-    for (const item of initial) {
-      const trimmed = item.trim();
-      if (!trimmed) {
-        continue;
+  // Load from cache
+  const loadFromCache = useCallback((): CachedData | null => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (!cached) return null;
+
+      const data: CachedData = JSON.parse(cached);
+      const now = Date.now();
+
+      if (now - data.timestamp < CACHE_DURATION) {
+        return data;
       }
 
-      const lower = trimmed.toLowerCase();
-      if (seen.has(lower)) {
-        continue;
-      }
-
-      seen.add(lower);
-      normalized.push(trimmed);
-
-      if (normalized.length === 4) {
-        break;
-      }
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    } catch {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
     }
-
-    return normalized;
   }, []);
 
-  const getCacheKey = useCallback(
-    (list: string[]): string => {
-      const normalized = normalizeKeywords(list)
-        .map((keyword) => keyword.toLowerCase())
-        .sort()
-        .join('|');
-      return `${CACHE_PREFIX}:${normalized}`;
-    },
-    [normalizeKeywords]
-  );
+  // Save to cache
+  const saveToCache = useCallback((data: Omit<CachedData, 'timestamp'>) => {
+    try {
+      const cacheData: CachedData = {
+        ...data,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+    } catch (err) {
+      console.warn('Cache save failed:', err);
+    }
+  }, []);
 
-  const readCache = useCallback(
-    (key: string): CachedDashboardPayload | null => {
-      if (!IS_BROWSER) {
-        return null;
+  // Load trend data from API
+  const loadTrendData = useCallback(async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = loadFromCache();
+      if (cached) {
+        setTrendData(cached.trendData);
+        setKeywords(cached.keywords);
+        setChartConfig(cached.chartConfig);
+        setAnswerText(cached.answerText);
+        setLastUpdated(new Date(cached.timestamp));
+        setLoading(false);
+        return;
       }
-
-      try {
-        const cached = window.localStorage.getItem(key);
-        if (!cached) {
-          return null;
-        }
-
-        const parsed = JSON.parse(cached) as CachedDashboardPayload;
-        if (!parsed.timestamp || Date.now() - parsed.timestamp > CACHE_DURATION_MS) {
-          window.localStorage.removeItem(key);
-          return null;
-        }
-
-        return parsed;
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
-  const writeCache = useCallback((key: string, payload: CachedDashboardPayload): void => {
-    if (!IS_BROWSER) {
-      return;
     }
 
     try {
-      window.localStorage.setItem(key, JSON.stringify(payload));
-    } catch {
-      // Ignore storage quota errors
-    }
-  }, []);
-
-  const fetchComparison = useCallback(
-    async (nextKeywords: string[], options: { force?: boolean } = {}) => {
-      const sanitized = normalizeKeywords(nextKeywords);
-      if (sanitized.length < 2) {
-        setError('비교할 키워드를 두 개 이상 입력해주세요.');
-        return;
-      }
-
-      const cacheKey = getCacheKey(sanitized);
-      if (!options.force) {
-        const cached = readCache(cacheKey);
-        if (cached) {
-          setChartData(cached.chartData);
-          setAiSummary(cached.summary);
-          setLastUpdated(cached.timestamp);
-          setError(null);
-          return;
-        }
-      }
-
       setLoading(true);
       setError(null);
 
-      try {
-        const currentYear = new Date().getFullYear();
-        const startYear = Math.max(2000, currentYear - 9);
-        const response = await compareKeywords(sanitized, startYear, currentYear);
-        // TrendResponse uses 'sources' (array of ChartConfig) and 'answer' (string)
-        const chartSource = response.sources?.[0];
-        const config = isValidChartConfig(chartSource) ? (chartSource as ComparisonChartConfig) : null;
-        const summary = response.answer ?? '';
-        const timestamp = Date.now();
+      const response: TrendResponse = await compareKeywords(DEFAULT_KEYWORDS, 2018, 2024);
 
-        setChartData(config);
-        setAiSummary(summary);
-        setLastUpdated(timestamp);
+      let newTrendData: TrendDataPoint[] = [];
+      let newKeywords: KeywordTrend[] = [];
+      let newChartConfig: ChartConfig | null = null;
+      let newAnswerText = '';
 
-        writeCache(cacheKey, {
-          timestamp,
-          chartData: config,
-          summary,
-          keywords: sanitized,
+      // Transform chart data
+      if (response.sources && response.sources.length > 0) {
+        const chart = response.sources[0];
+        newChartConfig = chart;
+
+        const labels = chart.data.labels || [];
+        const datasets = chart.data.datasets || [];
+
+        newTrendData = labels.map((year, index) => {
+          const point: TrendDataPoint = { year: String(year) };
+          datasets.forEach((dataset) => {
+            point[dataset.label] = dataset.data[index] || 0;
+          });
+          return point;
         });
-      } catch (fetchError) {
-        setError(fetchError instanceof Error ? fetchError.message : 'Failed to load PubMed comparison data.');
-      } finally {
-        setLoading(false);
+
+        // Calculate keyword trends (year-over-year change)
+        newKeywords = datasets.map((dataset) => {
+          const data = dataset.data;
+          const recent = data[data.length - 1] || 0;
+          const previous = data[data.length - 2] || 1;
+          const changePercent = Math.round(((recent - previous) / (previous || 1)) * 100);
+
+          return {
+            text: dataset.label,
+            change: Math.abs(changePercent),
+            trending: (changePercent >= 0 ? 'up' : 'down') as 'up' | 'down',
+          };
+        });
       }
-    },
-    [getCacheKey, normalizeKeywords, readCache, writeCache]
-  );
 
-  useEffect(() => {
-    fetchComparison(keywords);
-  }, [keywords, fetchComparison]);
+      if (response.answer) {
+        newAnswerText = response.answer;
+      }
 
-  useEffect(() => {
-    setKeywordInput(keywords.join(', '));
-  }, [keywords]);
+      setTrendData(newTrendData);
+      setKeywords(newKeywords);
+      setChartConfig(newChartConfig);
+      setAnswerText(newAnswerText);
+      setLastUpdated(new Date());
 
-  const seriesCollection = useMemo<SeriesDescriptor[]>(() => {
-    if (!chartData?.data || !Array.isArray(chartData.data.datasets)) {
-      return [];
-    }
-
-    return chartData.data.datasets.map((dataset = {}, index) => {
-      const rawValues = Array.isArray(dataset.data) ? dataset.data : [];
-      const values = rawValues.map((value) => {
-        if (typeof value === 'number') {
-          return value;
-        }
-
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : 0;
+      saveToCache({
+        trendData: newTrendData,
+        keywords: newKeywords,
+        chartConfig: newChartConfig,
+        answerText: newAnswerText,
       });
+    } catch (err) {
+      console.error('Failed to load trend data:', err);
+      setError(err instanceof Error ? err.message : '트렌드 데이터를 불러오는데 실패했습니다.');
 
-      const palette = dataset.borderColor || dataset.backgroundColor;
-      const color = typeof palette === 'string' && palette.trim().length
-        ? palette
-        : FALLBACK_COLORS[index % FALLBACK_COLORS.length];
-
-      return {
-        label: dataset.label || `Keyword ${index + 1}`,
-        values,
-        color: color ?? '#000000',
-      };
-    });
-  }, [chartData]);
-
-  const chartPoints = useMemo<ChartPoint[]>(() => {
-    if (!chartData?.data || !Array.isArray(chartData.data.labels)) {
-      return [];
+      // Fallback mock data on error
+      setKeywords([
+        { text: 'chronic kidney disease', change: 12, trending: 'up' },
+        { text: 'dialysis', change: 8, trending: 'up' },
+        { text: 'kidney transplant', change: 15, trending: 'up' },
+        { text: 'renal diet', change: 5, trending: 'up' },
+      ]);
+    } finally {
+      setLoading(false);
     }
-
-    if (!seriesCollection.length) {
-      return [];
-    }
-
-    return chartData.data.labels.map((label, labelIndex) => {
-      const entry: ChartPoint = {
-        year: String(label),
-      };
-
-      seriesCollection.forEach((series) => {
-        const value = series.values[labelIndex];
-        entry[series.label] = typeof value === 'number' ? Number(value.toFixed(2)) : 0;
-      });
-
-      return entry;
-    });
-  }, [chartData, seriesCollection]);
-
-  const keywordStats = useMemo<KeywordStat[]>(() => {
-    return seriesCollection.map((series) => {
-      const lastIndex = series.values.length - 1;
-      const lastValue = lastIndex >= 0 ? series.values[lastIndex] ?? null : null;
-      const prevValue = lastIndex > 0 ? series.values[lastIndex - 1] ?? null : null;
-
-      let yoyChange: number | null = null;
-      if (typeof lastValue === 'number' && typeof prevValue === 'number' && prevValue !== 0) {
-        yoyChange = ((lastValue - prevValue) / prevValue) * 100;
-      }
-
-      return {
-        keyword: series.label,
-        lastValue,
-        previousValue: prevValue,
-        yoyChange,
-        color: series.color,
-      };
-    });
-  }, [seriesCollection]);
-
-  const handleKeywordSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const parsed = normalizeKeywords(keywordInput);
-
-      if (parsed.length < 2) {
-        setError('비교할 키워드를 두 개 이상 입력해주세요.');
-        return;
-      }
-
-      setKeywords(parsed);
-    },
-    [keywordInput, normalizeKeywords]
-  );
+  }, [loadFromCache, saveToCache]);
 
   const handleForceRefresh = useCallback(() => {
-    fetchComparison(keywords, { force: true });
-  }, [fetchComparison, keywords]);
+    loadTrendData(true);
+  }, [loadTrendData]);
 
-  const handleKeywordCardClick = useCallback(
-    (keyword: string) => {
-      setKeywords((prev) => {
-        const remainder = prev.filter((item) => item.toLowerCase() !== keyword.toLowerCase());
-        const candidate = normalizeKeywords([keyword, ...remainder, ...DEFAULT_KEYWORDS]);
-        return candidate.length >= 2 ? candidate : DEFAULT_KEYWORDS;
-      });
+  useEffect(() => {
+    loadTrendData(false);
+  }, [loadTrendData]);
 
-      if (IS_BROWSER) {
-        const pubmedUrl = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(keyword)}`;
-        window.open(pubmedUrl, '_blank', 'noopener,noreferrer');
-      }
-    },
-    [normalizeKeywords]
-  );
-
-  const lastUpdatedLabel = lastUpdated ? new Date(lastUpdated).toLocaleString() : null;
+  const t = {
+    title: language === 'ko' ? '연구 대시보드' : 'Research Dashboard',
+    subtitle: language === 'ko' ? 'PubMed 기반 신장병 연구 트렌드' : 'PubMed-based CKD research trends',
+    popularKeywords: language === 'ko' ? '📈 인기 키워드' : '📈 Popular Keywords',
+    researchTrends: language === 'ko' ? '📊 연구 트렌드' : '📊 Research Trends',
+    aiSummary: language === 'ko' ? '🤖 AI 분석 요약' : '🤖 AI Analysis Summary',
+    refresh: language === 'ko' ? '새로고침' : 'Refresh',
+    lastUpdate: language === 'ko' ? '마지막 업데이트' : 'Last updated',
+    autoRefresh: language === 'ko' ? '24시간마다 자동 갱신' : 'Auto-refreshes every 24 hours',
+    yoyChange: language === 'ko' ? '전년 대비' : 'YoY',
+    papers: language === 'ko' ? '편' : 'papers',
+    year: language === 'ko' ? '년' : '',
+    loadingText: language === 'ko' ? 'PubMed에서 트렌드 데이터를 불러오는 중...' : 'Loading trend data from PubMed...',
+    noData: language === 'ko' ? '트렌드 데이터가 없습니다' : 'No trend data available',
+    dataSource: language === 'ko' ? '데이터 출처: PubMed (2018-2024)' : 'Data source: PubMed (2018-2024)',
+  };
 
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-8">
+      {/* Header with Refresh */}
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-slate-900">Research dashboard</h2>
-          <p className="text-sm text-slate-500">
-            Live PubMed keyword comparisons with AI-generated insights.
-          </p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t.title}</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t.subtitle}</p>
+          {lastUpdated && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {t.lastUpdate}: {lastUpdated.toLocaleDateString('ko-KR')} {lastUpdated.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+              {' '}({t.autoRefresh})
+            </p>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          {lastUpdatedLabel && <span>Last updated {lastUpdatedLabel}</span>}
-          <button
-            type="button"
-            onClick={handleForceRefresh}
-            disabled={loading}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Force refresh
-          </button>
-        </div>
+        <button
+          onClick={handleForceRefresh}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300
+            bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700
+            transition-colors disabled:opacity-50"
+          title={language === 'ko' ? '캐시를 무시하고 새로운 데이터를 가져옵니다' : 'Force refresh data'}
+        >
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          {t.refresh}
+        </button>
       </div>
 
+      {/* Error Banner */}
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-3">
+          <AlertCircle className="text-red-500" size={20} />
+          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
         </div>
       )}
 
-      <form
-        onSubmit={handleKeywordSubmit}
-        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <label className="block text-sm font-medium text-slate-700">Compare keywords</label>
-        <div className="mt-3 flex flex-col gap-3 md:flex-row">
-          <input
-            type="text"
-            value={keywordInput}
-            onChange={(event) => setKeywordInput(event.target.value)}
-            placeholder="e.g. chronic kidney disease, dialysis, ..."
-            className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-          />
-          <button
-            type="submit"
-            className="rounded-xl bg-indigo-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
-          >
-            Update dashboard
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">Enter 2-4 keywords separated by commas.</p>
-      </form>
+      {/* Popular Keywords Section */}
+      <section>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t.popularKeywords}</h3>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-900">PubMed keyword comparison</h3>
-              <p className="text-sm text-slate-500">Normalized publication counts per year</p>
-            </div>
-            {loading && (
-              <span className="text-xs font-medium text-slate-500">Refreshing…</span>
-            )}
-          </div>
-          <div className="mt-4 h-80">
-            {loading && !chartPoints.length ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                Loading PubMed data…
-              </div>
-            ) : chartPoints.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartPoints} margin={{ top: 10, right: 16, bottom: 12, left: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="year" tick={{ fontSize: 12 }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12 }} tickLine={false} />
-                  <Tooltip />
-                  <Legend />
-                  {seriesCollection.map((series) => (
-                    <Line
-                      key={series.label}
-                      type="monotone"
-                      dataKey={series.label}
-                      stroke={series.color}
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                No chart data available yet. Try refreshing or updating the keywords.
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900">AI summary</h3>
-          <p className="mt-3 text-sm text-slate-600">
-            {loading && !aiSummary
-              ? 'Synthesizing summary from the latest PubMed data…'
-              : aiSummary || 'No AI summary yet. Run a comparison to see the highlights.'}
-          </p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-lg font-semibold text-slate-900">Popular keywords (YoY)</h3>
-          <p className="text-sm text-slate-500">
-            Calculated from normalized publication counts between the last two years.
-          </p>
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {keywordStats.length ? (
-            keywordStats.map((stat) => (
-              <button
-                key={stat.keyword}
-                type="button"
-                onClick={() => handleKeywordCardClick(stat.keyword)}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 animate-pulse"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold" style={{ color: stat.color }}>
-                    {stat.keyword}
-                  </span>
+                <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {keywords.map((keyword, index) => (
+              <div
+                key={index}
+                onClick={() => onKeywordClick?.(keyword.text)}
+                className={`p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800
+                  hover:shadow-md dark:hover:shadow-gray-900/30 transition-all duration-200
+                  ${onKeywordClick ? 'cursor-pointer' : ''}`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="flex items-center justify-center rounded-full w-8 h-8 text-sm font-bold"
+                      style={{
+                        background: CHART_COLORS[index % CHART_COLORS.length] + '20',
+                        color: CHART_COLORS[index % CHART_COLORS.length],
+                      }}
+                    >
+                      {index + 1}
+                    </span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                      {getKoreanLabel(keyword.text)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 mt-3 ml-11">
+                  {keyword.trending === 'up' ? (
+                    <TrendingUp size={16} className="text-green-500" />
+                  ) : (
+                    <TrendingDown size={16} className="text-red-500" />
+                  )}
                   <span
-                    className={`text-xs font-semibold ${
-                      stat.yoyChange === null
-                        ? 'text-slate-500'
-                        : stat.yoyChange >= 0
-                          ? 'text-green-600'
-                          : 'text-rose-600'
-                    }`}
+                    className="text-sm font-semibold"
+                    style={{ color: keyword.trending === 'up' ? '#10B981' : '#EF4444' }}
                   >
-                    {stat.yoyChange === null
-                      ? '—'
-                      : `${stat.yoyChange >= 0 ? '+' : ''}${stat.yoyChange.toFixed(1)}% YoY`}
+                    {keyword.trending === 'up' ? '+' : '-'}{keyword.change}%
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                    {t.yoyChange}
                   </span>
                 </div>
-                <p className="mt-4 text-2xl font-bold text-slate-900">
-                  {stat.lastValue !== null ? stat.lastValue.toFixed(1) : '—'}
-                </p>
-                <p className="text-xs text-slate-500">
-                  Prev. year {stat.previousValue !== null ? stat.previousValue.toFixed(1) : 'n/a'}
-                </p>
-                <p className="mt-3 text-xs text-slate-500">
-                  Click to open a PubMed search and refresh the dashboard.
-                </p>
-              </button>
-            ))
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Research Trends Chart */}
+      <section>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t.researchTrends}</h3>
+
+        <div className="p-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          {loading ? (
+            <div className="h-[350px] flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="animate-spin text-[#00C9B7]" size={40} />
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t.loadingText}</p>
+              </div>
+            </div>
+          ) : trendData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={trendData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <XAxis
+                  dataKey="year"
+                  tick={{ fill: '#6B7280', fontSize: 12 }}
+                  axisLine={{ stroke: '#E5E7EB' }}
+                />
+                <YAxis
+                  tick={{ fill: '#6B7280', fontSize: 12 }}
+                  axisLine={{ stroke: '#E5E7EB' }}
+                  label={{
+                    value: language === 'ko' ? '논문 수' : 'Papers',
+                    angle: -90,
+                    position: 'insideLeft',
+                    fill: '#6B7280',
+                    fontSize: 12,
+                  }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'white',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                  }}
+                  formatter={(value: number, name: string) => [
+                    `${value.toLocaleString()}${t.papers}`,
+                    getKoreanLabel(name),
+                  ]}
+                  labelFormatter={(label) => `${label}${t.year}`}
+                />
+                <Legend
+                  formatter={(value) => getKoreanLabel(value)}
+                  wrapperStyle={{ paddingTop: '20px' }}
+                />
+                {chartConfig?.data.datasets.map((dataset, index) => (
+                  <Line
+                    key={dataset.label}
+                    type="monotone"
+                    dataKey={dataset.label}
+                    stroke={CHART_COLORS[index % CHART_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: CHART_COLORS[index % CHART_COLORS.length] }}
+                    activeDot={{ r: 6, fill: CHART_COLORS[index % CHART_COLORS.length] }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           ) : (
-            <div className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-              No keyword stats yet. Run a comparison to see YoY movements.
+            <div className="h-[350px] flex items-center justify-center">
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t.noData}</p>
             </div>
           )}
         </div>
+      </section>
+
+      {/* AI Analysis Summary */}
+      {answerText && (
+        <section>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t.aiSummary}</h3>
+          <div className="p-6 rounded-lg border border-gray-200 dark:border-gray-700 bg-gradient-to-br from-[#00C9B7]/5 to-purple-50 dark:from-gray-800 dark:to-gray-800">
+            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+              {answerText}
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Data Source Info */}
+      <div className="text-center py-4 border-t border-gray-200 dark:border-gray-700">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {t.dataSource} | {t.lastUpdate}: {new Date().toLocaleDateString('ko-KR')}
+        </p>
       </div>
-    </section>
+    </div>
   );
 };
 

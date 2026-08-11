@@ -2,7 +2,7 @@
 Agent API Router
 Handles chat requests through Agent Manager with intent classification and fallback policies
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import logging
@@ -12,14 +12,11 @@ import os
 # Add Agent directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../"))
 
-from Agent.agent_manager import AgentManager
+from app.services.agent_runtime import get_agent_runtime
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
-
-# Initialize Agent Manager
-agent_manager = AgentManager()
 
 # Agent type mapping
 AGENT_TYPE_MAP = {
@@ -89,7 +86,7 @@ def get_fallback_message(error_type: str, error_details: Optional[Dict] = None) 
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def agent_chat(request: ChatRequest):
+async def agent_chat(request: ChatRequest, http_request: Request):
     """
     Process chat request through Agent Manager
 
@@ -100,6 +97,7 @@ async def agent_chat(request: ChatRequest):
     - Fallback policies
     """
     try:
+        agent_manager = get_agent_runtime(http_request).agent_manager
         # Map frontend agent type to backend agent type
         backend_agent_type = AGENT_TYPE_MAP.get(request.agent_type)
 
@@ -207,11 +205,12 @@ async def agent_chat(request: ChatRequest):
 
 
 @router.get("/session/{session_id}/context")
-async def get_session_context(session_id: str):
+async def get_session_context(session_id: str, request: Request):
     """
     Get session context including disease name and keywords
     """
     try:
+        agent_manager = get_agent_runtime(request).agent_manager
         session = agent_manager.session_manager.get_session(session_id)
 
         if not session:
@@ -237,10 +236,11 @@ async def get_session_context(session_id: str):
 
 
 @router.get("/agents")
-async def list_agents():
+async def list_agents(request: Request):
     """
     List available agents and their mappings
     """
+    agent_manager = get_agent_runtime(request).agent_manager
     return {
         "agents": AGENT_TYPE_MAP,
         "descriptions": {

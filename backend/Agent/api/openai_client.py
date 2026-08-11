@@ -1,59 +1,41 @@
-"""
-OpenAI Client for Agent System
-Provides GPT-based text generation and embeddings
-"""
+"""Compatibility client backed exclusively by local Ollama."""
 import os
 import logging
 from typing import List, Dict, Optional
-from openai import AsyncOpenAI
-import tiktoken
+from app.adapters.ollama.client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
 
 class OpenAIClient:
-    """OpenAI API client for text generation and embeddings"""
+    """Legacy name retained for imports; all requests go to Ollama."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        model: str = "gpt-4o-mini",
-        embedding_model: str = "text-embedding-3-small"
+        model: str = "qwen3.6:27b-mlx",
+        embedding_model: str = "nomic-embed-text-v2-moe"
     ):
         """
-        Initialize OpenAI client
+        Initialize the Ollama-backed compatibility client
 
         Args:
-            api_key: OpenAI API key
+            api_key: retained for source compatibility; ignored
             base_url: API base URL (optional)
-            model: Model to use (default: gpt-4o-mini)
+            model: Ollama model to use
             embedding_model: Embedding model to use
         """
-        openai_key = api_key or os.getenv('OPENAI_API_KEY')
-
-        if not openai_key:
-            raise ValueError("OPENAI_API_KEY environment variable or api_key parameter is required")
-
-        self.client = AsyncOpenAI(
-            api_key=openai_key,
-            base_url=base_url
-        )
-        self.model = model
-        self.embedding_model = embedding_model
-
-        # Tokenizer for token counting
-        try:
-            self.tokenizer = tiktoken.encoding_for_model(model)
-        except Exception as e:
-            # 비OpenAI 모델의 경우 폴백 토크나이저 사용 (Fallback tokenizer for non-OpenAI models)
-            logger.warning(f"Failed to get tokenizer for model {model}: {e}")
-            self.tokenizer = tiktoken.get_encoding("cl100k_base")
-            logger.warning(f"Using fallback tokenizer for model: {model}")
+        del api_key
+        self.client = OllamaClient(model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
+                                   embedding_model=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text-v2-moe"),
+                                   base_url=base_url)
+        self.model = self.client.model
+        self.embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", embedding_model)
 
     def count_tokens(self, text: str) -> int:
-        """Count tokens in text"""
-        return len(self.tokenizer.encode(text))
+        """Approximate token count without a remote tokenizer."""
+        return max(1, len(text.split()))
 
     async def generate(
         self,
@@ -96,7 +78,7 @@ class OpenAIClient:
             }
 
         except Exception as e:
-            logger.error(f"OpenAI generation error: {e}")
+            logger.error(f"Ollama generation error: {e}")
             raise
 
     async def generate_nutrition_advice(
@@ -223,7 +205,7 @@ class OpenAIClient:
             return response.data[0].embedding
 
         except Exception as e:
-            logger.error(f"OpenAI embedding error: {e}")
+            logger.error(f"Ollama embedding error: {e}")
             raise
 
     async def create_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
@@ -245,5 +227,5 @@ class OpenAIClient:
             return [item.embedding for item in response.data]
 
         except Exception as e:
-            logger.error(f"OpenAI batch embedding error: {e}")
+            logger.error(f"Ollama batch embedding error: {e}")
             raise

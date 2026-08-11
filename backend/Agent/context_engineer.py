@@ -1,11 +1,27 @@
-import logging
 import json
-from typing import List, Dict, Optional
-from langchain_community.chat_models import ChatOllama
+import logging
+from types import SimpleNamespace
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.db.context_manager import ContextManager
+from app.adapters.ollama.client import OllamaClient
 
 logger = logging.getLogger(__name__)
+
+class _ContextLLM:
+    """Small async invoke wrapper that keeps context analysis Ollama-only."""
+
+    def __init__(self):
+        self.client = OllamaClient()
+
+    async def ainvoke(self, messages):
+        response = await self.client.chat.completions.create(
+            model="qwen3.6:27b-mlx",
+            messages=messages,
+            temperature=0,
+        )
+        return SimpleNamespace(content=response.choices[0].message.content)
+
 
 class ContextEngineer:
     """
@@ -16,7 +32,7 @@ class ContextEngineer:
     def __init__(self):
         self.db_manager = ContextManager()
         # Using a capable model for summarization and extraction
-        self.llm = ChatOllama(model="glm-4.6:cloud", temperature=0)
+        self.llm = _ContextLLM()
 
     async def analyze_and_update_context(self, user_id: str):
         """
@@ -73,7 +89,7 @@ class ContextEngineer:
         except Exception as e:
             logger.error(f"Failed to analyze context for user {user_id}: {e}")
 
-    async def get_user_context(self, user_id: str) -> Dict:
+    async def get_user_context(self, user_id: str) -> dict:
         """
         Retrieve the stored context for a user.
         Returns a dict with 'summary' and 'keywords'.

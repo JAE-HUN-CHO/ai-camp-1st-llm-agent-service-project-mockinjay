@@ -9,7 +9,7 @@ import asyncio
 import os
 from typing import Dict, Any, List, Optional, Tuple
 
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient
 
 from Agent.core.local_agent import LocalAgent
 from Agent.core.agent_registry import AgentRegistry
@@ -31,7 +31,7 @@ class RouterAgent(LocalAgent):
 
     def __init__(self):
         super().__init__(agent_type="router")
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = OllamaClient()
         self._agents = {}
 
     async def _chat_completion(
@@ -41,7 +41,7 @@ class RouterAgent(LocalAgent):
         max_tokens: Optional[int] = None
     ) -> str:
         response = await self.client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens

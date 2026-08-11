@@ -1,262 +1,393 @@
-// Security helpers for CSRF, XSS, token storage, etc. (CSRF, XSS, 토큰 보관 등 보안 도우미)
+/**
+ * Security Utilities for CareGuide Frontend
+ * CareGuide 프론트엔드 보안 유틸리티
+ *
+ * CSRF 보호, XSS 방지, 토큰 관리 등의 보안 기능을 제공합니다.
+ * Provides security features like CSRF protection, XSS prevention, token management.
+ */
 
-const CSRF_SESSION_KEY = 'app.security.csrfToken';
-const TOKEN_STORAGE_KEY = 'app.security.token';
-const CSRF_HEADER_KEY = 'X-CSRF-Token';
-const STORAGE_PROBE_KEY = '__security_probe__';
+import { STORAGE_KEYS } from '../config/constants';
+import { storage } from './storage';
 
-const isBrowser = typeof window !== 'undefined';
+// ============================================================
+// CSRF Protection
+// CSRF 보호
+// ============================================================
 
-// Resilient storage accessor (저장소 접근 시 예외를 예방)
-const getStorage = (type: 'sessionStorage' | 'localStorage'): Storage | null => {
-  if (!isBrowser) {
-    return null;
-  }
-
-  try {
-    const storage = window[type];
-    storage.setItem(STORAGE_PROBE_KEY, STORAGE_PROBE_KEY);
-    storage.removeItem(STORAGE_PROBE_KEY);
-    return storage;
-  } catch (error) {
-    console.warn(`[security] ${type} unavailable`, error);
-    return null;
-  }
-};
-
-// Ensure Web Crypto is available (웹 크립토 사용 가능 여부 확인)
-const ensureCrypto = (): Crypto => {
-  const cryptoAPI = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
-  if (!cryptoAPI || typeof cryptoAPI.getRandomValues !== 'function') {
-    throw new Error('Web Crypto API is unavailable.');
-  }
-  return cryptoAPI;
-};
-
-const bytesToHex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-
-let csrfCache: string | null = null;
-
-// Create a cryptographically safe CSRF token (암호학적으로 안전한 CSRF 토큰 생성)
-export const generateCSRFToken = (): string => {
-  const cryptoObj = ensureCrypto();
-  const buffer = new Uint8Array(32);
-  cryptoObj.getRandomValues(buffer);
-  return bytesToHex(buffer);
-};
-
-// Fetch cached or persisted CSRF token (캐시/스토리지에 있는 CSRF 토큰 조회)
-export const getCSRFToken = (): string => {
-  if (csrfCache) {
-    return csrfCache;
-  }
-
-  const storage = getStorage('sessionStorage');
-  const stored = storage?.getItem(CSRF_SESSION_KEY);
-  if (stored) {
-    csrfCache = stored;
-    return stored;
-  }
-
-  try {
-    const token = generateCSRFToken();
-    csrfCache = token;
-    storage?.setItem(CSRF_SESSION_KEY, token);
-    return token;
-  } catch (error) {
-    console.error('[security] Unable to generate CSRF token', error);
-    csrfCache = Math.random().toString(16).slice(2); // fallback only if crypto fails
-    return csrfCache;
-  }
-};
-
-// Clear stored CSRF token (저장된 CSRF 토큰 초기화)
-export const resetCSRFToken = (): void => {
-  csrfCache = null;
-  const storage = getStorage('sessionStorage');
-  storage?.removeItem(CSRF_SESSION_KEY);
-};
-
-// Provide CSRF headers for API calls (API 호출용 CSRF 헤더 제공)
-export const getCSRFHeaders = (): Record<string, string> => ({
-  [CSRF_HEADER_KEY]: getCSRFToken(),
-});
-
-// Escape HTML to mitigate XSS (XSS 방지를 위한 HTML 이스케이프)
-export const escapeHtml = (unsafe: string): string => {
-  const replacements: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  };
-
-  return unsafe.replace(/[&<>"']/g, (char) => replacements[char] ?? char);
-};
-
-// Ensure URLs use safe schemes (안전한 프로토콜인지 확인)
-export const isSafeUrl = (url: string): boolean => {
-  if (!url) {
-    return false;
-  }
-
-  try {
-    const base = isBrowser ? window.location.origin : 'https://localhost';
-    const parsed = new URL(url, base);
-    const allowed = new Set(['http:', 'https:']);
-    return allowed.has(parsed.protocol.toLowerCase());
-  } catch {
-    return false;
-  }
-};
-
-// Recommend safe props for external links (외부 링크에 필요한 안전 속성)
-export const getSafeExternalLinkProps = (): { target: '_blank'; rel: 'noopener noreferrer' } => ({
-  target: '_blank',
-  rel: 'noopener noreferrer',
-});
-
-export interface TokenStorageOptions {
-  expiresIn?: number; // milliseconds (만료까지 남은 밀리초)
+/**
+ * CSRF 토큰을 생성합니다.
+ * Generates a CSRF token.
+ *
+ * 암호학적으로 안전한 랜덤 토큰을 생성합니다.
+ * Generates a cryptographically secure random token.
+ */
+export function generateCSRFToken(): string {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-type TokenPayload = {
-  token: string;
-  expiresAt?: number;
-};
-
-let tokenCache: TokenPayload | null = null;
-
-const isExpired = (payload: TokenPayload): boolean =>
-  typeof payload.expiresAt === 'number' && payload.expiresAt <= Date.now();
-
-const persistToken = (payload: TokenPayload | null): void => {
-  const storage = getStorage('localStorage');
-  if (!storage) {
-    return;
-  }
+/**
+ * CSRF 토큰을 가져오거나 새로 생성합니다.
+ * Gets or generates a CSRF token.
+ *
+ * 세션 스토리지에서 기존 토큰을 가져오거나 새 토큰을 생성합니다.
+ * Gets existing token from session storage or generates a new one.
+ */
+export function getCSRFToken(): string {
+  const CSRF_KEY = 'careguide_csrf_token';
 
   try {
-    if (!payload) {
-      storage.removeItem(TOKEN_STORAGE_KEY);
-    } else {
-      storage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(payload));
-    }
-  } catch (error) {
-    console.warn('[security] Failed to persist token', error);
-  }
-};
+    let token = sessionStorage.getItem(CSRF_KEY);
 
-const loadToken = (): TokenPayload | null => {
-  const storage = getStorage('localStorage');
-  if (!storage) {
-    return null;
+    if (!token) {
+      token = generateCSRFToken();
+      sessionStorage.setItem(CSRF_KEY, token);
+    }
+
+    return token;
+  } catch (_error) {
+    // sessionStorage 사용 불가 시 매번 새 토큰 생성
+    // Generate new token each time if sessionStorage unavailable
+    console.warn('sessionStorage unavailable, generating ephemeral CSRF token');
+    return generateCSRFToken();
   }
+}
+
+/**
+ * CSRF 토큰을 초기화합니다.
+ * Resets the CSRF token.
+ *
+ * 로그아웃이나 세션 종료 시 호출됩니다.
+ * Called on logout or session end.
+ */
+export function resetCSRFToken(): void {
+  try {
+    sessionStorage.removeItem('careguide_csrf_token');
+  } catch (error) {
+    console.warn('Could not reset CSRF token:', error);
+  }
+}
+
+/**
+ * API 요청에 CSRF 헤더를 추가하는 설정을 반환합니다.
+ * Returns config to add CSRF header to API requests.
+ */
+export function getCSRFHeaders(): Record<string, string> {
+  return {
+    'X-CSRF-Token': getCSRFToken(),
+  };
+}
+
+// ============================================================
+// XSS Prevention
+// XSS 방지
+// ============================================================
+
+/**
+ * HTML 이스케이프를 수행합니다.
+ * Performs HTML escaping.
+ *
+ * 사용자 입력을 안전하게 표시할 때 사용합니다.
+ * Used to safely display user input.
+ */
+export function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * URL이 안전한지 검증합니다.
+ * Validates if a URL is safe.
+ *
+ * javascript:, data:, vbscript: 등의 위험한 프로토콜을 차단합니다.
+ * Blocks dangerous protocols like javascript:, data:, vbscript:.
+ */
+export function isSafeUrl(url: string): boolean {
+  if (!url) return false;
 
   try {
-    const raw = storage.getItem(TOKEN_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as TokenPayload;
-    return typeof parsed.token === 'string' ? parsed : null;
-  } catch (error) {
-    console.warn('[security] Corrupt token payload detected', error);
-    storage.removeItem(TOKEN_STORAGE_KEY);
-    return null;
+    const parsed = new URL(url, window.location.origin);
+    const dangerousProtocols = ['javascript:', 'data:', 'vbscript:', 'file:'];
+    return !dangerousProtocols.includes(parsed.protocol.toLowerCase());
+  } catch {
+    // 상대 경로는 허용
+    // Allow relative paths
+    return !url.toLowerCase().startsWith('javascript:') &&
+           !url.toLowerCase().startsWith('data:') &&
+           !url.toLowerCase().startsWith('vbscript:');
   }
-};
+}
 
-const dropToken = (): void => {
-  tokenCache = null;
-  persistToken(null);
-};
+/**
+ * 안전한 외부 링크를 생성합니다.
+ * Creates a safe external link.
+ *
+ * target="_blank"에 보안 속성을 추가합니다.
+ * Adds security attributes to target="_blank".
+ */
+export function getSafeExternalLinkProps(): Record<string, string> {
+  return {
+    target: '_blank',
+    rel: 'noopener noreferrer nofollow',
+  };
+}
 
-// Memory-first secure token storage (메모리 우선의 안전한 토큰 저장)
+// ============================================================
+// Token Security
+// 토큰 보안
+// ============================================================
+
+/**
+ * 토큰 저장 옵션
+ * Token storage options
+ */
+export interface TokenStorageOptions {
+  /**
+   * 메모리에만 저장 (더 안전하지만 새로고침 시 사라짐)
+   * Store in memory only (more secure but lost on refresh)
+   */
+  memoryOnly?: boolean;
+  /**
+   * 토큰 만료 시간 (밀리초)
+   * Token expiration time (milliseconds)
+   */
+  expiresIn?: number;
+}
+
+// 메모리 토큰 저장소 (XSS 공격 방지용)
+// In-memory token storage (for XSS attack prevention)
+let memoryToken: string | null = null;
+let tokenExpiry: number | null = null;
+
+/**
+ * 보안 토큰 저장소 클래스
+ * Secure token storage class
+ *
+ * localStorage 대신 메모리 저장을 지원하여 XSS 공격에 더 안전합니다.
+ * Supports memory storage instead of localStorage for better XSS protection.
+ */
 export const secureTokenStorage = {
-  set: (token: string, options: TokenStorageOptions = {}): void => {
-    const expiresAt =
-      typeof options.expiresIn === 'number' && options.expiresIn > 0
-        ? Date.now() + options.expiresIn
-        : undefined;
+  /**
+   * 토큰을 저장합니다.
+   * Stores a token.
+   */
+  set(token: string, options: TokenStorageOptions = {}): void {
+    const { memoryOnly = false, expiresIn } = options;
 
-    tokenCache = { token, expiresAt };
-    persistToken(tokenCache);
+    memoryToken = token;
+
+    if (expiresIn) {
+      tokenExpiry = Date.now() + expiresIn;
+    }
+
+    // localStorage 저장 (옵션)
+    // localStorage storage (optional)
+    if (!memoryOnly) {
+      storage.set(STORAGE_KEYS.TOKEN, token);
+      if (expiresIn) {
+        storage.set(STORAGE_KEYS.TOKEN_EXPIRY, tokenExpiry);
+      }
+    }
   },
-  get: (): string | null => {
-    if (tokenCache && !isExpired(tokenCache)) {
-      return tokenCache.token;
+
+  /**
+   * 토큰을 가져옵니다.
+   * Gets the token.
+   */
+  get(): string | null {
+    // 메모리 토큰 우선
+    // Memory token first
+    if (memoryToken) {
+      // 만료 확인
+      // Check expiration
+      if (tokenExpiry && Date.now() > tokenExpiry) {
+        this.clear();
+        return null;
+      }
+      return memoryToken;
     }
 
-    const persisted = loadToken();
-    if (persisted && !isExpired(persisted)) {
-      tokenCache = persisted;
-      return persisted.token;
+    // localStorage 폴백
+    // localStorage fallback
+    const storedToken = storage.get<string>(STORAGE_KEYS.TOKEN);
+    const storedExpiry = storage.get<number>(STORAGE_KEYS.TOKEN_EXPIRY);
+
+    if (storedToken) {
+      if (storedExpiry && Date.now() > storedExpiry) {
+        this.clear();
+        return null;
+      }
+      // 메모리에 복원
+      // Restore to memory
+      memoryToken = storedToken;
+      tokenExpiry = storedExpiry ?? null;
+      return storedToken;
     }
 
-    dropToken();
     return null;
   },
-  clear: (): void => {
-    dropToken();
+
+  /**
+   * 토큰을 삭제합니다.
+   * Clears the token.
+   */
+  clear(): void {
+    memoryToken = null;
+    tokenExpiry = null;
+    storage.remove(STORAGE_KEYS.TOKEN);
+    storage.remove(STORAGE_KEYS.TOKEN_EXPIRY);
+  },
+
+  /**
+   * 토큰이 존재하는지 확인합니다.
+   * Checks if token exists.
+   */
+  has(): boolean {
+    return this.get() !== null;
   },
 };
 
-const rateLimitBuckets: Record<string, number[]> = {};
+// ============================================================
+// Input Validation
+// 입력 검증
+// ============================================================
 
-// Basic in-memory rate limiter (간단한 메모리 레이트 리미터)
-export const checkRateLimit = (
-  action: string,
-  maxRequests = 5,
-  windowMs = 60_000,
-): boolean => {
-  if (!action) {
-    return false;
+/**
+ * 이메일 형식을 검증합니다.
+ * Validates email format.
+ */
+export function isValidEmail(email: string): boolean {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+/**
+ * 비밀번호 강도를 검증합니다.
+ * Validates password strength.
+ *
+ * 최소 8자, 대문자, 소문자, 숫자, 특수문자 포함 권장
+ * Recommended: min 8 chars, uppercase, lowercase, number, special char
+ */
+export function validatePasswordStrength(password: string): {
+  isValid: boolean;
+  score: number;
+  feedback: string[];
+} {
+  const feedback: string[] = [];
+  let score = 0;
+
+  if (password.length >= 8) {
+    score += 1;
+  } else {
+    feedback.push('비밀번호는 최소 8자 이상이어야 합니다.');
   }
 
-  const now = Date.now();
-  const timestamps = rateLimitBuckets[action] ?? [];
-  const recent = timestamps.filter((timestamp) => now - timestamp < windowMs);
-
-  if (recent.length >= maxRequests) {
-    rateLimitBuckets[action] = recent;
-    return false;
+  if (/[A-Z]/.test(password)) {
+    score += 1;
+  } else {
+    feedback.push('대문자를 포함해주세요.');
   }
 
-  recent.push(now);
-  rateLimitBuckets[action] = recent;
-  return true;
-};
+  if (/[a-z]/.test(password)) {
+    score += 1;
+  } else {
+    feedback.push('소문자를 포함해주세요.');
+  }
 
-const PASSWORD_MIN_LENGTH = 8;
-const SPECIAL_CHAR_REGEX = /[!@#$%^&*()[\]{}\-_=+|:;"',.<>\/?`~\\]/;
+  if (/[0-9]/.test(password)) {
+    score += 1;
+  } else {
+    feedback.push('숫자를 포함해주세요.');
+  }
 
-// Validate password strength (비밀번호 복잡도 검증)
-export const validatePasswordStrength = (
-  password: string,
-): { isValid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-
-  if (password.length < PASSWORD_MIN_LENGTH) {
-    errors.push(`Password must be at least ${PASSWORD_MIN_LENGTH} characters long.`);
-  }
-  if (!/[A-Z]/.test(password)) {
-    errors.push('Password must include at least one uppercase letter.');
-  }
-  if (!/[a-z]/.test(password)) {
-    errors.push('Password must include at least one lowercase letter.');
-  }
-  if (!/[0-9]/.test(password)) {
-    errors.push('Password must include at least one number.');
-  }
-  if (!SPECIAL_CHAR_REGEX.test(password)) {
-    errors.push('Password must include at least one special character.');
+  if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+    score += 1;
+  } else {
+    feedback.push('특수문자를 포함해주세요.');
   }
 
   return {
-    isValid: errors.length === 0,
-    errors,
+    isValid: score >= 4,
+    score,
+    feedback,
   };
-};
+}
+
+/**
+ * 사용자 입력을 정제합니다.
+ * Sanitizes user input.
+ *
+ * 앞뒤 공백 제거 및 연속 공백 정리
+ * Trims whitespace and normalizes consecutive spaces
+ */
+export function sanitizeInput(input: string): string {
+  return input
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+// ============================================================
+// Rate Limiting (Client-side)
+// 클라이언트 측 속도 제한
+// ============================================================
+
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+/**
+ * 클라이언트 측 속도 제한을 확인합니다.
+ * Checks client-side rate limiting.
+ *
+ * API 호출 전에 호출하여 서버 부하를 줄입니다.
+ * Call before API calls to reduce server load.
+ *
+ * @param key - 속도 제한 키 (예: 'login', 'signup')
+ * @param maxRequests - 허용되는 최대 요청 수
+ * @param windowMs - 시간 창 (밀리초)
+ */
+export function checkRateLimit(
+  key: string,
+  maxRequests: number = 5,
+  windowMs: number = 60000
+): { allowed: boolean; remainingRequests: number; resetIn: number } {
+  const now = Date.now();
+  const limit = rateLimitMap.get(key);
+
+  if (!limit || now > limit.resetTime) {
+    // 새 창 시작
+    // Start new window
+    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+    return {
+      allowed: true,
+      remainingRequests: maxRequests - 1,
+      resetIn: windowMs,
+    };
+  }
+
+  if (limit.count >= maxRequests) {
+    return {
+      allowed: false,
+      remainingRequests: 0,
+      resetIn: limit.resetTime - now,
+    };
+  }
+
+  limit.count += 1;
+  return {
+    allowed: true,
+    remainingRequests: maxRequests - limit.count,
+    resetIn: limit.resetTime - now,
+  };
+}
+
+/**
+ * 속도 제한을 초기화합니다.
+ * Resets rate limit for a key.
+ */
+export function resetRateLimit(key: string): void {
+  rateLimitMap.delete(key);
+}

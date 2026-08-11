@@ -5,7 +5,7 @@ Handles kidney/health-related news from multiple sources:
 2. RSS Feeds (unlimited, no API key required)
 3. NewsData.io (fallback, 200 requests/day)
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 import hashlib
 import asyncio
 import xml.etree.ElementTree as ET
+from app.api.dependencies import require_admin
 
 # Load environment variables
 load_dotenv()
@@ -621,7 +622,7 @@ async def health_check():
 
 
 @router.post("/clear-cache")
-async def clear_cache():
+async def clear_cache(admin_user_id: str = Depends(require_admin)):
     """Clear news cache (admin endpoint)"""
     global _news_cache
     count = len(_news_cache)

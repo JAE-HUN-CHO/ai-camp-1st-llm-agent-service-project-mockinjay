@@ -121,6 +121,7 @@ async def test_create_points_history_indexes(test_db):
     assert "idx_points_history_userId_createdAt" in indexes
     assert "idx_points_history_userId_type_createdAt" in indexes
     assert "idx_points_history_userId_source_createdAt" in indexes
+    assert "idx_points_history_status_createdAt" in indexes
 
 
 @pytest.mark.asyncio

@@ -55,7 +55,7 @@ class HealthcareTokenizer(EstimatingTokenizer):
 
 class HealthcareSchematicGenerator(BaseSchematicGenerator[T]):
     """
-    Schematic generator that uses HealthcareNLPService's GPT-4o-mini
+    Schematic generator that uses HealthcareNLPService's local Ollama model
     to generate structured Pydantic models from prompts.
 
     Inherits from BaseSchematicGenerator for proper metrics and retry handling.
@@ -67,7 +67,7 @@ class HealthcareSchematicGenerator(BaseSchematicGenerator[T]):
         logger: Logger,
         meter: Meter,
     ):
-        super().__init__(logger=logger, meter=meter, model_name="gpt-4o-mini")
+        super().__init__(logger=logger, meter=meter, model_name=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"))
         self._service = healthcare_service
         self._tokenizer = HealthcareTokenizer(healthcare_service)
 
@@ -77,7 +77,7 @@ class HealthcareSchematicGenerator(BaseSchematicGenerator[T]):
         prompt: str | PromptBuilder,
         hints: Mapping[str, Any] = {},
     ) -> SchematicGenerationResult[T]:
-        """Generate structured content using GPT-4o-mini"""
+        """Generate structured content using local Ollama"""
 
         # Build the final prompt
         if isinstance(prompt, PromptBuilder):
@@ -146,7 +146,7 @@ Respond ONLY with valid JSON, no additional text or explanations."""
 
         gen_info = ParlantGenerationInfo(
             schema_name=schema_name,
-            model=f"openai/{self._service.generator.model_name}",
+            model=f"ollama/{self._service.generator.model_name}",
             duration=result.info.duration,
             usage=parlant_usage,
         )
@@ -160,12 +160,12 @@ Respond ONLY with valid JSON, no additional text or explanations."""
     @override
     def id(self) -> str:
         """Return the model ID"""
-        return f"openai/{self._service.generator.model_name}"
+        return f"ollama/{self._service.generator.model_name}"
 
     @property
     @override
     def max_tokens(self) -> int:
-        """Return max tokens (128K for GPT-4o-mini)"""
+        """Return the local model token budget"""
         return self._service.generator.max_tokens
 
     @property
@@ -180,7 +180,7 @@ Respond ONLY with valid JSON, no additional text or explanations."""
 class HealthcareEmbedder(BaseEmbedder):
     """
     Embedder adapter that uses HealthcareNLPService's
-    text-embedding-3-small model.
+    nomic-embed-text-v2-moe model.
 
     Inherits from BaseEmbedder for proper metrics and retry handling.
     """
@@ -191,7 +191,7 @@ class HealthcareEmbedder(BaseEmbedder):
         logger: Logger,
         meter: Meter,
     ):
-        super().__init__(logger=logger, meter=meter, model_name="text-embedding-3-small")
+        super().__init__(logger=logger, meter=meter, model_name=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text-v2-moe"))
         self._service = healthcare_service
         self._tokenizer = HealthcareTokenizer(healthcare_service)
 
@@ -201,7 +201,7 @@ class HealthcareEmbedder(BaseEmbedder):
         texts: list[str],
         hints: Mapping[str, Any] = {},
     ) -> EmbeddingResult:
-        """Generate embeddings using text-embedding-3-small"""
+        """Generate embeddings using local Ollama"""
 
         use_local = hints.get("use_local", False)
 
@@ -215,12 +215,12 @@ class HealthcareEmbedder(BaseEmbedder):
     @override
     def id(self) -> str:
         """Return the embedder model ID"""
-        return f"openai/{self._service.embedder.model_name}"
+        return f"ollama/{self._service.embedder.model_name}"
 
     @property
     @override
     def max_tokens(self) -> int:
-        """Return max tokens for embeddings (8192 for text-embedding-3-small)"""
+        """Return the local embedding token budget"""
         return self._service.embedder.max_tokens
 
     @property
@@ -232,7 +232,7 @@ class HealthcareEmbedder(BaseEmbedder):
     @property
     @override
     def dimensions(self) -> int:
-        """Return embedding dimensions (1536 for text-embedding-3-small)"""
+        """Return the configured local embedding dimensions"""
         return self._service.embedder.dimensions
 
 
@@ -244,7 +244,7 @@ class ParlantHealthcareNLPService(NLPService):
 
     This service uses:
     - GPT-4o-mini for text generation (cost-effective)
-    - text-embedding-3-small for embeddings (1536D)
+    - nomic-embed-text-v2-moe for embeddings
     - Caching for performance optimization
     - Medical-specific capabilities
 

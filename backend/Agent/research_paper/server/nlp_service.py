@@ -1,9 +1,9 @@
 """
-Healthcare NLP Service using GPT-4o-mini and Small Embeddings
+Healthcare NLP Service using the local Ollama models
 
 This module provides a production-ready NLP service following Parlant's architecture:
-- GPT-4o-mini for cost-effective text generation
-- text-embedding-3-small for efficient embeddings (1536 dimensions)
+- qwen3.6:27b-mlx for local text generation
+- nomic-embed-text-v2-moe for local embeddings (expanded to the configured width)
 - Policy-based retry mechanisms for API resilience
 - Comprehensive metrics and monitoring
 - Multi-tier caching for performance
@@ -26,23 +26,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 import json
 
-# OpenAI
-from openai import (
-    AsyncOpenAI,
-    APIConnectionError,
-    APITimeoutError,
-    RateLimitError,
-    InternalServerError,
-    APIResponseValidationError,
-)
 import tiktoken
 
 # Local models
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import CrossEncoder
 import numpy as np
 
 # Environment
 from dotenv import load_dotenv
+from app.adapters.ollama.client import OllamaClient, OllamaProviderError
 
 load_dotenv()
 
@@ -53,16 +45,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== Error Messages ====================
 
-RATE_LIMIT_ERROR_MESSAGE = (
-    "OpenAI API rate limit exceeded. Possible reasons:\n"
-    "1. Your account may have insufficient API credits.\n"
-    "2. You may be using a free-tier account with limited request capacity.\n"
-    "3. You might have exceeded the requests-per-minute limit for your account.\n\n"
-    "Recommended actions:\n"
-    "- Check your OpenAI account balance and billing status.\n"
-    "- Review your API usage limits in OpenAI's dashboard.\n"
-    "- For more details: https://platform.openai.com/docs/guides/rate-limits/usage-tiers\n"
-)
+OLLAMA_RETRY_MESSAGE = "Ollama request failed; retrying the local provider"
 
 
 # ==================== Data Classes ====================
@@ -108,10 +91,7 @@ def retry_policy(
     max_retries: int = 3,
     wait_times: Tuple[float, ...] = (1.0, 2.0, 5.0),
     exceptions: Tuple[type, ...] = (
-        APIConnectionError,
-        APITimeoutError,
-        RateLimitError,
-        APIResponseValidationError,
+        OllamaProviderError,
     )
 ):
     """
@@ -143,15 +123,6 @@ def retry_policy(
                         await asyncio.sleep(wait_time)
                     else:
                         logger.error(f"All {max_retries + 1} attempts failed")
-                        raise
-
-                except InternalServerError as e:
-                    # Retry internal server errors with longer wait
-                    if attempt < 2:
-                        wait_time = 5.0 if attempt == 0 else 10.0
-                        logger.warning(f"Internal server error: {e}. Retrying in {wait_time}s...")
-                        await asyncio.sleep(wait_time)
-                    else:
                         raise
 
             if last_exception:
@@ -275,10 +246,10 @@ class EmbeddingCache:
 # ==================== Tokenizer ====================
 
 class GPT4oMiniTokenizer:
-    """Tokenizer for GPT-4o-mini"""
+    """Tokenizer for the local Ollama generation model"""
 
     def __init__(self):
-        self.encoding = tiktoken.encoding_for_model("gpt-4o-mini")
+        self.encoding = tiktoken.get_encoding("cl100k_base")
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in text"""
@@ -298,7 +269,7 @@ class GPT4oMiniTokenizer:
 
 class GPT4oMiniGenerator:
     """
-    Text generator using GPT-4o-mini
+    Text generator using the local Ollama model
 
     Features:
     - Retry policy for resilience
@@ -310,24 +281,17 @@ class GPT4oMiniGenerator:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gpt-4o-mini"
+        model_name: str = "qwen3.6:27b-mlx"
     ):
         """
         Initialize generator
 
         Args:
-            api_key: OpenAI API key (from env if not provided)
+            api_key: Deprecated compatibility argument; ignored.
             model_name: Model to use
         """
-        self.model_name = model_name
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-
-        if not self.api_key:
-            raise ValueError(
-                "OpenAI API key not found. Set OPENAI_API_KEY environment variable."
-            )
-
-        self.client = AsyncOpenAI(api_key=self.api_key)
+        self.model_name = os.getenv("OLLAMA_MODEL", model_name)
+        self.client = OllamaClient(model=self.model_name)
         self.tokenizer = GPT4oMiniTokenizer()
 
         # Stats
@@ -336,7 +300,7 @@ class GPT4oMiniGenerator:
         self.total_output_tokens = 0
         self.total_cached_tokens = 0
 
-        logger.info(f"✅ GPT-4o-mini generator initialized")
+        logger.info("✅ Ollama generator initialized: %s", self.model_name)
 
     @property
     def max_tokens(self) -> int:
@@ -407,15 +371,15 @@ class GPT4oMiniGenerator:
             )
 
             info = GenerationInfo(
-                model=f"openai/{self.model_name}",
+                model=f"ollama/{self.model_name}",
                 duration=t_end - t_start,
                 usage=usage
             )
 
             return GenerationResult(content=content, info=info)
 
-        except RateLimitError:
-            logger.error(RATE_LIMIT_ERROR_MESSAGE)
+        except OllamaProviderError:
+            logger.error(OLLAMA_RETRY_MESSAGE)
             raise
 
     async def _stream_generate(
@@ -424,7 +388,7 @@ class GPT4oMiniGenerator:
         temperature: float,
         max_tokens: int
     ) -> AsyncIterator[str]:
-        """Stream response from OpenAI"""
+        """Stream response from Ollama"""
         stream = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
@@ -453,7 +417,7 @@ class GPT4oMiniGenerator:
 
 class TextEmbedding3SmallEmbedder:
     """
-    Embedder using text-embedding-3-small (1536 dimensions)
+    Embedder using nomic-embed-text-v2-moe embeddings
 
     Features:
     - Retry policy for resilience
@@ -465,7 +429,7 @@ class TextEmbedding3SmallEmbedder:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "text-embedding-3-small",
+        model_name: str = "nomic-embed-text-v2-moe",
         dimensions: int = 1536,
         local_fallback_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         use_cache: bool = True,
@@ -475,28 +439,26 @@ class TextEmbedding3SmallEmbedder:
         Initialize embedder
 
         Args:
-            api_key: OpenAI API key
-            model_name: OpenAI embedding model
+            api_key: Deprecated compatibility argument; ignored.
+            model_name: Ollama embedding model
             dimensions: Embedding dimensions
             local_fallback_model: Local model for fallback
             use_cache: Enable caching
             cache_dir: Cache directory
         """
-        self.model_name = model_name
+        self.model_name = os.getenv("OLLAMA_EMBEDDING_MODEL", model_name)
         self.dimensions = dimensions
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-
-        if not self.api_key:
-            logger.warning("No OpenAI API key. Will use local embeddings only.")
-            self.client = None
-        else:
-            self.client = AsyncOpenAI(api_key=self.api_key)
+        self.client = OllamaClient(embedding_model=self.model_name)
 
         self.tokenizer = GPT4oMiniTokenizer()
 
-        # Local fallback model (lazy loading)
-        self.local_model_name = local_fallback_model
-        self._local_model: Optional[SentenceTransformer] = None
+        # Ollama is the only embedding provider.
+        self.local_model_name = self.model_name
+        # Cache namespace includes the required vector width so a cached local
+        # vector can never be silently reused against the 1536d Atlas index.
+        self.local_cache_model = f"ollama/{self.model_name}/{dimensions}d"
+        self.local_provider_name = "ollama"
+        self._ollama_provider = self.client._embedding
 
         # Cache
         self.use_cache = use_cache
@@ -507,7 +469,7 @@ class TextEmbedding3SmallEmbedder:
         self.total_local_calls = 0
         self.cache_hits = 0
 
-        logger.info(f"✅ Text-embedding-3-small embedder initialized")
+        logger.info("✅ Ollama embedder initialized: %s", self.model_name)
         logger.info(f"   - Dimensions: {dimensions}")
         logger.info(f"   - Cache: {'enabled' if use_cache else 'disabled'}")
 
@@ -515,15 +477,6 @@ class TextEmbedding3SmallEmbedder:
     def max_tokens(self) -> int:
         """Maximum tokens for embedding"""
         return 8192
-
-    @property
-    def local_model(self) -> SentenceTransformer:
-        """Lazy load local model"""
-        if self._local_model is None:
-            logger.info(f"Loading local embedding model: {self.local_model_name}")
-            self._local_model = SentenceTransformer(self.local_model_name)
-            logger.info("✅ Local model loaded")
-        return self._local_model
 
     @retry_policy(max_retries=3)
     async def embed(
@@ -541,77 +494,10 @@ class TextEmbedding3SmallEmbedder:
         Returns:
             EmbeddingResult with vectors
         """
-        if use_local or not self.client:
-            return await self._embed_local(texts)
-
-        # Check cache
-        vectors = []
-        uncached_texts = []
-        uncached_indices = []
-
-        if self.cache:
-            for idx, text in enumerate(texts):
-                cached = self.cache.get(text, self.model_name)
-                if cached is not None:
-                    vectors.append((idx, cached.tolist()))
-                    self.cache_hits += 1
-                else:
-                    uncached_texts.append(text)
-                    uncached_indices.append(idx)
-        else:
-            uncached_texts = texts
-            uncached_indices = list(range(len(texts)))
-
-        # Generate embeddings for uncached texts
-        if uncached_texts:
-            try:
-                t_start = time.time()
-
-                response = await self.client.embeddings.create(
-                    model=self.model_name,
-                    input=uncached_texts,
-                    dimensions=self.dimensions
-                )
-
-                t_end = time.time()
-
-                self.total_api_calls += 1
-
-                # Extract vectors and cache them
-                for idx, text, data in zip(uncached_indices, uncached_texts, response.data):
-                    vector = data.embedding
-                    vectors.append((idx, vector))
-
-                    if self.cache:
-                        self.cache.set(text, self.model_name, np.array(vector, dtype=np.float32))
-
-                # Sort by original index
-                vectors.sort(key=lambda x: x[0])
-                final_vectors = [v for _, v in vectors]
-
-                return EmbeddingResult(
-                    vectors=final_vectors,
-                    model=f"openai/{self.model_name}",
-                    duration=t_end - t_start
-                )
-
-            except RateLimitError:
-                logger.error(RATE_LIMIT_ERROR_MESSAGE)
-                raise
-            except Exception as e:
-                logger.error(f"OpenAI embedding failed: {e}, falling back to local model")
-                return await self._embed_local(texts)
-
-        else:
-            # All cached
-            vectors.sort(key=lambda x: x[0])
-            final_vectors = [v for _, v in vectors]
-
-            return EmbeddingResult(
-                vectors=final_vectors,
-                model=f"openai/{self.model_name}",
-                duration=0.0  # Cached
-            )
+        # ``use_local`` remains for call-site compatibility; Ollama is always
+        # the only embedding provider.
+        del use_local
+        return await self._embed_local(texts)
 
     async def _embed_local(self, texts: List[str]) -> EmbeddingResult:
         """Generate embeddings using local model"""
@@ -624,8 +510,9 @@ class TextEmbedding3SmallEmbedder:
 
         if self.cache:
             for idx, text in enumerate(texts):
-                cached = self.cache.get(text, "local")
+                cached = self.cache.get(text, self.local_cache_model)
                 if cached is not None:
+                    self._validate_vector_dimension(cached)
                     vectors.append((idx, cached.tolist()))
                     self.cache_hits += 1
                 else:
@@ -635,26 +522,20 @@ class TextEmbedding3SmallEmbedder:
             uncached_texts = texts
             uncached_indices = list(range(len(texts)))
 
-        # Generate for uncached
+        # Fail closed when Ollama is unavailable; no external or alternate
+        # model fallback is permitted in Ollama-only mode.
         if uncached_texts:
-            loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                lambda: self.local_model.encode(
-                    uncached_texts,
-                    convert_to_numpy=True,
-                    show_progress_bar=False
-                )
-            )
-
+            ollama_provider = getattr(self, "_ollama_provider", None)
+            if ollama_provider is None:
+                raise OllamaProviderError("Ollama embedding provider is not initialized")
+            ollama_vectors = await ollama_provider.embed(uncached_texts)
+            embeddings = np.asarray(ollama_vectors, dtype=np.float32)
+            self._validate_vector_dimension(embeddings)
             self.total_local_calls += 1
-
-            # Cache them
             for idx, text, emb in zip(uncached_indices, uncached_texts, embeddings):
                 vectors.append((idx, emb.tolist()))
-
                 if self.cache:
-                    self.cache.set(text, "local", emb)
+                    self.cache.set(text, self.local_cache_model, emb)
 
         # Sort and return
         vectors.sort(key=lambda x: x[0])
@@ -664,9 +545,19 @@ class TextEmbedding3SmallEmbedder:
 
         return EmbeddingResult(
             vectors=final_vectors,
-            model=f"local/{self.local_model_name}",
+            model=f"ollama/{self.local_model_name}",
             duration=t_end - t_start
         )
+
+    def _validate_vector_dimension(self, vectors: np.ndarray) -> None:
+        """Fail closed when a local provider cannot satisfy the Atlas schema."""
+        array = np.asarray(vectors)
+        actual = array.shape[-1] if array.ndim else 0
+        if actual != self.dimensions:
+            raise ValueError(
+                f"Embedding dimension mismatch: provider={self.local_model_name} "
+                f"returned {actual} dimensions; configured index requires {self.dimensions}"
+            )
 
     def get_stats(self) -> Dict[str, Any]:
         """Get embedder statistics"""
@@ -691,8 +582,8 @@ class HealthcareNLPService:
     Comprehensive NLP service for healthcare applications
 
     Provides:
-    - Text generation with GPT-4o-mini
-    - Embeddings with text-embedding-3-small (1536D)
+    - Text generation with qwen3.6:27b-mlx
+    - Embeddings with nomic-embed-text-v2-moe
     - Cross-encoder re-ranking
     - Medical-specific capabilities
     - Production-ready with retry policies and caching
@@ -708,16 +599,16 @@ class HealthcareNLPService:
         Initialize NLP service
 
         Args:
-            openai_api_key: OpenAI API key
+            openai_api_key: retained for backward compatibility and ignored
             use_cache: Enable caching
             cache_dir: Cache directory
         """
-        self.api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
-
+        # Compatibility marker; this is not a credential.
+        self.api_key = "ollama"
         # Initialize components
-        self.generator = GPT4oMiniGenerator(api_key=self.api_key)
+        del openai_api_key
+        self.generator = GPT4oMiniGenerator()
         self.embedder = TextEmbedding3SmallEmbedder(
-            api_key=self.api_key,
             use_cache=use_cache,
             cache_dir=cache_dir
         )
@@ -729,8 +620,8 @@ class HealthcareNLPService:
         logger.info("="*80)
         logger.info("🏥 Healthcare NLP Service Initialized")
         logger.info("="*80)
-        logger.info(f"✅ Generator: GPT-4o-mini")
-        logger.info(f"✅ Embedder: text-embedding-3-small (1536D)")
+        logger.info("✅ Generator: Ollama qwen3.6:27b-mlx")
+        logger.info("✅ Embedder: Ollama nomic-embed-text-v2-moe (1536D policy)")
         logger.info(f"✅ Cache: {'enabled' if use_cache else 'disabled'}")
         logger.info("="*80)
 
@@ -753,7 +644,7 @@ class HealthcareNLPService:
         max_tokens: int = 2000,
         stream: bool = False
     ) -> GenerationResult | AsyncIterator[str]:
-        """Generate text using GPT-4o-mini"""
+        """Generate text using local Ollama"""
         return await self.generator.generate(
             prompt=prompt,
             system_prompt=system_prompt,
@@ -918,12 +809,7 @@ Return ONLY the keywords separated by commas, no explanations:
 
     @staticmethod
     def verify_environment() -> Optional[str]:
-        """Verify environment is set up correctly"""
-        if not os.environ.get("OPENAI_API_KEY"):
-            return (
-                "OPENAI_API_KEY is not set.\n"
-                "Please set OPENAI_API_KEY in your environment before using this service."
-            )
+        """Return ``None`` because Ollama does not require a credential."""
         return None
 
 

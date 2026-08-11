@@ -1,0 +1,13 @@
+{
+  "benchmark": "ollama_local_providers",
+  "iterations": 5,
+  "generation_model": "qwen2.5:0.5b",
+  "embedding_model": "nomic-embed-text",
+  "unit": "milliseconds",
+  "generation_p50": 184.492,
+  "generation_p95": 1309.939,
+  "embedding_p50": 26.041,
+  "embedding_p95": 154.907,
+  "embedding_dimensions": 1536,
+  "scope": "local Ollama HTTP provider including lossless 768d-to-1536d expansion"
+}

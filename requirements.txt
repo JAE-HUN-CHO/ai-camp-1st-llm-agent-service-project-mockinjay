@@ -3,14 +3,12 @@ bs4
 PyPDF2
 python-dotenv
 datasets
-openai
-anthropic
 parlant
 httpx
 lxml
 moto
 pymongo
-pinecone
+dnspython>=2.0.0,<3.0.0
 sentence-transformers
 deep-translator
-toon-python
+toon-format==0.9.0b1

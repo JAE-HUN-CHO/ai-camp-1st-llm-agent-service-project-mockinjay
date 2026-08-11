@@ -1,7 +1,7 @@
 """
 Nutrition Analyzer Service - GPT-4 Vision Integration
 
-This service uses OpenAI's GPT-4 Vision API to analyze food images
+This service uses the local Ollama vision-capable model to analyze food images
 and extract detailed nutrition information for CKD (Chronic Kidney Disease) patients.
 """
 import os
@@ -12,8 +12,7 @@ from typing import Optional, List, Dict, Any
 from io import BytesIO
 from PIL import Image
 
-import openai
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient, OllamaProviderError
 
 from app.models.diet_care import (
     FoodItem,
@@ -36,14 +35,10 @@ class NutritionAnalyzer:
     """
 
     def __init__(self):
-        """Initialize the OpenAI client"""
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
-
-        self.client = AsyncOpenAI(api_key=api_key)
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")  # gpt-4-vision-preview deprecated
-        self.max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "4096"))
+        """Initialize the Ollama client"""
+        self.client = OllamaClient()
+        self.model = os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx")
+        self.max_tokens = int(os.getenv("OLLAMA_MAX_TOKENS", "4096"))
 
     async def analyze_meal(
         self,
@@ -64,7 +59,7 @@ class NutritionAnalyzer:
 
         Raises:
             ValueError: If both image_data and text_description are None
-            Exception: If OpenAI API call fails
+            Exception: If the local Ollama call fails
         """
         if not image_data and not text_description:
             raise ValueError("At least one of image_data or text_description is required")
@@ -103,8 +98,8 @@ class NutritionAnalyzer:
 
             return analysis_result
 
-        except openai.APIError as e:
-            logger.error(f"OpenAI API error: {e}")
+        except OllamaProviderError as e:
+            logger.error("Ollama nutrition analysis error: %s", e)
             raise Exception(f"Failed to analyze meal: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error in nutrition analysis: {e}")
@@ -226,7 +221,7 @@ Be accurate, conservative in estimates, and prioritize patient safety."""
         """
         Encode image to base64 and optionally resize for API limits.
 
-        OpenAI has a 20MB limit for images.
+        Keep image payloads bounded for local inference.
         """
         try:
             # Open image with PIL

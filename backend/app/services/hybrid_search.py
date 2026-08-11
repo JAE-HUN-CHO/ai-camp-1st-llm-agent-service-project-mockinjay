@@ -287,7 +287,7 @@ class OptimizedHybridSearchEngine:
         limit: int
     ) -> List[Dict]:
         """
-        Perform MongoDB and Pinecone searches in parallel for a namespace
+        Perform MongoDB text and local vector searches in parallel for a namespace
 
         Args:
             query: Search query
@@ -308,7 +308,7 @@ class OptimizedHybridSearchEngine:
         else:
             mongo_search = self._dummy_task()
 
-        # Pinecone search (use pre-computed embedding)
+        # Local vector search (use pre-computed embedding)
         if query_embedding:
             pinecone_search = self._semantic_search_with_embedding(
                 query_embedding, namespace, limit * 2
@@ -340,7 +340,7 @@ class OptimizedHybridSearchEngine:
         top_k: int
     ) -> List[Dict]:
         """Semantic search using pre-computed embedding"""
-        # Direct Pinecone query with the embedding
+        # Direct local vector query with the embedding
         results = self.vector_db.index.query(
             vector=query_embedding,
             top_k=top_k,

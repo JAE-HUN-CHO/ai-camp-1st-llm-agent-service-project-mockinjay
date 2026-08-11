@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-# Import context_system early to avoid undefined errors
-from app.core.context_system import context_system
+from app.features.chat.runtime import get_stream_registry, get_context_system
 import json
 import asyncio
 
@@ -35,21 +34,21 @@ PARLANT_BASE_URL = RESEARCH_BASE_URL
 client = httpx.AsyncClient(timeout=30.0)
 
 # Import Agents to ensure registration
-from Agent.router.agent import RouterAgent
 from Agent.medical_welfare.agent import MedicalWelfareAgent
 from Agent.research_paper.agent import ResearchPaperAgent
 from Agent.nutrition.agent import NutritionAgent
 from Agent.quiz.agent import QuizAgent
 from Agent.trend_visualization.agent import TrendVisualizationAgent
 from Agent.core.contracts import AgentRequest
-
-# Initialize Router Agent
-router_agent = RouterAgent()
+from app.services.agent_runtime import AgentRuntime, get_agent_runtime
 
 
-async def close_parlant_server():
+async def close_parlant_server(agent_runtime: AgentRuntime | None = None):
     """Close the HTTP client and shutdown agents on shutdown"""
     await client.aclose()
+
+    if agent_runtime is not None:
+        await agent_runtime.close()
     
     # Shutdown agent servers if they were started
     try:
@@ -79,7 +78,7 @@ async def chat_info():
 
 
 @router.get("/rooms")
-async def get_user_rooms(user_id: str):
+async def get_user_rooms(user_id: str, request: Request):
     """
     Get list of chat rooms for a user
 
@@ -92,6 +91,7 @@ async def get_user_rooms(user_id: str):
         List of chat rooms with last message info
     """
     try:
+        context_system = get_context_system(request)
         if not user_id:
             raise HTTPException(status_code=400, detail="user_id is required")
 
@@ -115,7 +115,7 @@ async def get_user_rooms(user_id: str):
 
 
 @router.get("/rooms/{room_id}/history")
-async def get_room_history(room_id: str, limit: int = 50):
+async def get_room_history(room_id: str, request: Request, limit: int = 50):
     """
     Get conversation history for a specific room
 
@@ -127,6 +127,7 @@ async def get_room_history(room_id: str, limit: int = 50):
         List of conversations in the room
     """
     try:
+        context_system = get_context_system(request)
         conversations = await context_system.context_engineer.db_manager.get_conversations_by_room(
             room_id, limit
         )
@@ -156,6 +157,7 @@ async def get_room_history(room_id: str, limit: int = 50):
 @router.get("/history/{agent_type}")
 async def get_agent_history(
     agent_type: str,
+    request: Request,
     user_id: str = None,
     session_id: str = None,
     limit: int = 50
@@ -173,6 +175,7 @@ async def get_agent_history(
         List of conversations for the specified agent
     """
     try:
+        context_system = get_context_system(request)
         # Validate agent_type
         valid_agents = ["nutrition", "medical_welfare", "research_paper", "quiz", "trend_visualization"]
         if agent_type not in valid_agents:
@@ -224,6 +227,7 @@ async def get_agent_history(
 
 @router.get("/history")
 async def get_all_history(
+    request: Request,
     user_id: str = None,
     session_id: str = None,
     limit: int = 50
@@ -240,6 +244,7 @@ async def get_all_history(
         List of all conversations
     """
     try:
+        context_system = get_context_system(request)
         if not user_id:
             raise HTTPException(
                 status_code=400,
@@ -274,16 +279,13 @@ async def get_all_history(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Import active_streams from session API
-# This will be populated by session.py
-active_streams_tracker = {}
-
 @router.post("/message")
 async def chat_message(request: Request):
     """
     Main Chat Endpoint - Uses RouterAgent with streaming support
     """
     try:
+        context_system = get_context_system(request)
         body = await request.json()
         query = body.get("query") or body.get("message")
         session_id = body.get("session_id", "default")
@@ -333,9 +335,12 @@ async def chat_message(request: Request):
             profile=profile  # Pass profile for Parlant integration
         )
 
+        router_agent = get_agent_runtime(request).router_agent
+
         async def event_generator():
             accumulated_response = ""
             final_agent_type = None
+            stream_registry = get_stream_registry(request)
 
             # Register this stream as active
             stream_info = {
@@ -346,12 +351,12 @@ async def chat_message(request: Request):
                 "cancel_requested": False,
                 "partial_response": ""
             }
-            active_streams_tracker[session_id] = stream_info
+            stream_registry.set(session_id, stream_info)
 
             try:
                 async for chunk in router_agent.process_stream(agent_request):
                     # Check for cancellation request
-                    if active_streams_tracker.get(session_id, {}).get("cancel_requested"):
+                    if stream_registry.get(session_id, {}).get("cancel_requested"):
                         logger.info(f"Stream cancelled for session {session_id}")
                         yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Stream stopped by user'})}\n\n"
                         break
@@ -395,16 +400,15 @@ async def chat_message(request: Request):
                         accumulated_response = content
 
                     # Update partial response for cancellation handling
-                    if session_id in active_streams_tracker:
-                        active_streams_tracker[session_id]["partial_response"] = accumulated_response
+                    if session_id in stream_registry:
+                        stream_registry.get(session_id)["partial_response"] = accumulated_response
 
             except Exception as e:
                 logger.error(f"Stream error: {e}")
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
             finally:
                 # Remove from active streams
-                if session_id in active_streams_tracker:
-                    del active_streams_tracker[session_id]
+                stream_registry.pop(session_id, None)
 
             # Save to DB after stream completes
             try:
@@ -442,6 +446,7 @@ async def chat_stream(request: Request):
     Streaming Chat Endpoint - Uses RouterAgent to handle complex intents with streaming
     """
     try:
+        context_system = get_context_system(request)
         body = await request.json()
         query = body.get("query") or body.get("message")
         session_id = body.get("session_id", "default")
@@ -493,6 +498,8 @@ async def chat_stream(request: Request):
             context=context,
             profile=profile  # Pass profile for Parlant integration
         )
+
+        router_agent = get_agent_runtime(request).router_agent
 
         async def event_generator():
             accumulated_response = ""
@@ -592,6 +599,8 @@ async def chat_stream(request: Request):
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat stream error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -624,6 +633,7 @@ async def proxy_default(path: str, request: Request):
 async def _proxy_request(path: str, request: Request, base_url: str):
     """Internal proxy handler"""
     try:
+        context_system = get_context_system(request)
         # Build target URL
         url = f"{base_url}/{path}"
         if request.url.query:

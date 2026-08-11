@@ -4,7 +4,6 @@
 RAG 레시피 검색 도구 - FAISS 벡터스토어에서 대체 레시피 및 가이드라인 검색
 """
 
-import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -14,9 +13,6 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 VECTORSTORE_PATH = PROJECT_ROOT / "backend" / "rag" / "vectorstore" / "nutrition_rag"
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 
 class RAGRecipeTool:
     """FAISS 기반 RAG 레시피 검색 도구"""
@@ -32,25 +28,9 @@ class RAGRecipeTool:
             print("먼저 rag_loader.py를 실행해주세요.")
             return
 
-        try:
-            from langchain_openai import OpenAIEmbeddings
-            from langchain_community.vectorstores import FAISS
-
-            embeddings = OpenAIEmbeddings(
-                openai_api_key=OPENAI_API_KEY,
-                model="text-embedding-3-small"
-            )
-
-            self.vectorstore = FAISS.load_local(
-                str(VECTORSTORE_PATH),
-                embeddings,
-                allow_dangerous_deserialization=True
-            )
-
-            print(f"[RAG] 벡터스토어 로드 완료: {VECTORSTORE_PATH}")
-
-        except Exception as e:
-            print(f"[오류] 벡터스토어 로드 실패: {e}")
+        # The previous FAISS/hosted loader could silently require a remote key.
+        # Retrieval now belongs to the MongoDB Atlas Local vector adapter.
+        print("[RAG] 로컬 MongoDB vector adapter가 연결되면 레시피 검색을 활성화합니다.")
 
     def search_recipes(
         self,

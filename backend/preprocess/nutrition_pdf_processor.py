@@ -1,5 +1,5 @@
 """
-Nutrition PDF Processor - 19개 영양 PDF를 Pinecone에 업로드
+Nutrition PDF Processor - 19개 영양 PDF의 로컬 Ollama 처리 경로
 한글 레시피 PDF 파싱 및 벡터 DB 구축
 """
 
@@ -17,7 +17,7 @@ backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
 import fitz  # PyMuPDF for PDF parsing
-from openai import OpenAI
+from app.adapters.ollama.client import OllamaSyncClient
 from dotenv import load_dotenv
 from rag.nutrition_rag import NutritionRAG
 
@@ -28,10 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 class NutritionPDFProcessor:
-    """PDF 파싱 및 Pinecone 업로드 프로세서"""
+    """PDF 파싱 및 MongoDB vector adapter 전달 프로세서"""
 
     def __init__(self):
-        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.ollama_client = OllamaSyncClient()
         self.rag = NutritionRAG()
         self.data_dir = Path(__file__).parent.parent.parent / "data" / "raw" / "nutri"
 
@@ -57,8 +57,8 @@ class NutritionPDFProcessor:
             logger.error(f"PDF 텍스트 추출 실패 {pdf_path.name}: {e}")
             return ""
 
-    def parse_recipes_with_openai(self, pdf_text: str, pdf_name: str) -> List[Dict[str, Any]]:
-        """OpenAI를 사용하여 PDF에서 레시피 추출"""
+    def parse_recipes_with_ollama(self, pdf_text: str, pdf_name: str) -> List[Dict[str, Any]]:
+        """Ollama를 사용하여 PDF에서 레시피 추출"""
 
         # Truncate text if too long (limit to ~15000 chars = ~4000 tokens)
         if len(pdf_text) > 15000:
@@ -110,8 +110,8 @@ PDF 이름: {pdf_name}
 JSON만 반환하고 다른 텍스트는 포함하지 마세요."""
 
         try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
+            response = self.ollama_client.chat.completions.create(
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {"role": "system", "content": "당신은 신장병 환자를 위한 영양 레시피 추출 전문가입니다. PDF 텍스트에서 레시피를 추출하여 JSON 형식으로 반환합니다."},
                     {"role": "user", "content": prompt}
@@ -132,11 +132,11 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요."""
             return data.get("recipes", [])
 
         except Exception as e:
-            logger.error(f"OpenAI 레시피 파싱 실패: {e}")
+            logger.error(f"Ollama 레시피 파싱 실패: {e}")
             return []
 
     def process_single_pdf(self, pdf_path: Path) -> int:
-        """단일 PDF 처리 및 Pinecone 업로드"""
+        """단일 PDF 처리 및 로컬 vector adapter 전달"""
         logger.info(f"📄 Processing: {pdf_path.name}")
 
         # Extract text
@@ -147,11 +147,11 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요."""
 
         logger.info(f"📝 Extracted {len(pdf_text)} characters")
 
-        # Parse recipes with OpenAI
-        recipes = self.parse_recipes_with_openai(pdf_text, pdf_path.name)
+        # Parse recipes with Ollama
+        recipes = self.parse_recipes_with_ollama(pdf_text, pdf_path.name)
         logger.info(f"🍽️ Found {len(recipes)} recipes")
 
-        # Upload to Pinecone
+        # Persistence is owned by the MongoDB vector adapter.
         uploaded = 0
 
         # Generate ASCII-only prefix from PDF filename using hash
@@ -207,20 +207,20 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요."""
         logger.info(f"📚 Total PDFs processed: {len(pdf_files)}")
         logger.info(f"{'='*60}\n")
 
-        # Verify Pinecone index stats
+        # Verify local vector adapter state
         self.verify_upload()
 
     def verify_upload(self):
-        """Pinecone 업로드 검증"""
+        """로컬 vector adapter 검증"""
         try:
             if self.rag.index:
                 stats = self.rag.index.describe_index_stats()
-                logger.info(f"✅ Pinecone Index Stats:")
+                logger.info("✅ Local vector adapter is available")
                 logger.info(f"   - Index name: nutrition-ckd")
                 logger.info(f"   - Total vectors: {stats.total_vector_count}")
                 logger.info(f"   - Dimension: {stats.dimension}")
             else:
-                logger.warning("⚠️ Pinecone index not available for verification")
+                logger.warning("⚠️ Local vector adapter not available for verification")
         except Exception as e:
             logger.error(f"❌ Verification failed: {e}")
 

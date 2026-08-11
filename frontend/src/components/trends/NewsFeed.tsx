@@ -1,324 +1,616 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { NewsArticle } from '../../types/trends';
-import { fetchNews } from '../../services/trendsApi';
+/**
+ * NewsFeed Component
+ *
+ * Displays a feed of kidney disease and health-related news articles.
+ * Features:
+ * - Multi-source API integration (RSS, GNews, NewsData)
+ * - Language selection (English/Korean)
+ * - Original/Translated text toggle
+ * - 6-hour localStorage caching
+ * - Responsive card layout
+ * - Translation via MyMemory API
+ */
 
-interface NewsFeedProps {
-  language?: 'en' | 'ko';
-  query?: string;
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Bookmark, Loader2, RefreshCw, ExternalLink, Globe, Languages } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ImageWithFallback } from '../ui/image-with-fallback';
+import { translateToKorean } from '../../services/translateApi';
+
+// ==================== Types ====================
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  titleOriginal?: string;
+  titleTranslated?: string;
+  source: string;
+  time: string;
+  description: string | null;
+  descriptionOriginal?: string | null;
+  descriptionTranslated?: string | null;
+  image: string | null;
+  link: string;
+  pubDate?: string;
+  language?: string;
 }
 
-type CachedNewsPayload = {
+interface NewsApiResponse {
+  articles: NewsItem[];
+  totalResults: number;
+  status: string;
+  cached: boolean;
+  sourceUsed: string;
+}
+
+// ==================== Cache Configuration ====================
+
+const CACHE_KEY_PREFIX = 'careguide_news_feed';
+const CACHE_DURATION_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+interface CachedNewsData {
+  data: NewsApiResponse;
   timestamp: number;
-  articles: NewsArticle[];
-};
+}
 
-const CACHE_DURATION_MS = 6 * 60 * 60 * 1000;
-const CACHE_PREFIX = 'trend-news-cache';
-const DEFAULT_QUERIES = {
-  en: 'kidney health trends',
-  ko: '신장 건강 동향',
-} as const;
-const isBrowser = typeof window !== 'undefined';
+function getCacheKey(language: string): string {
+  return `${CACHE_KEY_PREFIX}_${language}`;
+}
 
-const NewsFeed: React.FC<NewsFeedProps> = ({ language, query }) => {
-  const initialLanguage = language ?? 'ko';
-  const [currentLanguage, setCurrentLanguage] = useState<'en' | 'ko'>(initialLanguage);
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
+function getCachedNews(language: string): NewsApiResponse | null {
+  try {
+    const cached = localStorage.getItem(getCacheKey(language));
+    if (!cached) return null;
+
+    const parsedCache: CachedNewsData = JSON.parse(cached);
+    const now = Date.now();
+
+    if (now - parsedCache.timestamp < CACHE_DURATION_MS) {
+      console.log(`[NewsFeed] Using cached news data for ${language}`);
+      return parsedCache.data;
+    }
+
+    localStorage.removeItem(getCacheKey(language));
+    console.log('[NewsFeed] Cache expired');
+    return null;
+  } catch (error) {
+    console.warn('[NewsFeed] Error reading cache:', error);
+    return null;
+  }
+}
+
+function setCachedNews(language: string, data: NewsApiResponse): void {
+  try {
+    const cacheData: CachedNewsData = {
+      data,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(getCacheKey(language), JSON.stringify(cacheData));
+    console.log(`[NewsFeed] Cached news data for ${language}`);
+  } catch (error) {
+    console.warn('[NewsFeed] Error saving to cache:', error);
+  }
+}
+
+// ==================== Translation Cache ====================
+
+const TRANSLATION_CACHE_KEY = 'news_translations';
+
+interface TranslationCacheEntry {
+  title: string;
+  description: string | null;
+}
+
+function getTranslationCache(): Record<string, TranslationCacheEntry> {
+  try {
+    const cache = localStorage.getItem(TRANSLATION_CACHE_KEY);
+    return cache ? JSON.parse(cache) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setTranslationCache(id: string, entry: TranslationCacheEntry): void {
+  try {
+    const cache = getTranslationCache();
+    cache[id] = entry;
+    // Limit cache size
+    const keys = Object.keys(cache);
+    if (keys.length > 200) {
+      keys.slice(0, 50).forEach((k) => delete cache[k]);
+    }
+    localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Ignore
+  }
+}
+
+// ==================== Component ====================
+
+interface NewsFeedProps {
+  className?: string;
+  defaultLanguage?: 'ko' | 'en';
+  /** Deterministic fixture/SSR data; skips the provider request when supplied. */
+  newsItems?: NewsItem[];
+}
+
+type ViewMode = 'original' | 'translated';
+
+const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = 'en', newsItems: providedNewsItems }) => {
+  const navigate = useNavigate();
+  // State
+  const [newsItems, setNewsItems] = useState<NewsItem[]>(providedNewsItems ?? []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const lastPropLanguage = useRef(language);
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+  const [isCached, setIsCached] = useState(false);
+  const [sourceUsed, setSourceUsed] = useState<string>('');
 
-  useEffect(() => {
-    if (language !== undefined && language !== lastPropLanguage.current) {
-      setCurrentLanguage(language);
-      lastPropLanguage.current = language;
-    }
-  }, [language]);
+  // Language and view mode
+  const [newsLanguage, setNewsLanguage] = useState<'ko' | 'en'>(defaultLanguage);
+  const [viewMode, setViewMode] = useState<ViewMode>('original');
+  const [translating, setTranslating] = useState(false);
+  const [translatedItems, setTranslatedItems] = useState<Map<string, TranslationCacheEntry>>(new Map());
 
-  const getQueryForLanguage = useCallback(
-    (lang: 'en' | 'ko'): string => {
-      const trimmed = query?.trim();
-      if (trimmed) {
-        return trimmed;
-      }
-      return lang === 'en' ? DEFAULT_QUERIES.en : DEFAULT_QUERIES.ko;
-    },
-    [query]
-  );
+  /**
+   * Fetch news from API
+   */
+  const fetchNews = useCallback(async (forceRefresh = false) => {
+    setError(null);
 
-  const getCacheKey = useCallback(
-    (lang: 'en' | 'ko', term: string) => `${CACHE_PREFIX}:${lang}:${term.toLowerCase()}`,
-    []
-  );
-
-  const readFromCache = useCallback((key: string): NewsArticle[] | null => {
-    if (!isBrowser) {
-      return null;
-    }
-
-    try {
-      const cached = window.localStorage.getItem(key);
-      if (!cached) {
-        return null;
-      }
-
-      const payload = JSON.parse(cached) as CachedNewsPayload;
-      if (Date.now() - payload.timestamp < CACHE_DURATION_MS) {
-        return payload.articles;
-      }
-
-      window.localStorage.removeItem(key);
-      return null;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const writeToCache = useCallback((key: string, value: NewsArticle[]) => {
-    if (!isBrowser) {
-      return;
-    }
-
-    try {
-      const payload: CachedNewsPayload = {
-        timestamp: Date.now(),
-        articles: value,
-      };
-      window.localStorage.setItem(key, JSON.stringify(payload));
-    } catch {
-      // Ignore localStorage errors (e.g., quota exceeded)
-    }
-  }, []);
-
-  const loadArticles = useCallback(
-    async (forceRefresh = false) => {
-      const lang = currentLanguage;
-      const searchTerm = getQueryForLanguage(lang);
-      const cacheKey = getCacheKey(lang, searchTerm);
-
-      if (!forceRefresh) {
-        const cachedArticles = readFromCache(cacheKey);
-        if (cachedArticles) {
-          setArticles(cachedArticles);
-          setLoading(false);
-          return;
-        }
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const latest = await fetchNews(searchTerm, lang);
-        setArticles(latest);
-        writeToCache(cacheKey, latest);
-      } catch (fetchError) {
-        const fallbackMessage =
-          lang === 'ko' ? '뉴스를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.' : 'Unable to fetch news. Please try again.';
-        setError(fetchError instanceof Error ? fetchError.message : fallbackMessage);
-      } finally {
+    // Check cache first
+    if (!forceRefresh) {
+      const cached = getCachedNews(newsLanguage);
+      if (cached) {
+        setNewsItems(cached.articles);
+        setSourceUsed(cached.sourceUsed);
+        setIsCached(true);
         setLoading(false);
-      }
-    },
-    [currentLanguage, getCacheKey, getQueryForLanguage, readFromCache, writeToCache]
-  );
-
-  useEffect(() => {
-    loadArticles();
-  }, [loadArticles]);
-
-  const formatDate = useCallback(
-    (value: string) => {
-      if (!value) {
-        return currentLanguage === 'ko' ? '날짜 정보 없음' : 'Date unavailable';
-      }
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return currentLanguage === 'ko' ? '날짜 정보 없음' : 'Date unavailable';
-      }
-      const locale = currentLanguage === 'ko' ? 'ko-KR' : 'en-US';
-      return new Intl.DateTimeFormat(locale, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      }).format(date);
-    },
-    [currentLanguage]
-  );
-
-  const handleLanguageChange = useCallback(
-    (lang: 'en' | 'ko') => {
-      if (lang === currentLanguage) {
         return;
       }
-      setCurrentLanguage(lang);
-      setLoading(true);
-      setError(null);
-    },
-    [currentLanguage]
-  );
-
-  const handleRetry = useCallback(() => {
-    loadArticles(true);
-  }, [loadArticles]);
-
-  const renderSkeletons = () => (
-    <div className="grid gap-4 md:grid-cols-2">
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={`news-skeleton-${index}`}
-          className="flex h-full flex-col gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
-        >
-          <div className="h-40 w-full rounded-xl bg-slate-100 animate-pulse" />
-          <div className="space-y-2">
-            <div className="h-4 w-3/4 rounded bg-slate-100 animate-pulse" />
-            <div className="h-4 w-2/3 rounded bg-slate-100 animate-pulse" />
-            <div className="h-3 w-full rounded bg-slate-100 animate-pulse" />
-          </div>
-          <div className="mt-auto flex items-center justify-between">
-            <div className="h-3 w-20 rounded bg-slate-100 animate-pulse" />
-            <div className="h-3 w-16 rounded bg-slate-100 animate-pulse" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
-  const renderArticles = () => {
-    if (!articles.length && !loading) {
-      return (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 p-8 text-center">
-          <p className="text-base font-semibold text-slate-800">표시할 뉴스가 없습니다.</p>
-          <p className="mt-1 text-sm text-slate-500">
-            {currentLanguage === 'ko' ? '다른 키워드를 입력해 보세요.' : 'Try a different keyword to see more stories.'}
-          </p>
-        </div>
-      );
     }
 
+    setLoading(true);
+    setIsCached(false);
+
+    try {
+      const response = await fetch('/api/news/list', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: newsLanguage === 'en' ? 'kidney health' : '신장 건강',
+          language: newsLanguage,
+          page: 1,
+          page_size: 15,
+          source: 'auto',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch news: ${response.statusText}`);
+      }
+
+      const data: NewsApiResponse = await response.json();
+
+      // Save to cache
+      setCachedNews(newsLanguage, data);
+
+      setNewsItems(data.articles);
+      setSourceUsed(data.sourceUsed);
+      setIsCached(data.cached);
+    } catch (err) {
+      console.error('[NewsFeed] Error fetching news:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load news');
+      setNewsItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [newsLanguage]);
+
+  // Initial fetch and refetch when language changes
+  useEffect(() => {
+    if (providedNewsItems) {
+      setNewsItems(providedNewsItems);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    fetchNews();
+  }, [fetchNews, providedNewsItems]);
+
+  /**
+   * Translate news items to Korean
+   */
+  const translateNews = useCallback(async () => {
+    if (newsLanguage === 'ko') return; // Already Korean
+
+    setTranslating(true);
+    const cache = getTranslationCache();
+    const newTranslations = new Map<string, TranslationCacheEntry>();
+
+    try {
+      for (const item of newsItems) {
+        // Check cache first
+        if (cache[item.id]) {
+          newTranslations.set(item.id, cache[item.id]);
+          continue;
+        }
+
+        // Translate title and description
+        const translatedTitle = await translateToKorean(item.title);
+        const translatedDescription = item.description
+          ? await translateToKorean(item.description)
+          : null;
+
+        const entry: TranslationCacheEntry = {
+          title: translatedTitle,
+          description: translatedDescription,
+        };
+
+        newTranslations.set(item.id, entry);
+        setTranslationCache(item.id, entry);
+
+        // Small delay to avoid API rate limits
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      setTranslatedItems(newTranslations);
+    } catch (err) {
+      console.error('[NewsFeed] Translation error:', err);
+    } finally {
+      setTranslating(false);
+    }
+  }, [newsItems, newsLanguage]);
+
+  // Auto-translate when switching to translated view
+  useEffect(() => {
+    if (viewMode === 'translated' && newsLanguage === 'en' && translatedItems.size === 0) {
+      translateNews();
+    }
+  }, [viewMode, newsLanguage, translatedItems.size, translateNews]);
+
+  /**
+   * Get display text for an item based on view mode
+   */
+  const getDisplayText = useCallback(
+    (item: NewsItem) => {
+      if (viewMode === 'original' || newsLanguage === 'ko') {
+        return {
+          title: item.title,
+          description: item.description,
+        };
+      }
+
+      const translation = translatedItems.get(item.id);
+      if (translation) {
+        return {
+          title: translation.title,
+          description: translation.description,
+        };
+      }
+
+      return {
+        title: item.title,
+        description: item.description,
+      };
+    },
+    [viewMode, newsLanguage, translatedItems]
+  );
+
+  /**
+   * Handle bookmark toggle
+   */
+  const handleBookmarkClick = useCallback((e: React.MouseEvent, newsId: string) => {
+    e.stopPropagation();
+    setBookmarkedIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(newsId)) {
+        newSet.delete(newsId);
+      } else {
+        newSet.add(newsId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  /**
+   * Handle news card click
+   */
+  const handleCardClick = useCallback((newsId: string, link: string) => {
+    if (newsId) {
+      navigate(`/news/detail/${newsId}`);
+      return;
+    }
+    if (link && link !== '#') window.open(link, '_blank', 'noopener,noreferrer');
+  }, [navigate]);
+
+  /**
+   * Handle keyboard navigation
+   */
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent, newsId: string, link: string) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleCardClick(newsId, link);
+      }
+    },
+    [handleCardClick]
+  );
+
+  // Get source label for display
+  const sourceLabel = useMemo(() => {
+    switch (sourceUsed) {
+      case 'gnews':
+        return 'GNews';
+      case 'rss':
+        return 'RSS';
+      case 'newsdata':
+        return 'NewsData';
+      case 'mock':
+        return 'Sample';
+      default:
+        return '';
+    }
+  }, [sourceUsed]);
+
+  // Loading state
+  if (loading) {
     return (
-      <div className="grid gap-4 md:grid-cols-2">
-        {articles.map((article) => {
-          const hasLink = Boolean(article.url);
-
-          return (
-            <article
-              key={article.id}
-              className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              {article.imageUrl ? (
-                <img
-                  src={article.imageUrl}
-                  alt={article.title || 'news thumbnail'}
-                  className="h-44 w-full object-cover"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="flex h-44 w-full items-center justify-center bg-slate-100 text-sm text-slate-500">
-                  {currentLanguage === 'ko' ? '이미지 없음' : 'No image available'}
-                </div>
-              )}
-
-              <div className="flex flex-1 flex-col px-5 pb-5 pt-4">
-                <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-indigo-600">
-                  <span>{article.source || (currentLanguage === 'ko' ? '출처 미확인' : 'Unknown source')}</span>
-                  <span className="text-slate-300">•</span>
-                  <time className="text-slate-500">{formatDate(article.publishedAt)}</time>
-                </div>
-
-                <h3 className="mt-3 text-lg font-semibold text-slate-900">
-                  {article.title || (currentLanguage === 'ko' ? '제목 없음' : 'Untitled')}
-                </h3>
-
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                  {article.description ||
-                    (currentLanguage === 'ko' ? '요약 정보가 제공되지 않았습니다.' : 'No summary provided.')}
-                </p>
-
-                <div className="mt-auto flex items-center justify-between pt-4 text-sm">
-                  <span className="text-xs uppercase text-slate-500">
-                    {(article.language || currentLanguage).toUpperCase()}
-                  </span>
-                  <a
-                    href={hasLink ? article.url : '#'}
-                    target={hasLink ? '_blank' : undefined}
-                    rel={hasLink ? 'noopener noreferrer' : undefined}
-                    className={`inline-flex items-center font-medium ${
-                      hasLink
-                        ? 'text-indigo-600 hover:text-indigo-500'
-                        : 'cursor-not-allowed text-slate-400 opacity-60'
-                    }`}
-                    aria-label={currentLanguage === 'ko' ? '뉴스 원문 열기' : 'Open news article'}
-                  >
-                    {currentLanguage === 'ko' ? '원문 보기' : 'Read article'}
-                  </a>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const showSkeleton = loading && articles.length === 0;
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
-        <div>
-          <p className="text-lg font-semibold text-slate-900">최신 뉴스 브리핑</p>
-          <p className="text-sm text-slate-500">
-            {currentLanguage === 'ko'
-              ? '신장 질환 및 웰니스 관련 글로벌 소식을 확인하세요.'
-              : 'Stay updated with the latest kidney health stories.'}
+      <div className={`space-y-4 ${className}`}>
+        <div className="flex items-center justify-between mb-4">
+          <h3
+            className="font-bold text-[#1F2937] dark:text-white"
+            style={{ fontSize: '18px', fontFamily: 'Noto Sans KR, sans-serif' }}
+          >
+            {newsLanguage === 'ko' ? '건강 뉴스' : 'Health News'}
+          </h3>
+        </div>
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="animate-spin mb-4" size={48} color="#00C9B7" />
+          <p
+            className="text-[#9CA3AF]"
+            style={{ fontFamily: 'Noto Sans KR, sans-serif', fontSize: '14px' }}
+          >
+            {newsLanguage === 'ko' ? '뉴스를 불러오는 중...' : 'Loading news...'}
           </p>
         </div>
+      </div>
+    );
+  }
 
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium uppercase text-slate-500">언어</span>
-          <div className="flex overflow-hidden rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold">
-            {(['ko', 'en'] as const).map((lang) => (
-              <button
-                key={lang}
-                type="button"
-                onClick={() => handleLanguageChange(lang)}
-                className={`px-3 py-1 transition ${
-                  currentLanguage === lang ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                {lang === 'ko' ? 'KO' : 'EN'}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => loadArticles(true)}
-            disabled={loading}
-            className="text-xs font-semibold text-indigo-600 transition hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+  return (
+    <div className={`space-y-4 ${className}`} role="feed" aria-label="신장 질환 관련 뉴스">
+      {/* Header with controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <h3
+            className="font-bold text-[#1F2937] dark:text-white"
+            style={{ fontSize: '18px', fontFamily: 'Noto Sans KR, sans-serif' }}
           >
-            {loading ? '불러오는 중...' : '새로고침'}
+            {newsLanguage === 'ko' ? '건강 뉴스' : 'Health News'}
+          </h3>
+          {isCached && (
+            <span
+              className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full"
+              title="Cached data (updates every 6 hours)"
+            >
+              {newsLanguage === 'ko' ? '캐시됨' : 'Cached'}
+            </span>
+          )}
+          {sourceLabel && (
+            <span className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
+              {sourceLabel}
+            </span>
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="flex items-center gap-2">
+          {/* Language Toggle */}
+          <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <button
+              onClick={() => setNewsLanguage('en')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                newsLanguage === 'en'
+                  ? 'bg-white dark:bg-gray-600 text-[#00C9B7] shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+              }`}
+              aria-pressed={newsLanguage === 'en'}
+            >
+              <Globe size={14} />
+              EN
+            </button>
+            <button
+              onClick={() => setNewsLanguage('ko')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                newsLanguage === 'ko'
+                  ? 'bg-white dark:bg-gray-600 text-[#00C9B7] shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+              }`}
+              aria-pressed={newsLanguage === 'ko'}
+            >
+              KO
+            </button>
+          </div>
+
+          {/* Translation Toggle (only for English news) */}
+          {newsLanguage === 'en' && (
+            <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('original')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'original'
+                    ? 'bg-white dark:bg-gray-600 text-[#00C9B7] shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                }`}
+                aria-pressed={viewMode === 'original'}
+              >
+                Original
+              </button>
+              <button
+                onClick={() => setViewMode('translated')}
+                disabled={translating}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'translated'
+                    ? 'bg-white dark:bg-gray-600 text-[#00C9B7] shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                } ${translating ? 'opacity-50 cursor-wait' : ''}`}
+                aria-pressed={viewMode === 'translated'}
+              >
+                <Languages size={14} />
+                {translating ? '번역중...' : '한글'}
+              </button>
+            </div>
+          )}
+
+          {/* Refresh Button */}
+          <button
+            onClick={() => fetchNews(true)}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title={newsLanguage === 'ko' ? '새로고침' : 'Refresh'}
+            aria-label="Refresh news"
+          >
+            <RefreshCw size={18} className="text-gray-400" />
           </button>
         </div>
       </div>
 
-      <div className="space-y-4 p-6">
-        {error && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={handleRetry}
-              className="rounded-full border border-red-300 px-3 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-100"
-            >
-              다시 시도
-            </button>
-          </div>
-        )}
+      {/* Error message */}
+      {error && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-4">
+          <p className="text-sm text-yellow-700 dark:text-yellow-400">
+            {newsLanguage === 'ko'
+              ? '뉴스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+              : 'Error loading news. Please try again later.'}
+          </p>
+        </div>
+      )}
 
-        {showSkeleton ? renderSkeletons() : renderArticles()}
-      </div>
-    </section>
+      {/* Translating indicator */}
+      {translating && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4 flex items-center gap-2">
+          <Loader2 className="animate-spin" size={16} color="#3B82F6" />
+          <p className="text-sm text-blue-700 dark:text-blue-400">번역 중입니다...</p>
+        </div>
+      )}
+
+      {/* News list */}
+      {newsItems.map((news) => {
+        const isBookmarked = bookmarkedIds.has(news.id);
+        const hasExternalLink = news.link && news.link !== '#';
+        const displayText = getDisplayText(news);
+
+        return (
+          <article
+            key={news.id}
+            onClick={() => handleCardClick(news.id, news.link)}
+            onKeyDown={(e) => handleKeyDown(e, news.id, news.link)}
+            className="bg-white dark:bg-gray-800 rounded-[16px] overflow-hidden transition-shadow relative flex flex-col md:flex-row focus:outline-none focus:ring-2 focus:ring-[#00C9B7] focus:ring-offset-2 cursor-pointer hover:shadow-lg"
+            style={{
+              boxShadow: '0px 2px 8px 0px rgba(0,0,0,0.08)',
+              minHeight: '180px',
+            }}
+            tabIndex={0}
+            role="article"
+            aria-label={`${displayText.title}, ${news.source}, ${news.time}`}
+          >
+            {/* Image Section */}
+            <div className="relative w-full md:w-[160px] h-[160px] md:h-auto flex-shrink-0">
+              <ImageWithFallback
+                src={
+                  news.image ||
+                  'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=400&h=300&fit=crop'
+                }
+                alt={displayText.title}
+                className="w-full h-full object-cover"
+              />
+              {hasExternalLink && (
+                <div className="absolute top-2 right-2 bg-black/50 rounded-full p-1">
+                  <ExternalLink size={14} color="white" />
+                </div>
+              )}
+              {/* Language badge */}
+              {news.language && (
+                <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">
+                  {news.language.toUpperCase()}
+                </div>
+              )}
+            </div>
+
+            {/* Content Section */}
+            <div className="flex-1 p-4 md:p-5 md:pl-6 flex flex-col justify-between">
+              <div className="flex-1">
+                {/* Title */}
+                <h4
+                  className="font-bold text-black dark:text-white mb-2 line-clamp-2"
+                  style={{
+                    fontSize: '15px',
+                    lineHeight: '22px',
+                    fontFamily: 'Noto Sans KR, sans-serif',
+                  }}
+                >
+                  {displayText.title}
+                </h4>
+
+                {/* Description */}
+                <p
+                  className="text-[#272727] dark:text-gray-300 line-clamp-3"
+                  style={{
+                    fontSize: '13px',
+                    lineHeight: '19px',
+                    fontFamily: 'Noto Sans KR, sans-serif',
+                  }}
+                >
+                  {displayText.description || ''}
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between mt-3 pt-2">
+                <p className="text-[#777777] dark:text-gray-500" style={{ fontSize: '11px' }}>
+                  {news.source} | {news.time}
+                </p>
+
+                {/* Bookmark Button */}
+                <button
+                  onClick={(e) => handleBookmarkClick(e, news.id)}
+                  className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-[#00C9B7]"
+                  aria-label={isBookmarked ? '북마크 제거' : '북마크 추가'}
+                  aria-pressed={isBookmarked}
+                >
+                  <Bookmark
+                    size={20}
+                    color={isBookmarked ? '#00C9B7' : '#CCCCCC'}
+                    fill={isBookmarked ? '#00C9B7' : 'none'}
+                    strokeWidth={1.4}
+                  />
+                </button>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+
+      {/* Empty state */}
+      {newsItems.length === 0 && !loading && (
+        <div className="text-center py-12">
+          <p
+            className="text-[#9CA3AF] dark:text-gray-500"
+            style={{ fontFamily: 'Noto Sans KR, sans-serif', fontSize: '14px' }}
+          >
+            {newsLanguage === 'ko' ? '표시할 뉴스가 없습니다.' : 'No news to display.'}
+          </p>
+          <button
+            onClick={() => fetchNews(true)}
+            className="mt-4 px-4 py-2 bg-[#00C9B7] text-white rounded-lg hover:bg-[#00B5A5] transition-colors"
+          >
+            {newsLanguage === 'ko' ? '다시 시도' : 'Try again'}
+          </button>
+        </div>
+      )}
+    </div>
   );
 };
 

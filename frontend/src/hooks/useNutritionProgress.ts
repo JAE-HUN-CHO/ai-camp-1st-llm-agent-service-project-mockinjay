@@ -4,32 +4,20 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { fetchDailyProgress } from '../services/dietCareApi';
+import { getDailyProgress } from '../services/dietCareApi';
+import type { DailyProgressResponse } from '../types/diet-care';
 import { useAuth } from '../contexts/AuthContext';
-import type { NutritionAnalysis, NutritionGoal } from '../types/diet-care';
-
-export interface NutrientProgressItem {
-  current: number;
-  target: number;
-  percentage: number;
-}
 
 export interface NutritionProgress {
-  calories: NutrientProgressItem;
-  protein: NutrientProgressItem;
-  sodium: NutrientProgressItem;
-  potassium: NutrientProgressItem;
-  phosphorus: NutrientProgressItem;
-}
-
-export interface DailyProgressData {
-  consumed: NutritionAnalysis;
-  goals: NutritionGoal;
-  percentage: number;
+  calories: { current: number; target: number; percentage: number };
+  protein: { current: number; target: number; percentage: number };
+  sodium: { current: number; target: number; percentage: number };
+  potassium: { current: number; target: number; percentage: number };
+  phosphorus: { current: number; target: number; percentage: number };
 }
 
 export interface UseNutritionProgressReturn {
-  data: DailyProgressData | null;
+  summary: DailyProgressResponse | null;
   progress: NutritionProgress | null;
   loading: boolean;
   error: string | null;
@@ -37,17 +25,19 @@ export interface UseNutritionProgressReturn {
 }
 
 export function useNutritionProgress(
-  date?: string,
+  date: string = new Date().toISOString().split('T')[0],
   language: 'en' | 'ko' = 'ko'
 ): UseNutritionProgressReturn {
   const { user } = useAuth();
-  const [data, setData] = useState<DailyProgressData | null>(null);
+  // Goals are already included in DailyProgressResponse from backend
+  const [summary, setSummary] = useState<DailyProgressResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const effectiveDate = date ?? new Date().toISOString().split('T')[0];
-
-  const loadProgress = useCallback(async () => {
+  /**
+   * Load daily nutrition summary
+   */
+  const loadSummary = useCallback(async () => {
     if (!user?.id) {
       setLoading(false);
       return;
@@ -56,10 +46,10 @@ export function useNutritionProgress(
     try {
       setLoading(true);
       setError(null);
-      const response = await fetchDailyProgress(effectiveDate);
-      setData(response);
+      const data = await getDailyProgress(date);
+      setSummary(data);
     } catch (err: unknown) {
-      console.error('Error loading nutrition progress:', err);
+      console.error('Error loading nutrition summary:', err);
       const errorMessage = language === 'ko'
         ? '영양 정보를 불러오는 중 오류가 발생했습니다'
         : 'Error loading nutrition data';
@@ -67,52 +57,61 @@ export function useNutritionProgress(
     } finally {
       setLoading(false);
     }
-  }, [user, effectiveDate, language]);
+  }, [user, date, language]);
 
+  /**
+   * Calculate progress percentages
+   * DailyProgressResponse already contains NutrientProgress objects
+   */
   const progress = useMemo<NutritionProgress | null>(() => {
-    if (!data) return null;
+    if (!summary) return null;
 
-    const { consumed, goals } = data;
-
+    // DailyProgressResponse already has the correct structure
     return {
       calories: {
-        current: consumed.calories,
-        target: goals.dailyCalories,
-        percentage: Math.min((consumed.calories / goals.dailyCalories) * 100, 100),
+        current: summary.calories.current,
+        target: summary.calories.target,
+        percentage: summary.calories.percentage,
       },
       protein: {
-        current: consumed.protein,
-        target: goals.dailyProtein,
-        percentage: Math.min((consumed.protein / goals.dailyProtein) * 100, 100),
+        current: summary.protein.current,
+        target: summary.protein.target,
+        percentage: summary.protein.percentage,
       },
       sodium: {
-        current: consumed.sodium,
-        target: goals.dailySodium,
-        percentage: Math.min((consumed.sodium / goals.dailySodium) * 100, 100),
+        current: summary.sodium.current,
+        target: summary.sodium.target,
+        percentage: summary.sodium.percentage,
       },
       potassium: {
-        current: consumed.potassium,
-        target: goals.dailyPotassium,
-        percentage: Math.min((consumed.potassium / goals.dailyPotassium) * 100, 100),
+        current: summary.potassium.current,
+        target: summary.potassium.target,
+        percentage: summary.potassium.percentage,
       },
       phosphorus: {
-        current: consumed.phosphorus,
-        target: goals.dailyPhosphorus,
-        percentage: Math.min((consumed.phosphorus / goals.dailyPhosphorus) * 100, 100),
+        current: summary.phosphorus.current,
+        target: summary.phosphorus.target,
+        percentage: summary.phosphorus.percentage,
       },
     };
-  }, [data]);
+  }, [summary]);
 
+  /**
+   * Refresh progress data
+   */
   const refreshProgress = useCallback(async () => {
-    await loadProgress();
-  }, [loadProgress]);
+    await loadSummary();
+  }, [loadSummary]);
 
+  /**
+   * Load summary on mount and when date changes
+   */
   useEffect(() => {
-    loadProgress();
-  }, [loadProgress]);
+    loadSummary();
+  }, [loadSummary]);
 
   return {
-    data,
+    summary,
     progress,
     loading,
     error,

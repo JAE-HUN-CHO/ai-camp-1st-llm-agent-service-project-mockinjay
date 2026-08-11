@@ -191,7 +191,7 @@ class HospitalManager:
         raise ConnectionError(f"MongoDB connection failed after {self._max_retries} retries: {last_error}")
 
     async def _ensure_vector_manager(self) -> bool:
-        """Initialize Pinecone vector manager if enabled."""
+        """Initialize the local MongoDB vector manager if enabled."""
         if not self.enable_vector_search or self._vector_init_failed:
             return False
 
@@ -911,7 +911,7 @@ class HospitalManager:
         }
 
     def _extract_district_from_query(self, query: str) -> Optional[str]:
-        """Extract district (구/군) from search query for Pinecone filtering.
+        """Extract district (구/군) from search query for vector filtering.
 
         Examples:
             "강남구 투석 병원" -> "강남구"
@@ -936,7 +936,7 @@ class HospitalManager:
         has_dialysis: Optional[bool],
         night_dialysis: Optional[bool]
     ) -> Tuple[List[Dict], SearchStatus]:
-        """Semantic hospital search leveraging Pinecone vectors.
+        """Semantic hospital search leveraging local vectors.
 
         Returns:
             Tuple of (results, status) where status indicates search health.
@@ -957,7 +957,7 @@ class HospitalManager:
             return [], SearchStatus.FAILED
 
         try:
-            # Build Pinecone metadata filter
+            # Build vector metadata filter
             pinecone_filter = {}
             if has_dialysis is not None:
                 pinecone_filter["has_dialysis_unit"] = has_dialysis

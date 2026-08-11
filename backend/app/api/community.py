@@ -3,7 +3,6 @@ from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Request
 from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
-import shutil
 from pathlib import Path
 import os
 import uuid
@@ -12,6 +11,7 @@ import logging
 from app.models.community import Post, PostCreate, PostUpdate, PostType, Comment, CommentCreate, CommentUpdate
 from app.db.connection import db
 from app.services.auth import get_current_user
+from app.utils.upload import validate_upload_filename
 
 # Configure logger for this module (모듈 로거 설정)
 logger = logging.getLogger(__name__)
@@ -1188,20 +1188,20 @@ def upload_image(file: UploadFile = File(...)):
         POST /api/community/uploads
         Returns: {"url": "/uploads/20231215_143022_image.jpg", "filename": "20231215_143022_image.jpg"}
     """
-    # Define allowed image file extensions
-    allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-    file_extension = Path(file.filename).suffix.lower()
-
-    # Validate file type
-    if file_extension not in allowed_extensions:
+    try:
+        file_extension = validate_upload_filename(file.filename)
+    except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
+            detail="Invalid image filename or file type",
         )
+
+    if file.content_type and not file.content_type.lower().startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded content must be an image")
 
     # Generate unique filename using timestamp
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    unique_filename = f"{timestamp}_{file.filename}"
+    unique_filename = f"{timestamp}_{uuid.uuid4().hex}{file_extension}"
 
     # Use absolute path relative to backend directory
     backend_dir = Path(__file__).resolve().parent.parent.parent
@@ -1210,10 +1210,19 @@ def upload_image(file: UploadFile = File(...)):
     file_path = uploads_dir / unique_filename
 
     # Save file to disk
+    max_upload_bytes = 10 * 1024 * 1024
+    bytes_written = 0
     try:
         with file_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := file.file.read(1024 * 1024):
+                bytes_written += len(chunk)
+                if bytes_written > max_upload_bytes:
+                    raise HTTPException(status_code=413, detail="Image exceeds the 10 MB limit")
+                buffer.write(chunk)
     except Exception as e:
+        file_path.unlink(missing_ok=True)
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
     # Return image URL and filename

@@ -1,90 +1,127 @@
-export type StorageKey =
-  | 'careguide_token'
-  | 'careguide_user'
-  | 'careguide_session_id'
-  | 'careguide_chat_messages'
-  | 'careguide_quiz_prompt_shown'
-  | 'careguide_user_message_count';
+/**
+ * Storage Utility
+ * Wrapper around localStorage with type safety and error handling
+ */
 
-const REGISTERED_KEYS: StorageKey[] = [
-  'careguide_token',
-  'careguide_user',
-  'careguide_session_id',
-  'careguide_chat_messages',
-  'careguide_quiz_prompt_shown',
-  'careguide_user_message_count',
-];
+import { STORAGE_KEYS, type StorageKey } from '../config/constants';
 
 class StorageService {
-  private get storage(): Storage | null {
-    if (typeof window === 'undefined') {
-      console.warn('Storage is unavailable in this environment.');
-      return null;
-    }
-
+  /**
+   * Get item from localStorage
+   */
+  get<T = string>(key: StorageKey): T | null {
     try {
-      return window.localStorage;
-    } catch (error) {
-      console.warn('Failed to access localStorage:', error);
-      return null;
-    }
-  }
+      const item = localStorage.getItem(key);
+      if (!item) return null;
 
-  get<T>(key: StorageKey): T | null {
-    const storage = this.storage;
-    if (!storage) return null;
-
-    try {
-      const raw = storage.getItem(key);
-      if (raw === null) return null;
-      return JSON.parse(raw) as T;
-    } catch (error) {
-      console.warn(`Failed to parse ${key} from storage:`, error);
-      storage.removeItem(key);
-      return null;
-    }
-  }
-
-  set<T>(key: StorageKey, value: T): void {
-    const storage = this.storage;
-    if (!storage) return;
-
-    if (value === undefined) {
-      storage.removeItem(key);
-      return;
-    }
-
-    try {
-      const serialized = JSON.stringify(value);
-      storage.setItem(key, serialized);
-    } catch (error) {
-      console.warn(`Failed to serialize ${key} for storage:`, error);
-    }
-  }
-
-  remove(key: StorageKey): void {
-    const storage = this.storage;
-    if (!storage) return;
-
-    try {
-      storage.removeItem(key);
-    } catch (error) {
-      console.warn(`Failed to remove ${key} from storage:`, error);
-    }
-  }
-
-  clear(): void {
-    const storage = this.storage;
-    if (!storage) return;
-
-    REGISTERED_KEYS.forEach((key) => {
+      // Try to parse as JSON
       try {
-        storage.removeItem(key);
-      } catch (error) {
-        console.warn(`Failed to clear ${key} from storage:`, error);
+        return JSON.parse(item) as T;
+      } catch {
+        // If parsing fails, return as string
+        return item as T;
       }
-    });
+    } catch (error) {
+      console.error(`Error getting item ${key} from storage:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Set item in localStorage
+   */
+  set<T>(key: StorageKey, value: T): void {
+    try {
+      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      localStorage.setItem(key, serialized);
+    } catch (error) {
+      console.error(`Error setting item ${key} in storage:`, error);
+    }
+  }
+
+  /**
+   * Remove item from localStorage
+   */
+  remove(key: StorageKey): void {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error(`Error removing item ${key} from storage:`, error);
+    }
+  }
+
+  /**
+   * Clear all items from localStorage
+   */
+  clear(): void {
+    try {
+      localStorage.clear();
+    } catch (error) {
+      console.error('Error clearing storage:', error);
+    }
+  }
+
+  /**
+   * Check if key exists in localStorage
+   */
+  has(key: StorageKey): boolean {
+    try {
+      return localStorage.getItem(key) !== null;
+    } catch (error) {
+      console.error(`Error checking if ${key} exists in storage:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get all keys from localStorage
+   */
+  keys(): string[] {
+    try {
+      return Object.keys(localStorage);
+    } catch (error) {
+      console.error('Error getting storage keys:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get storage size in bytes
+   */
+  size(): number {
+    try {
+      let total = 0;
+      for (const key in localStorage) {
+        if (Object.prototype.hasOwnProperty.call(localStorage, key)) {
+          total += localStorage[key].length + key.length;
+        }
+      }
+      return total;
+    } catch (error) {
+      console.error('Error calculating storage size:', error);
+      return 0;
+    }
   }
 }
 
+// Export singleton instance
 export const storage = new StorageService();
+
+// Re-export STORAGE_KEYS for convenience
+export { STORAGE_KEYS };
+
+/**
+ * Get or create a consistent anonymous ID for non-logged-in users.
+ * This ensures the same anonymous user gets the same "익명N" number across requests.
+ */
+export function getAnonymousId(): string {
+  let anonymousId = storage.get<string>(STORAGE_KEYS.ANONYMOUS_ID);
+
+  if (!anonymousId) {
+    // Generate a new anonymous ID
+    anonymousId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    storage.set(STORAGE_KEYS.ANONYMOUS_ID, anonymousId);
+  }
+
+  return anonymousId;
+}

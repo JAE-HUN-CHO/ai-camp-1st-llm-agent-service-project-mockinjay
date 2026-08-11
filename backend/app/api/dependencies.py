@@ -2,8 +2,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 from app.db.connection import get_users_collection
+from app.config import settings
 from bson import ObjectId
-import os
+from bson.errors import InvalidId
 
 security = HTTPBearer()
 
@@ -23,10 +24,16 @@ async def get_current_user(credentials = Depends(security)) -> str:
     token = credentials.credentials
     
     try:
+        if not settings.secret_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="인증 정보를 확인할 수 없습니다",
+            )
+
         # JWT 토큰 디코딩
         payload = jwt.decode(
             token, 
-            os.getenv("SECRET_KEY"), 
+            settings.secret_key,
             algorithms=["HS256"]
         )
         user_id: str = payload.get("user_id")
@@ -39,7 +46,9 @@ async def get_current_user(credentials = Depends(security)) -> str:
             
         return user_id
         
-    except JWTError:
+    except HTTPException:
+        raise
+    except (JWTError, TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="토큰 검증에 실패했습니다"
@@ -59,7 +68,15 @@ async def require_admin(user_id: str = Depends(get_current_user)) -> str:
     Raises:
         HTTPException: 관리자가 아닌 경우
     """
-    user = await get_users_collection().find_one({"_id": ObjectId(user_id)})
+    try:
+        user_object_id = ObjectId(user_id)
+    except (InvalidId, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="유효하지 않은 인증 토큰입니다",
+        )
+
+    user = await get_users_collection().find_one({"_id": user_object_id})
 
     if not user:
         raise HTTPException(

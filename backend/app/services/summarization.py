@@ -6,8 +6,7 @@ from typing import List, Dict, Optional
 import os
 from dotenv import load_dotenv
 import logging
-import openai
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -21,14 +20,11 @@ class PaperSummarizationService:
         Initialize summarization service
 
         Args:
-            api_key: OpenAI API key (defaults to env variable)
+            api_key: retained for compatibility and ignored by the local adapter
         """
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            logger.warning("OpenAI API key not found. Summarization will be limited.")
-
-        self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        del api_key
+        self.client = OllamaClient()
+        self.model = os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx")
 
     async def summarize_paper(
         self,

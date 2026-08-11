@@ -2,7 +2,7 @@
 Trends API Router
 Handles trend visualization and analysis requests
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
@@ -14,22 +14,12 @@ backend_path = Path(__file__).parent.parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-from Agent.trend_visualization.agent import TrendVisualizationAgent
-from app.services.summarization import PaperSummarizationService
-from Agent.api.pubmed_client import PubMedClient
+from app.features.research.runtime import get_research_runtime
 from Agent.core.contracts import AgentRequest
-from app.services.news_scraper import NewsScraperService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/trends", tags=["trends"])
-
-# Global instances
-trend_agent = TrendVisualizationAgent()
-summarization_service = PaperSummarizationService()
-pubmed_client = PubMedClient()
-news_scraper = NewsScraperService()
-
 
 # ==================== Request Models ====================
 
@@ -103,7 +93,7 @@ class NewsRequest(BaseModel):
 # ==================== API Endpoints ====================
 
 @router.post("/temporal")
-async def analyze_temporal_trends(request: TemporalTrendsRequest) -> Dict[str, Any]:
+async def analyze_temporal_trends(request: TemporalTrendsRequest, http_request: Request) -> Dict[str, Any]:
     """
     Analyze publication trends over time
 
@@ -130,7 +120,7 @@ async def analyze_temporal_trends(request: TemporalTrendsRequest) -> Dict[str, A
             context=context
         )
 
-        result = await trend_agent.process(agent_request)
+        result = await get_research_runtime(http_request).trend_agent.process(agent_request)
 
         # Convert AgentResponse to dict for FastAPI validation
         return result.model_dump()
@@ -141,7 +131,7 @@ async def analyze_temporal_trends(request: TemporalTrendsRequest) -> Dict[str, A
 
 
 @router.post("/geographic")
-async def analyze_geographic_distribution(request: GeographicDistributionRequest) -> Dict[str, Any]:
+async def analyze_geographic_distribution(request: GeographicDistributionRequest, http_request: Request) -> Dict[str, Any]:
     """
     Analyze geographic distribution of research
 
@@ -166,7 +156,7 @@ async def analyze_geographic_distribution(request: GeographicDistributionRequest
             context=context
         )
 
-        result = await trend_agent.process(agent_request)
+        result = await get_research_runtime(http_request).trend_agent.process(agent_request)
 
         return result.model_dump()
 
@@ -176,7 +166,7 @@ async def analyze_geographic_distribution(request: GeographicDistributionRequest
 
 
 @router.post("/mesh")
-async def analyze_mesh_categories(request: MeshCategoryRequest) -> Dict[str, Any]:
+async def analyze_mesh_categories(request: MeshCategoryRequest, http_request: Request) -> Dict[str, Any]:
     """
     Analyze MeSH category and subheading distribution
 
@@ -200,7 +190,7 @@ async def analyze_mesh_categories(request: MeshCategoryRequest) -> Dict[str, Any
             context=context
         )
 
-        result = await trend_agent.process(agent_request)
+        result = await get_research_runtime(http_request).trend_agent.process(agent_request)
 
         return result.model_dump()
 
@@ -210,7 +200,7 @@ async def analyze_mesh_categories(request: MeshCategoryRequest) -> Dict[str, Any
 
 
 @router.post("/compare")
-async def compare_keywords(request: CompareKeywordsRequest) -> Dict[str, Any]:
+async def compare_keywords(request: CompareKeywordsRequest, http_request: Request) -> Dict[str, Any]:
     """
     Compare trends across multiple keywords
 
@@ -237,7 +227,7 @@ async def compare_keywords(request: CompareKeywordsRequest) -> Dict[str, Any]:
             context=context
         )
 
-        result = await trend_agent.process(agent_request)
+        result = await get_research_runtime(http_request).trend_agent.process(agent_request)
 
         return result.model_dump()
 
@@ -247,7 +237,7 @@ async def compare_keywords(request: CompareKeywordsRequest) -> Dict[str, Any]:
 
 
 @router.post("/papers")
-async def search_papers(request: PapersRequest) -> Dict[str, Any]:
+async def search_papers(request: PapersRequest, http_request: Request) -> Dict[str, Any]:
     """
     Search for research papers
 
@@ -258,7 +248,7 @@ async def search_papers(request: PapersRequest) -> Dict[str, Any]:
     try:
         logger.info(f"Paper search request: {request.query} (max: {request.max_results})")
 
-        papers = await pubmed_client.search(
+        papers = await get_research_runtime(http_request).pubmed_client.search(
             query=request.query,
             max_results=request.max_results,
             sort=request.sort
@@ -277,7 +267,7 @@ async def search_papers(request: PapersRequest) -> Dict[str, Any]:
 
 
 @router.post("/summarize")
-async def summarize_papers(request: SummarizeRequest) -> Dict[str, Any]:
+async def summarize_papers(request: SummarizeRequest, http_request: Request) -> Dict[str, Any]:
     """
     Generate AI-powered summaries of research papers
 
@@ -291,13 +281,13 @@ async def summarize_papers(request: SummarizeRequest) -> Dict[str, Any]:
 
         if request.summary_type == "single" and len(request.papers) > 0:
             # Summarize single paper
-            result = await summarization_service.summarize_paper(
+            result = await get_research_runtime(http_request).summarization_service.summarize_paper(
                 paper=request.papers[0],
                 language=request.language
             )
         else:
             # Summarize multiple papers
-            result = await summarization_service.summarize_multiple_papers(
+            result = await get_research_runtime(http_request).summarization_service.summarize_multiple_papers(
                 papers=request.papers,
                 query=request.query,
                 language=request.language
@@ -314,7 +304,7 @@ async def summarize_papers(request: SummarizeRequest) -> Dict[str, Any]:
 
 
 @router.post("/one-line-summaries")
-async def generate_one_line_summaries(request: OneLineSummaryRequest) -> Dict[str, Any]:
+async def generate_one_line_summaries(request: OneLineSummaryRequest, http_request: Request) -> Dict[str, Any]:
     """
     Generate one-line summaries for each paper
 
@@ -325,7 +315,7 @@ async def generate_one_line_summaries(request: OneLineSummaryRequest) -> Dict[st
     try:
         logger.info(f"One-line summaries request: {len(request.papers)} papers")
 
-        papers_with_summaries = await summarization_service.generate_one_line_summaries(
+        papers_with_summaries = await get_research_runtime(http_request).summarization_service.generate_one_line_summaries(
             papers=request.papers,
             language=request.language
         )
@@ -349,7 +339,7 @@ async def generate_one_line_summaries(request: OneLineSummaryRequest) -> Dict[st
 
 
 @router.post("/translate")
-async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
+async def translate_abstracts(request: TranslateRequest, http_request: Request) -> Dict[str, Any]:
     """
     Translate paper abstracts to target language
 
@@ -360,7 +350,7 @@ async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
     try:
         logger.info(f"Translation request: {len(request.papers)} papers to {request.target_language}")
 
-        papers_with_translation = await summarization_service.translate_papers_abstracts(
+        papers_with_translation = await get_research_runtime(http_request).summarization_service.translate_papers_abstracts(
             papers=request.papers,
             target_lang=request.target_language
         )
@@ -384,7 +374,7 @@ async def translate_abstracts(request: TranslateRequest) -> Dict[str, Any]:
 
 
 @router.post("/news")
-async def get_news(request: NewsRequest) -> Dict[str, Any]:
+async def get_news(request: NewsRequest, http_request: Request) -> Dict[str, Any]:
     """
     Get filtered kidney disease news from multiple sources
 
@@ -396,6 +386,7 @@ async def get_news(request: NewsRequest) -> Dict[str, Any]:
     try:
         logger.info(f"News request: limit={request.limit}")
 
+        news_scraper = get_research_runtime(http_request).news_scraper
         news_items = await news_scraper.get_all_news(limit=request.limit)
 
         return {
@@ -436,9 +427,4 @@ async def health_check():
 @router.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    try:
-        await trend_agent.close()
-        pubmed_client.close()
-        logger.info("Trends API resources cleaned up")
-    except Exception as e:
-        logger.error(f"Shutdown error: {e}")
+    logger.info("Trends API resources are managed by the application lifespan")

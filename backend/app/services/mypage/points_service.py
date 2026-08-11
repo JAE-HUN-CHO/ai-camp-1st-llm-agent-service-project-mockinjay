@@ -4,9 +4,10 @@ Business logic for user points and level management
 사용자 포인트 및 레벨 관리를 위한 비즈니스 로직
 """
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 import logging
+from pymongo.errors import DuplicateKeyError
 
 from app.db.connection import db
 
@@ -34,6 +35,11 @@ POINTS_BY_ACTION = {
     "diet_log": 10,
     "health_check": 5,
 }
+
+# A pending idempotency reservation is an operationally recoverable state, not
+# a completed award. Stale rows are marked expired and retained for audit so a
+# retry cannot silently award twice after a process crash.
+POINTS_RESERVATION_TTL_SECONDS = 300
 
 
 def calculate_level_from_xp(xp: int) -> dict:
@@ -106,6 +112,22 @@ class PointsService:
         if self._points_history_collection is None:
             self._points_history_collection = db["points_history"]
         return self._points_history_collection
+
+    async def expire_stale_reservations(self, now: Optional[datetime] = None) -> int:
+        """Mark crashed/incomplete point reservations as expired.
+
+        Expired rows remain in ``points_history`` for reconciliation. They are
+        never converted into points automatically because a crash can happen
+        after the balance write but before history finalization.
+        """
+        current_time = now or datetime.utcnow()
+        cutoff = current_time.timestamp() - POINTS_RESERVATION_TTL_SECONDS
+        cutoff_datetime = datetime.fromtimestamp(cutoff)
+        result = await self.points_history_collection.update_many(
+            {"status": "pending", "createdAt": {"$lt": cutoff_datetime}},
+            {"$set": {"status": "expired", "expiredAt": current_time}},
+        )
+        return int(getattr(result, "modified_count", 0))
 
     async def get_level(self, user_id: str) -> Dict[str, Any]:
         """
@@ -297,7 +319,8 @@ class PointsService:
         user_id: str,
         amount: int,
         source: str,
-        description: str
+        description: str,
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add points to a user and record the transaction
@@ -317,8 +340,34 @@ class PointsService:
         Raises:
             Exception: For any errors during processing
         """
-        # Determine transaction type
+        # Reserve an idempotency key before changing the balance. The unique
+        # sparse index is created by the database index bootstrap, so a retry
+        # cannot award the same domain event twice.
         tx_type = "earn" if amount > 0 else "spend" if amount < 0 else "expire"
+        pending_history_id = None
+        if idempotency_key:
+            try:
+                await self.expire_stale_reservations()
+                reservation = await self.points_history_collection.insert_one({
+                    "userId": user_id,
+                    "idempotencyKey": idempotency_key,
+                    "amount": amount,
+                    "source": source,
+                    "status": "pending",
+                    "createdAt": datetime.utcnow(),
+                    "expiresAt": datetime.utcnow() + timedelta(seconds=POINTS_RESERVATION_TTL_SECONDS),
+                })
+                pending_history_id = reservation.inserted_id
+            except DuplicateKeyError:
+                existing = await self.points_history_collection.find_one(
+                    {"userId": user_id, "idempotencyKey": idempotency_key}
+                )
+                if existing and existing.get("status") == "pending":
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Point transaction is still being finalized",
+                    )
+                return await self.get_points(user_id)
 
         # Update user points
         user_points = await self.user_points_collection.find_one({"userId": user_id})
@@ -346,7 +395,8 @@ class PointsService:
             upsert=True
         )
 
-        # Record transaction history
+        # Record transaction history. A reserved row is finalized in place so
+        # the unique idempotency key remains attached to the actual event.
         history_item = {
             "userId": user_id,
             "amount": amount,
@@ -355,7 +405,13 @@ class PointsService:
             "description": description,
             "createdAt": datetime.utcnow()
         }
-        await self.points_history_collection.insert_one(history_item)
+        if idempotency_key and pending_history_id is not None:
+            await self.points_history_collection.update_one(
+                {"_id": pending_history_id},
+                {"$set": {**history_item, "idempotencyKey": idempotency_key, "status": "committed"}},
+            )
+        else:
+            await self.points_history_collection.insert_one(history_item)
 
         # Update XP for leveling (1 point = 1 XP for earn transactions)
         if amount > 0:

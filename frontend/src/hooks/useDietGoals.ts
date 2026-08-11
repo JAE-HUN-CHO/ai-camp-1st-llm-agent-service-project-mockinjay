@@ -5,31 +5,40 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { fetchNutritionGoals, updateNutritionGoals } from '../services/dietCareApi';
-import type { NutritionGoal } from '../types/diet-care';
+import { updateGoals, getGoals } from '../services/dietCareApi';
+import type { NutritionGoals, UpdateGoalsRequest } from '../types/diet-care';
 import { useAuth } from '../contexts/AuthContext';
 
+export interface DietGoalsFormData {
+  calories_kcal: number;
+  protein_g: number;
+  sodium_mg: number;
+  potassium_mg: number;
+  phosphorus_mg: number;
+  fluid_ml: number;
+}
+
 export interface UseDietGoalsReturn {
-  goals: NutritionGoal | null;
+  goals: NutritionGoals | null;
   loading: boolean;
   saving: boolean;
   error: string | null;
-  saveGoals: (data: Partial<NutritionGoal>) => Promise<void>;
+  saveGoals: (data: UpdateGoalsRequest) => Promise<void>;
   refreshGoals: () => Promise<void>;
 }
 
-const DEFAULT_GOALS: NutritionGoal = {
-  userId: '',
-  dailyCalories: 2000,
-  dailyProtein: 50,
-  dailySodium: 2000,
-  dailyPotassium: 2000,
-  dailyPhosphorus: 1000,
+const DEFAULT_GOALS: NutritionGoals = {
+  calories_kcal: 2000,
+  protein_g: 50,
+  sodium_mg: 2000,
+  potassium_mg: 2000,
+  phosphorus_mg: 1000,
+  fluid_ml: 2000,
 };
 
 export function useDietGoals(language: 'en' | 'ko' = 'ko'): UseDietGoalsReturn {
   const { user } = useAuth();
-  const [goals, setGoals] = useState<NutritionGoal | null>(null);
+  const [goals, setGoals] = useState<NutritionGoals | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,8 +53,8 @@ export function useDietGoals(language: 'en' | 'ko' = 'ko'): UseDietGoalsReturn {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetchNutritionGoals();
-      setGoals(response);
+      const response = await getGoals();
+      setGoals(response.goals);
     } catch (err) {
       console.error('Failed to load goals:', err);
       setGoals(DEFAULT_GOALS);
@@ -55,7 +64,7 @@ export function useDietGoals(language: 'en' | 'ko' = 'ko'): UseDietGoalsReturn {
     }
   }, [user?.id, language]);
 
-  const saveGoals = useCallback(async (data: Partial<NutritionGoal>) => {
+  const saveGoals = useCallback(async (data: UpdateGoalsRequest) => {
     if (!user?.id) {
       toast.error(language === 'ko' ? '로그인이 필요합니다.' : 'Please login first.');
       return;
@@ -64,8 +73,8 @@ export function useDietGoals(language: 'en' | 'ko' = 'ko'): UseDietGoalsReturn {
     try {
       setSaving(true);
       setError(null);
-      const response = await updateNutritionGoals(data);
-      setGoals(response);
+      const response = await updateGoals(data);
+      setGoals(response.goals);
       toast.success(language === 'ko' ? '목표가 저장되었습니다.' : 'Goals saved successfully.');
     } catch (err) {
       console.error('Failed to save goals:', err);

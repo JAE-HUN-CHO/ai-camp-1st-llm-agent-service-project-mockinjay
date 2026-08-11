@@ -1,21 +1,17 @@
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Request
 from typing import Optional
 import logging
-from Agent.nutrition.agent import NutritionAgent
 from Agent.core.contracts import AgentRequest
-from app.core.context_system import context_system
+from app.features.chat.runtime import get_context_system
+from app.services.agent_runtime import get_agent_runtime
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/nutrition", tags=["Nutrition"])
 
-# Global instances for nutrition agent
-nutrition_agent = NutritionAgent()
-session_manager = context_system.session_manager
-
-
 @router.post("/analyze")
 async def analyze_nutrition(
+    http_request: Request,
     session_id: str = Form(...),
     text: Optional[str] = Form(None),
     user_profile: str = Form("general"),
@@ -26,6 +22,9 @@ async def analyze_nutrition(
 
     This endpoint is used by the frontend ChatPage to analyze food/nutrition queries.
     """
+    context_system = get_context_system(http_request)
+    nutrition_agent = get_agent_runtime(http_request).nutrition_agent
+    session_manager = context_system.session_manager
     logger.info(f"📝 Nutrition analysis request: session={session_id}, profile={user_profile}, has_text={bool(text)}, has_image={bool(image)}")
 
     # Validate that either text or image is provided
@@ -55,7 +54,7 @@ async def analyze_nutrition(
 
     try:
         # Create AgentRequest for the nutrition agent
-        request = AgentRequest(
+        agent_request = AgentRequest(
             query=user_input,
             session_id=session_id,
             context=context,
@@ -63,7 +62,7 @@ async def analyze_nutrition(
         )
 
         # Call nutrition agent with AgentRequest
-        response = await nutrition_agent.process(request)
+        response = await nutrition_agent.process(agent_request)
 
         logger.info(f"✅ Nutrition analysis complete: {response.status}")
 

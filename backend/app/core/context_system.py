@@ -2,13 +2,10 @@ from Agent.session_manager import SessionManager
 from Agent.context_engineer import ContextEngineer
 
 class ContextSystem:
-    _instance = None
+    """Own session/context services for one application instance."""
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(ContextSystem, cls).__new__(cls)
-            cls._instance.session_manager = SessionManager()
-            cls._instance.context_engineer = ContextEngineer()
-        return cls._instance
+    def __init__(self):
+        self.session_manager = SessionManager()
+        self.context_engineer = ContextEngineer()
 
 context_system = ContextSystem()

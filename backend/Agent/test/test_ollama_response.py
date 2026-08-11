@@ -1,27 +1,31 @@
-import json
-from openai import OpenAI
-from dotenv import load_dotenv
+"""Opt-in Ollama response-shape smoke test.
+
+This module intentionally performs no network I/O during pytest collection.
+Run it with ``pytest -m integration`` after starting the configured provider.
+"""
+
 import os
+
+import httpx
+import pytest
+from dotenv import load_dotenv
 
 load_dotenv()
 
-print("Testing Ollama response structure...")
+pytestmark = pytest.mark.integration
 
-client = OpenAI(
-    base_url='http://localhost:11434/v1',
-    api_key=os.getenv('OLLAMA_API_KEY')
-)
 
-response = client.chat.completions.create(
-    model='glm-4.6:cloud',
-    messages=[{'role': 'user', 'content': '안녕하세요'}]
-)
-
-print("\n=== Response (Raw Object) ===")
-print(response)
-
-print("\n=== Serialized JSON ===")
-print(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-
-print("\n=== Message Content ===")
-print(response.choices[0].message.content)
+def test_ollama_response_shape() -> None:
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    response = httpx.post(
+        f"{base_url}/api/chat",
+        json={
+            "model": os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
+            "messages": [{"role": "user", "content": "Respond with exactly LOCAL_OK."}],
+            "stream": False,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    assert payload["message"]["content"]

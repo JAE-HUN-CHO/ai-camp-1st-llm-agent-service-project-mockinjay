@@ -1,7 +1,7 @@
 """
 Hospital & Welfare Vector Indexing Script
 
-Indexes hospital and welfare program data to Pinecone for semantic search.
+Indexes hospital and welfare program data using local Ollama embeddings for semantic search.
 This enables hybrid search (keyword + semantic) in hospital_manager.py and welfare_manager.py.
 
 Usage:
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 class HospitalWelfareIndexer:
-    """Indexes hospital and welfare data to Pinecone for semantic search."""
+    """Indexes hospital and welfare data using the MongoDB vector seam."""
 
     # Hospital fields to embed - focus on searchable text
     HOSPITAL_TEXT_FIELDS = ["name", "address", "region", "type"]
@@ -85,7 +85,7 @@ class HospitalWelfareIndexer:
         logger.info("Connections closed")
 
     def _extract_district(self, address: str) -> str:
-        """Extract district (구/군) from address for Pinecone filtering.
+        """Extract district (구/군) from address for vector filtering.
 
         Examples:
             "서울특별시 강남구 언주로 123" → "강남구"
@@ -121,7 +121,7 @@ class HospitalWelfareIndexer:
             return default
 
     def _prepare_hospital_metadata(self, doc: dict) -> dict:
-        """Prepare hospital metadata for Pinecone storage."""
+        """Prepare hospital metadata for MongoDB vector storage."""
         address = doc.get("address", "") or ""
         district = self._extract_district(address)
 
@@ -141,7 +141,7 @@ class HospitalWelfareIndexer:
         }
 
     def _prepare_welfare_metadata(self, doc: dict) -> dict:
-        """Prepare welfare metadata for Pinecone storage."""
+        """Prepare welfare metadata for MongoDB vector storage."""
         keywords = doc.get("keywords", [])
         if isinstance(keywords, list):
             keywords_str = ", ".join(keywords[:10])
@@ -159,14 +159,14 @@ class HospitalWelfareIndexer:
         }
 
     async def index_hospitals(self, batch_size: int = 1000, limit: int = None):
-        """Index hospital data to Pinecone.
+        """Index hospital data through the MongoDB vector seam.
 
         Args:
             batch_size: Number of documents to process per batch
             limit: Optional limit on total documents (for testing)
         """
         logger.info("=" * 60)
-        logger.info("INDEXING HOSPITALS TO PINECONE")
+        logger.info("INDEXING HOSPITALS WITH OLLAMA")
         logger.info("=" * 60)
 
         collection = self.db.hospitals
@@ -230,14 +230,14 @@ class HospitalWelfareIndexer:
         return indexed_count
 
     async def index_welfare(self, batch_size: int = 100, limit: int = None):
-        """Index welfare program data to Pinecone.
+        """Index welfare program data through the MongoDB vector seam.
 
         Args:
             batch_size: Number of documents to process per batch
             limit: Optional limit on total documents (for testing)
         """
         logger.info("=" * 60)
-        logger.info("INDEXING WELFARE PROGRAMS TO PINECONE")
+        logger.info("INDEXING WELFARE PROGRAMS WITH OLLAMA")
         logger.info("=" * 60)
 
         collection = self.db.welfare_programs
@@ -300,18 +300,18 @@ class HospitalWelfareIndexer:
         return indexed_count
 
     async def _upsert_batch(self, batch: list, namespace: str):
-        """Upload a batch of documents to Pinecone.
+        """Prepare a batch of documents for the MongoDB vector adapter.
 
         Args:
             batch: List of documents with _id, text, and metadata
-            namespace: Pinecone namespace
+            namespace: MongoDB vector namespace
         """
         texts = [doc["text"] for doc in batch]
 
         # Generate embeddings in batch
         embeddings = self.vector_manager.generate_embeddings_batch(texts)
 
-        # Prepare vectors for Pinecone
+        # Prepare vectors for the MongoDB vector adapter
         vectors = []
         for doc, embedding in zip(batch, embeddings):
             vectors.append({
@@ -320,7 +320,7 @@ class HospitalWelfareIndexer:
                 "metadata": doc["metadata"]
             })
 
-        # Upload to Pinecone
+        # Persistence is owned by the MongoDB vector adapter
         self.vector_manager.index.upsert(vectors=vectors, namespace=namespace)
 
     async def verify_indexes(self):
@@ -369,7 +369,7 @@ class HospitalWelfareIndexer:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Index hospital and welfare data to Pinecone")
+    parser = argparse.ArgumentParser(description="Index hospital and welfare data with local Ollama")
     parser.add_argument("--hospitals", action="store_true", help="Index hospital data")
     parser.add_argument("--welfare", action="store_true", help="Index welfare data")
     parser.add_argument("--all", action="store_true", help="Index all data")

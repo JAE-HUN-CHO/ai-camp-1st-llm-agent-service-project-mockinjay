@@ -7,7 +7,7 @@ import os
 import logging
 import json
 from typing import Dict, Any, Optional, List
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient
 from ..base_agent import BaseAgent
 from ..core.types import AgentType
 from ..core.agent_registry import AgentRegistry
@@ -94,16 +94,11 @@ class NutritionAgent(BaseAgent):
         return AgentType.LOCAL
 
     async def _ensure_client(self):
-        """OpenAI 클라이언트 lazy initialization"""
+        """Ollama 클라이언트 lazy initialization"""
         if not self._client_initialized:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                logger.warning("⚠️ OPENAI_API_KEY not found in environment")
-                raise ValueError("OPENAI_API_KEY not configured")
-            else:
-                self.client = AsyncOpenAI(api_key=api_key)
-                self._client_initialized = True
-                logger.info("✅ OpenAI client initialized")
+            self.client = OllamaClient()
+            self._client_initialized = True
+            logger.info("✅ Ollama client initialized")
 
     def _ensure_rag(self):
         """RAG 시스템 lazy initialization"""
@@ -290,7 +285,7 @@ class NutritionAgent(BaseAgent):
         """
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {
                         "role": "user",
@@ -380,7 +375,7 @@ class NutritionAgent(BaseAgent):
                     "analysisType": "dish"
                 }
 
-        # RAG 실패 시 OpenAI Vision으로 대체 (fallback)
+        # RAG 실패 시 로컬 Ollama vision으로 대체 (fallback)
         primary_item = classification.get("primaryItem", "분석된 요리")
         return {
             "response": f"업로드하신 것은 **{primary_item}**(으)로 보입니다. 맞다면 '네'라고 해주세요.",
@@ -478,7 +473,7 @@ class NutritionAgent(BaseAgent):
         """단일 식재료로 만들 수 있는 CKD 친화적 요리 추천"""
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {
                         "role": "user",
@@ -502,7 +497,7 @@ class NutritionAgent(BaseAgent):
         try:
             ingredients_str = ", ".join(ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {
                         "role": "user",
@@ -526,7 +521,7 @@ class NutritionAgent(BaseAgent):
         try:
             ingredients_str = ", ".join(ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {
                         "role": "user",
@@ -621,8 +616,8 @@ class NutritionAgent(BaseAgent):
 
                 return result
 
-        # 4. RAG 검색 실패 - OpenAI로 분석
-        logger.info("Using OpenAI for unknown dish")
+        # 4. RAG 검색 실패 - 로컬 Ollama로 분석
+        logger.info("Using Ollama for unknown dish")
         result = await self._analyze_text_query(user_input_clean, user_profile)
 
         # 상태 초기화
@@ -702,8 +697,8 @@ class NutritionAgent(BaseAgent):
                 result = await self._analyze_dish_with_rag_data(dish_name, dish_data)
                 return result
 
-        # RAG 검색 실패 → OpenAI로 분석
-        logger.info("Using OpenAI for text query")
+        # RAG 검색 실패 → 로컬 Ollama로 분석
+        logger.info("Using Ollama for text query")
         result = await self._analyze_text_query(user_input, user_profile)
         return result
 
@@ -775,7 +770,7 @@ class NutritionAgent(BaseAgent):
                     if alt_ingredients:
                         logger.info(f"✅ Found {len(alt_ingredients)} alternative ingredients from MongoDB")
 
-                        # Pinecone RAG에서 대체 식재료를 사용한 레시피 검색
+                        # MongoDB vector RAG에서 대체 식재료를 사용한 레시피 검색
                         if self.rag:
                             for alt_ing in alt_ingredients[:3]:  # 상위 3개만
                                 alt_name = alt_ing["food_name"]
@@ -994,7 +989,7 @@ class NutritionAgent(BaseAgent):
         try:
             high_risk_str = ", ".join(high_risk_ingredients)
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {
                         "role": "user",
@@ -1118,7 +1113,7 @@ class NutritionAgent(BaseAgent):
             system_prompt = NUTRITION_SYSTEM_PROMPT.format(profile_specific_instructions=profile_instructions)
 
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {
                         "role": "system",

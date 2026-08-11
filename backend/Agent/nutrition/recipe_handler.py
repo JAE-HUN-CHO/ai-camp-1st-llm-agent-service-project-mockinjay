@@ -37,8 +37,8 @@ class RecipeHandler:
     }
 
     def __init__(self, client, rag=None):
-        self.client = client  # OpenAI client
-        self.rag = rag  # Pinecone RAG
+        self.client = client  # Ollama-compatible client
+        self.rag = rag  # MongoDB vector RAG
 
     async def handle_recipe_request(
         self,
@@ -241,7 +241,7 @@ class RecipeHandler:
 지금 바로 레시피를 작성해주세요."""
 
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
                 messages=[
                     {"role": "system", "content": "당신은 신장병 환자를 위한 영양 전문가입니다. 저염식/저칼륨/저인 레시피를 작성합니다."},
                     {"role": "user", "content": prompt}

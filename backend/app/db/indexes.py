@@ -2,9 +2,10 @@
 Database Indexes Management
 Creates and manages MongoDB indexes for optimal query performance
 """
+import logging
+
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, IndexModel
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,9 @@ async def create_indexes(db: AsyncIOMotorDatabase):
         db: Motor database instance
     """
     try:
+        # Chat room listing and history enrichment are latency-sensitive paths.
+        await create_chat_indexes(db)
+
         # Users Collection Indexes
         await create_users_indexes(db)
 
@@ -53,8 +57,37 @@ async def create_indexes(db: AsyncIOMotorDatabase):
         logger.info("All database indexes created successfully")
 
     except Exception as e:
-        logger.error(f"Error creating database indexes: {str(e)}")
+        logger.error(f"Error creating database indexes: {e!s}")
         raise
+
+
+async def create_chat_indexes(db: AsyncIOMotorDatabase):
+    """Create the indexes used by room ownership, sorting, and history reads."""
+    await db["chat_rooms"].create_indexes(
+        [
+            IndexModel(
+                [("user_id", ASCENDING), ("is_deleted", ASCENDING), ("last_activity", DESCENDING)],
+                name="idx_chat_rooms_user_deleted_activity",
+            ),
+            IndexModel(
+                [("room_id", ASCENDING), ("user_id", ASCENDING), ("is_deleted", ASCENDING)],
+                unique=True,
+                name="idx_chat_rooms_room_owner_deleted",
+            ),
+        ]
+    )
+    await db["conversation_history"].create_indexes(
+        [
+            IndexModel(
+                [("room_id", ASCENDING), ("timestamp", DESCENDING)],
+                name="idx_conversation_history_room_timestamp",
+            ),
+            IndexModel(
+                [("user_id", ASCENDING), ("timestamp", DESCENDING)],
+                name="idx_conversation_history_user_timestamp",
+            ),
+        ]
+    )
 
 
 async def create_users_indexes(db: AsyncIOMotorDatabase):
@@ -306,6 +339,20 @@ async def create_points_history_indexes(db: AsyncIOMotorDatabase):
             [("userId", ASCENDING), ("source", ASCENDING), ("createdAt", DESCENDING)],
             name="idx_points_history_userId_source_createdAt"
         ),
+        # A sparse unique key makes retried domain events (for example quiz
+        # completion) idempotent without constraining legacy history rows.
+        IndexModel(
+            [("userId", ASCENDING), ("idempotencyKey", ASCENDING)],
+            unique=True,
+            sparse=True,
+            name="idx_points_history_userId_idempotencyKey"
+        ),
+        # Recovery sweep for crashed reservations: status first narrows the
+        # pending set, then createdAt makes the TTL cutoff indexable.
+        IndexModel(
+            [("status", ASCENDING), ("createdAt", ASCENDING)],
+            name="idx_points_history_status_createdAt"
+        ),
     ]
 
     await points_history_collection.create_indexes(indexes)
@@ -319,6 +366,8 @@ async def drop_all_indexes(db: AsyncIOMotorDatabase):
     WARNING: This will drop all indexes except _id index
     """
     collections = [
+        "chat_rooms",
+        "conversation_history",
         "users",
         "notifications",
         "notification_settings",
@@ -345,7 +394,7 @@ async def drop_all_indexes(db: AsyncIOMotorDatabase):
                     logger.info(f"Dropped index {index_name} from {collection_name}")
 
         except Exception as e:
-            logger.warning(f"Error dropping indexes from {collection_name}: {str(e)}")
+            logger.warning(f"Error dropping indexes from {collection_name}: {e!s}")
 
 
 async def list_all_indexes(db: AsyncIOMotorDatabase):
@@ -356,6 +405,8 @@ async def list_all_indexes(db: AsyncIOMotorDatabase):
         dict: Dictionary of collection names and their indexes
     """
     collections = [
+        "chat_rooms",
+        "conversation_history",
         "users",
         "notifications",
         "notification_settings",
@@ -377,6 +428,6 @@ async def list_all_indexes(db: AsyncIOMotorDatabase):
             all_indexes[collection_name] = indexes
             logger.info(f"Indexes in {collection_name}: {list(indexes.keys())}")
         except Exception as e:
-            logger.warning(f"Error listing indexes for {collection_name}: {str(e)}")
+            logger.warning(f"Error listing indexes for {collection_name}: {e!s}")
 
     return all_indexes

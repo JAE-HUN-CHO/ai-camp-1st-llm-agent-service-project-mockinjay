@@ -10,7 +10,7 @@ import httpx
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from app.adapters.ollama.client import OllamaClient
 import hashlib
 import json
 from functools import lru_cache
@@ -23,14 +23,23 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/clinical-trials", tags=["clinical-trials"])
 
-# OpenAI client for AI summarization
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Ollama is local-first and does not require an API key. The client remains
+# lazy so importing the router has no network side effect.
+ollama_client: Optional[OllamaClient] = None
 
 # In-memory cache for translated trials
 # Key: (condition, page, page_size) -> Value: cached response with timestamp
 _trials_cache = {}
-_translation_cache = {}  # Key: text hash -> Value: translated text
+_translation_cache = {}  # Key: text hash -> {translation, timestamp}
 CACHE_TTL = 3600  # Cache for 1 hour
+
+
+def get_ollama_client() -> OllamaClient:
+    """Return the single local client used for clinical-trial summaries."""
+    global ollama_client
+    if ollama_client is None:
+        ollama_client = OllamaClient()
+    return ollama_client
 
 
 # ==================== Cache Helper Functions ====================
@@ -40,9 +49,14 @@ def get_text_hash(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()
 
 
-def get_cache_key(condition: str, page: int, page_size: int) -> str:
+def get_cache_key(
+    condition: str,
+    page: int,
+    page_size: int,
+    status: Optional[str] = None,
+) -> str:
     """Generate cache key for trial list"""
-    return f"{condition}:{page}:{page_size}"
+    return f"{condition}:{status or 'all'}:{page}:{page_size}"
 
 
 def is_cache_valid(timestamp: float) -> bool:
@@ -50,24 +64,43 @@ def is_cache_valid(timestamp: float) -> bool:
     return (datetime.now().timestamp() - timestamp) < CACHE_TTL
 
 
-def get_cached_trials(condition: str, page: int, page_size: int) -> Optional[Dict[str, Any]]:
+def get_cached_trials(
+    condition: str,
+    page: int,
+    page_size: int,
+    status: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Get cached trial list if available and valid"""
-    cache_key = get_cache_key(condition, page, page_size)
+    cache_key = get_cache_key(condition, page, page_size, status)
     if cache_key in _trials_cache:
         cached_data = _trials_cache[cache_key]
         if is_cache_valid(cached_data["timestamp"]):
             logger.info(f"Cache hit for trials: {cache_key}")
             return cached_data["data"]
-        else:
-            # Remove expired cache
-            del _trials_cache[cache_key]
-            logger.info(f"Cache expired for trials: {cache_key}")
+        logger.info(f"Cache expired for trials: {cache_key}")
     return None
 
 
-def set_cached_trials(condition: str, page: int, page_size: int, data: Dict[str, Any]):
+def get_stale_cached_trials(
+    condition: str,
+    page: int,
+    page_size: int,
+    status: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the last provider response for bounded outage fallback."""
+    cached_data = _trials_cache.get(get_cache_key(condition, page, page_size, status))
+    return cached_data["data"] if cached_data else None
+
+
+def set_cached_trials(
+    condition: str,
+    page: int,
+    page_size: int,
+    data: Dict[str, Any],
+    status: Optional[str] = None,
+):
     """Cache trial list data"""
-    cache_key = get_cache_key(condition, page, page_size)
+    cache_key = get_cache_key(condition, page, page_size, status)
     _trials_cache[cache_key] = {
         "data": data,
         "timestamp": datetime.now().timestamp()
@@ -79,15 +112,21 @@ def get_cached_translation(text: str) -> Optional[str]:
     """Get cached translation if available"""
     text_hash = get_text_hash(text)
     if text_hash in _translation_cache:
-        logger.info(f"Translation cache hit")
-        return _translation_cache[text_hash]
+        cached = _translation_cache[text_hash]
+        if is_cache_valid(cached["timestamp"]):
+            logger.info("Translation cache hit")
+            return cached["translation"]
+        del _translation_cache[text_hash]
     return None
 
 
 def set_cached_translation(text: str, translation: str):
     """Cache translation"""
     text_hash = get_text_hash(text)
-    _translation_cache[text_hash] = translation
+    _translation_cache[text_hash] = {
+        "translation": translation,
+        "timestamp": datetime.now().timestamp(),
+    }
 
 
 # ==================== Request/Response Models ====================
@@ -187,7 +226,7 @@ async def fetch_trial_detail(nct_id: str) -> Dict[str, Any]:
 
 async def translate_to_korean(text: str) -> str:
     """
-    Translate English text to Korean using OpenAI with caching
+    Translate English text to Korean using local Ollama with caching
     """
     if not text or len(text.strip()) == 0:
         return text
@@ -198,8 +237,12 @@ async def translate_to_korean(text: str) -> str:
         return cached
 
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        client = get_ollama_client()
+        if client is None:
+            return text
+
+        response = await client.chat.completions.create(
+            model="qwen3.6:27b-mlx",
             messages=[
                 {"role": "system", "content": "You are a professional medical translator. Translate the following English text to Korean. Maintain medical terminology accuracy. Only output the Korean translation without any additional explanation."},
                 {"role": "user", "content": text}
@@ -286,7 +329,7 @@ async def parse_trial_data(study: Dict[str, Any], translate: bool = False) -> Di
 
 async def generate_ai_summary(trial_data: Dict[str, Any], language: str = "ko") -> str:
     """
-    Generate AI-powered summary of clinical trial using OpenAI
+    Generate a clinical-trial summary using local Ollama
     """
     try:
         # Prepare content for summarization
@@ -323,9 +366,13 @@ Include the following sections:
 4. Eligibility
 5. Clinical Significance"""
 
-        # Call OpenAI API
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        # Call the local Ollama model
+        client = get_ollama_client()
+        if client is None:
+            return "AI 요약을 생성할 수 없습니다." if language == "ko" else "Unable to generate AI summary."
+
+        response = await client.chat.completions.create(
+            model="qwen3.6:27b-mlx",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": content}
@@ -358,7 +405,9 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
         logger.info(f"Clinical trials list request: condition={request.condition}, page={request.page}")
 
         # Check cache first
-        cached_response = get_cached_trials(request.condition, request.page, request.page_size)
+        cached_response = get_cached_trials(
+            request.condition, request.page, request.page_size, request.status
+        )
         if cached_response:
             logger.info("Returning cached clinical trials")
             return cached_response
@@ -393,11 +442,23 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
         }
 
         # Cache the response
-        set_cached_trials(request.condition, request.page, request.page_size, response)
+        set_cached_trials(
+            request.condition,
+            request.page,
+            request.page_size,
+            response,
+            request.status,
+        )
 
         return response
 
     except Exception as e:
+        stale_response = get_stale_cached_trials(
+            request.condition, request.page, request.page_size, request.status
+        )
+        if stale_response is not None:
+            logger.warning("ClinicalTrials provider failed; returning stale cached response", exc_info=True)
+            return {**stale_response, "stale": True}
         logger.error(f"Error in get_clinical_trials: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -472,7 +533,7 @@ async def health_check():
             "status": "healthy",
             "service": "clinical_trials_api",
             "clinicalTrialsGov": api_status,
-            "aiSummary": "ready" if os.getenv("OPENAI_API_KEY") else "no_api_key"
+            "aiSummary": "ollama"
         }
     except Exception as e:
         logger.error(f"Health check error: {e}")

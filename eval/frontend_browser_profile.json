@@ -1,0 +1,42 @@
+{
+  "benchmark": "canonical_frontend_chrome_cdp",
+  "routes": [
+    {
+      "route": "/",
+      "dom_content_loaded_ms": 410.7,
+      "load_event_ms": 411.1,
+      "first_contentful_paint_ms": 436.0
+    },
+    {
+      "route": "/chat",
+      "dom_content_loaded_ms": 59.1,
+      "load_event_ms": 59.4,
+      "first_contentful_paint_ms": 84.0
+    },
+    {
+      "route": "/diet-care",
+      "dom_content_loaded_ms": 60.3,
+      "load_event_ms": 64.8,
+      "first_contentful_paint_ms": 220.0
+    },
+    {
+      "route": "/health",
+      "dom_content_loaded_ms": 79.6,
+      "load_event_ms": 79.8,
+      "first_contentful_paint_ms": 92.0
+    },
+    {
+      "route": "/trends",
+      "dom_content_loaded_ms": 72.6,
+      "load_event_ms": 76.6,
+      "first_contentful_paint_ms": 88.0
+    },
+    {
+      "route": "/mypage",
+      "dom_content_loaded_ms": 74.5,
+      "load_event_ms": 79.1,
+      "first_contentful_paint_ms": 96.0
+    }
+  ],
+  "scope": "headless Chrome navigation and paint metrics; not a full user-interaction trace"
+}
