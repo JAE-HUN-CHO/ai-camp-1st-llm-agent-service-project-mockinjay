@@ -3,6 +3,7 @@ from app.models.user import UserCreate, ProfileUpdateRequest, ProfileType
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
 from app.services.parlant_service import create_parlant_customer, update_parlant_customer_profile
 from app.db.connection import get_users_collection
+from app.config import settings
 from app.utils.validators import PasswordValidator, UsernameValidator
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, field_validator
@@ -312,6 +313,9 @@ async def check_username_availability(username: str):
 @router.post("/dev-login")
 async def dev_login():
     """개발용 자동 로그인 API - 테스트 사용자 자동 생성 및 로그인"""
+    if settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+
     users_collection = get_users_collection()
 
     # 테스트 사용자 정보

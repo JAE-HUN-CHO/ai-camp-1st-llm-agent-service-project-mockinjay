@@ -354,31 +354,31 @@ async def delete_account(
         from app.db.connection import db
 
         # Chat rooms and messages
-        db["rooms"].delete_many({"user_id": user_id})
-        db["conversations"].delete_many({"user_id": user_id})
+        await db["rooms"].delete_many({"user_id": user_id})
+        await db["conversations"].delete_many({"user_id": user_id})
 
         # Community posts and comments (mark as deleted but keep for moderation)
-        db["posts"].update_many(
+        await db["posts"].update_many(
             {"userId": user_id},
             {"$set": {"isDeleted": True, "userId": "deleted_user"}}
         )
-        db["comments"].update_many(
+        await db["comments"].update_many(
             {"userId": user_id},
             {"$set": {"isDeleted": True, "userId": "deleted_user"}}
         )
 
         # Diet/health data
-        db["diet_sessions"].delete_many({"user_id": user_id})
-        db["diet_meals"].delete_many({"user_id": user_id})
-        db["diet_goals"].delete_many({"user_id": user_id})
-        db["health_labs"].delete_many({"user_id": user_id})
-        db["health_medications"].delete_many({"user_id": user_id})
-        db["health_vitals"].delete_many({"user_id": user_id})
-        db["health_symptoms"].delete_many({"user_id": user_id})
+        await db["diet_sessions"].delete_many({"user_id": user_id})
+        await db["diet_meals"].delete_many({"user_id": user_id})
+        await db["diet_goals"].delete_many({"user_id": user_id})
+        await db["health_labs"].delete_many({"user_id": user_id})
+        await db["health_medications"].delete_many({"user_id": user_id})
+        await db["health_vitals"].delete_many({"user_id": user_id})
+        await db["health_symptoms"].delete_many({"user_id": user_id})
 
         # Bookmarks and preferences
-        db["bookmarks"].delete_many({"user_id": user_id})
-        db["user_preferences"].delete_many({"user_id": user_id})
+        await db["bookmarks"].delete_many({"user_id": user_id})
+        await db["user_preferences"].delete_many({"user_id": user_id})
 
         logger.info(f"Account deleted successfully for user {user_id}")
 

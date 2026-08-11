@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
@@ -138,6 +138,8 @@ async def database_check():
 @app.get("/test/error/500")
 def test_server_error():
     """500 에러 테스트용 엔드포인트"""
+    if settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
     raise Exception("의도적인 500 에러 테스트")
 
 
