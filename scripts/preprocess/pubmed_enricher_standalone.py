@@ -135,7 +135,7 @@ class SemanticScholarPubMedEnricher:
                 
                 if response.status_code == 429:
                     self.stats['rate_limit_hits'] += 1
-                    print(f"      ⚠️ PubMed API 호출 제한 (429) - 재시도 중...")
+                    print("      ⚠️ PubMed API 호출 제한 (429) - 재시도 중...")
                     continue
                 
                 response.raise_for_status()
@@ -172,7 +172,7 @@ class SemanticScholarPubMedEnricher:
                 
                 if response.status_code == 429:
                     self.stats['rate_limit_hits'] += 1
-                    print(f"      ⚠️ API 호출 제한 (429) - 재시도 중...")
+                    print("      ⚠️ API 호출 제한 (429) - 재시도 중...")
                     continue
                 
                 response.raise_for_status()
@@ -281,7 +281,7 @@ class SemanticScholarPubMedEnricher:
             month = str(month).zfill(2)
             day = str(day).zfill(2)
             return f"{year}.{month}.{day}"
-        except:
+        except (TypeError, ValueError, AttributeError):
             return year if year else ''
     
     @staticmethod
@@ -345,7 +345,7 @@ class SemanticScholarPubMedEnricher:
         Returns:
             논문 리스트
         """
-        print(f"      🎓 Semantic Scholar 검색 중...")
+        print("      🎓 Semantic Scholar 검색 중...")
         
         # Paper search endpoint
         endpoint = f"{self.S2_BASE_URL}/paper/search"
@@ -370,7 +370,7 @@ class SemanticScholarPubMedEnricher:
                 
                 if response.status_code == 429:
                     self.stats['rate_limit_hits'] += 1
-                    print(f"      ⚠️ Semantic Scholar API 제한 (429) - 재시도 중...")
+                    print("      ⚠️ Semantic Scholar API 제한 (429) - 재시도 중...")
                     continue
                 
                 response.raise_for_status()
@@ -400,10 +400,10 @@ class SemanticScholarPubMedEnricher:
         papers = self.search_semantic_scholar(original_title, limit=10)
         
         if not papers:
-            print(f"      ❌ Semantic Scholar 결과 없음")
+            print("      ❌ Semantic Scholar 결과 없음")
             return None
         
-        print(f"      🔍 제목 완전 일치 확인 중...")
+        print("      🔍 제목 완전 일치 확인 중...")
         
         for idx, paper in enumerate(papers, 1):
             paper_title = paper.get('title', '')
@@ -549,7 +549,7 @@ class SemanticScholarPubMedEnricher:
             return article
         
         # 2차 시도: Semantic Scholar
-        print(f"      ⚠️ PubMed 실패, Semantic Scholar 시도...")
+        print("      ⚠️ PubMed 실패, Semantic Scholar 시도...")
         self.stats['s2_searched'] += 1
         
         s2_metadata = self.find_best_match_semantic_scholar(title)
@@ -561,7 +561,7 @@ class SemanticScholarPubMedEnricher:
             return article
         
         # 둘 다 실패
-        print(f"      ❌ 두 API 모두 실패")
+        print("      ❌ 두 API 모두 실패")
         self.stats['not_found'] += 1
         
         return article
@@ -617,11 +617,11 @@ class SemanticScholarPubMedEnricher:
         print(f"이미 완전한 메타데이터: {self.stats['already_complete']:,}개")
         print()
         print("📊 API별 검색 결과:")
-        print(f"  PubMed:")
+        print("  PubMed:")
         print(f"    - 검색 시도: {self.stats['pubmed_searched']:,}개")
         print(f"    - 성공: {self.stats['pubmed_found']:,}개")
         print(f"    - 제목 불일치로 거부: {self.stats['title_mismatch_rejected']:,}개")
-        print(f"  Semantic Scholar:")
+        print("  Semantic Scholar:")
         print(f"    - 검색 시도: {self.stats['s2_searched']:,}개")
         print(f"    - 성공: {self.stats['s2_found']:,}개")
         print(f"    - 완전 일치 없음: {self.stats['s2_low_similarity']:,}개")
@@ -697,12 +697,12 @@ Semantic Scholar API:
     print(f"API 호출 간격: {args.delay}초")
     print(f"S2 유사도 임계값: {args.similarity_threshold}")
     print(f"체크포인트 간격: {args.checkpoint_interval}개마다")
-    print(f"검색 전략: PubMed (완전 일치) → Semantic Scholar (완전 일치)")
+    print("검색 전략: PubMed (완전 일치) → Semantic Scholar (완전 일치)")
     if args.s2_api_key:
-        print(f"Semantic Scholar API 키: 설정됨 (높은 rate limit)")
+        print("Semantic Scholar API 키: 설정됨 (높은 rate limit)")
     else:
-        print(f"Semantic Scholar API 키: 없음 (무료 tier, 100 req/5min)")
-    print(f"⚠️  두 API 모두 제목 완전 일치만 허용 (유사 제목 제외)")
+        print("Semantic Scholar API 키: 없음 (무료 tier, 100 req/5min)")
+    print("⚠️  두 API 모두 제목 완전 일치만 허용 (유사 제목 제외)")
     if args.max:
         print(f"처리할 논문 수: {args.max:,}개")
     print()
@@ -755,7 +755,7 @@ Semantic Scholar API:
                     time.sleep(enricher.delay)
                     
             except KeyboardInterrupt:
-                print(f"\n\n⚠️  사용자 중단 (Ctrl+C)")
+                print("\n\n⚠️  사용자 중단 (Ctrl+C)")
                 print(f"현재까지 처리: {i}/{len(articles)}")
                 break
                 
@@ -768,11 +768,11 @@ Semantic Scholar API:
         print("\n\n⚠️  프로그램 중단됨")
     
     # 3. 최종 저장
-    print(f"\n💾 최종 파일 저장 중...")
+    print("\n💾 최종 파일 저장 중...")
     output_path = enricher.save_jsonl(enriched_articles, args.output)
     file_size = output_path.stat().st_size
     
-    print(f"✓ 저장 완료")
+    print("✓ 저장 완료")
     print(f"  경로: {output_path}")
     print(f"  크기: {file_size:,} bytes ({file_size / (1024*1024):.2f} MB)")
     

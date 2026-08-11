@@ -1,7 +1,7 @@
 """
 Policy Engine - 에이전트 정책 관리
 """
-from typing import Dict, Optional
+from typing import Dict
 from datetime import datetime, timedelta
 import logging
 

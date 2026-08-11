@@ -18,7 +18,7 @@ Index Strategy:
 """
 from typing import Optional, Dict, Any, List
 from pymongo.collection import Collection
-from pymongo import ASCENDING, DESCENDING, IndexModel
+from pymongo import ASCENDING, DESCENDING
 from datetime import datetime, timedelta, date
 from bson import ObjectId
 import logging
@@ -777,7 +777,7 @@ class NutritionAnalysisRepository(BaseRepository):
     """
     Repository for caching AI nutrition analysis results
 
-    This reduces OpenAI API costs by caching similar analyses.
+    This avoids repeated local model work by caching similar analyses.
     Uses image hash for deduplication.
     """
 

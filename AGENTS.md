@@ -5,10 +5,10 @@ CareGuide는 만성 신장질환(CKD) 환자 대상 의료/복지 LLM Agent 서�
 
 ## Project Snapshot
 
-- **Backend**: FastAPI + Parlant SDK (port 8000), 4개 Agent (Medical_Welfare, Nutrition, Research_Paper, Quiz)
+- **Backend**: FastAPI (port 8000) + Parlant remote service (port 8800), 5개 Agent (Medical_Welfare, Nutrition, Research_Paper, Quiz, Trend_Visualization)
 - **Frontend (canonical)**: `frontend/` (Vite + React + TypeScript + Tailwind), consolidated from `new_frontend/`
 - **DB**: MongoDB (**local Docker** for development) — see ADR-005
-- **Vector**: MongoDB Vector Search (1536d, cosine, text-embedding-3-small)
+- **Vector**: local MongoDB Vector Search (1536d, cosine); Ollama `nomic-embed-text-v2-moe` is validated and adapted locally
 - **Architecture decisions**: `docs/adr/`
 - **Domain language**: `docs/agents/domain.md`
 - **Recent reports**: `docs/agents/FINAL_COMPLETE_REPORT.md`, `docs/agents/PARLANT_INTEGRATION.md`

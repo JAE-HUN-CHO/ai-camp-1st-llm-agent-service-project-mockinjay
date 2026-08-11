@@ -961,24 +961,24 @@ class HospitalManager:
 
         try:
             # Build vector metadata filter
-            pinecone_filter = {}
+            vector_filter = {}
             if has_dialysis is not None:
-                pinecone_filter["has_dialysis_unit"] = has_dialysis
+                vector_filter["has_dialysis_unit"] = has_dialysis
             if night_dialysis is not None:
-                pinecone_filter["night_dialysis"] = night_dialysis
+                vector_filter["night_dialysis"] = night_dialysis
             if hospital_type:
-                pinecone_filter["type"] = hospital_type
+                vector_filter["type"] = hospital_type
             # Extract district (구/군) from query for precise location filtering
             district = self._extract_district_from_query(query)
             if district:
-                pinecone_filter["district"] = district
+                vector_filter["district"] = district
             # Note: region filter is applied post-fetch since it requires substring matching
 
             matches = await self.vector_manager.semantic_search(
                 query=query,
                 top_k=max(limit * 3, limit),
                 namespace=self.vector_namespace,
-                filter=pinecone_filter if pinecone_filter else None
+                filter=vector_filter if vector_filter else None
             )
             self._vector_search_successes += 1
         except Exception as e:
@@ -1182,7 +1182,6 @@ class HospitalManager:
 # ==================== Test Functions ====================
 async def test_hospital_manager():
     """Test Hospital Manager functionality"""
-    import asyncio
 
     print("\n" + "="*80)
     print("HOSPITAL MANAGER TEST")

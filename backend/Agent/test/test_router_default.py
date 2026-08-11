@@ -3,7 +3,6 @@ import sys
 import asyncio
 import logging
 from pathlib import Path
-from datetime import datetime
 
 # Add backend path
 backend_path = Path(__file__).parent.parent.parent
@@ -20,7 +19,7 @@ from Agent.core.contracts import AgentRequest
 
 async def test_router_default():
     print("\n" + "="*50)
-    print(f"🚀 Starting Router Default Behavior Test")
+    print("🚀 Starting Router Default Behavior Test")
     print("="*50 + "\n")
 
     router = RouterAgent()

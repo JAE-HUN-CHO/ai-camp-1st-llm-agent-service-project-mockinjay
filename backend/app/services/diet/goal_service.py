@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.models.diet import DietGoal, UpdateGoalRequest, CKDStage
 from app.repositories.goal_repository import goal_repository
-from app.core.exceptions import InvalidGoalRangeError, GoalNotFoundError
+from app.core.exceptions import InvalidGoalRangeError
 
 logger = logging.getLogger(__name__)
 

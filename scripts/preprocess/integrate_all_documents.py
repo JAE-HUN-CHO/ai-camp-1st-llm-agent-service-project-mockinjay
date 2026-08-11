@@ -6,7 +6,7 @@ import json
 import os
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 from datetime import datetime
 from backend.app.adapters.ollama.client import OllamaProviderError, OllamaSyncClient
 from glob import glob
@@ -231,7 +231,7 @@ class MedicalDataProcessor:
             raw_text = self.extract_text_from_json(data)
             
             if not raw_text or len(raw_text.strip()) < 10:
-                print(f"  → 텍스트 추출 실패 또는 길이 부족")
+                print("  → 텍스트 추출 실패 또는 길이 부족")
                 return []
             
             print(f"  → LLM으로 요약 생성 중... (원본 길이: {len(raw_text)}자)")

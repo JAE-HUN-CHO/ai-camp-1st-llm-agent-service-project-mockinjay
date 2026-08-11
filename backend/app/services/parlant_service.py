@@ -14,7 +14,7 @@ Manages Parlant customer lifecycle for app users:
 """
 import os
 import logging
-from typing import Optional, List
+from typing import Optional
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class ParlantService:
     두 서버는 동일한 데이터베이스를 공유해야 합니다.
     """
 
-    _client: Optional["AsyncParlantClient"] = None
+    _client: Optional[object] = None
     _tag_cache: dict = {}  # Cache for profile tags: {tag_name: tag_id}
 
     @classmethod

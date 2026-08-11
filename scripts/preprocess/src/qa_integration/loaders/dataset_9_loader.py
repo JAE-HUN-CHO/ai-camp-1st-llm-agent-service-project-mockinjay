@@ -4,7 +4,6 @@ Dataset 9 Loader - 필수의료 의학지식 데이터
 Loads essential medical knowledge QA pairs from AI Hub dataset 9
 """
 
-import os
 import json
 import logging
 from pathlib import Path

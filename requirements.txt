@@ -1,3 +1,6 @@
+# Data/preprocess compatibility input only. The application runtime is pinned by
+# backend/requirements.lock; keep this file intentionally small and do not use it
+# as a production deployment lock.
 requests
 bs4
 PyPDF2

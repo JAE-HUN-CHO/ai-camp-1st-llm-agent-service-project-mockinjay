@@ -105,7 +105,7 @@ def test_analyze_nutrition_with_text(client, auth_headers):
     )
     session_id = session_response.json()["session_id"]
 
-    # Analyze nutrition (mock - will fail without real OpenAI key)
+    # Analyze nutrition (mock - requires the local Ollama runtime)
     form_data = {
         "session_id": session_id,
         "text": "Grilled chicken breast with steamed broccoli",
@@ -118,8 +118,8 @@ def test_analyze_nutrition_with_text(client, auth_headers):
         data=form_data
     )
 
-    # This will fail without OpenAI API key, but we can check the request is valid
-    # In production, you'd mock the OpenAI client
+    # The request contract can be checked without a live model response.
+    # Production tests should mock the Ollama adapter.
     assert response.status_code in [200, 500]  # 500 if no API key
 
 

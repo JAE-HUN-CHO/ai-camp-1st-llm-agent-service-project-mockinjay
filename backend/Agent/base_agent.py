@@ -4,7 +4,7 @@ Base Agent
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime
 from .core.contracts import AgentRequest, AgentResponse
 from .core.types import AgentType

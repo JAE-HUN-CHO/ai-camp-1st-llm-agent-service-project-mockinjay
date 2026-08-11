@@ -14,11 +14,10 @@ from ..core.agent_registry import AgentRegistry
 from ..core.contracts import AgentRequest, AgentResponse
 from ..api.vector_client import VectorClient
 from ..api.mongodb_client import MongoDBClient
-from ..api.openai_client import OpenAIClient
+from ..api.ollama_agent_client import OllamaAgentClient
 from .prompts import (
     QUIZ_GENERATION_SYSTEM_PROMPT,
     QUIZ_GENERATION_USER_PROMPT_TEMPLATE,
-    QUIZ_FEEDBACK_PROMPT_TEMPLATE,
     CATEGORY_KEYWORDS,
     CATEGORY_NAMES_KR,
     DIFFICULTY_DESCRIPTIONS
@@ -59,7 +58,7 @@ class QuizAgent(LocalAgent):
 
     def __init__(self):
         super().__init__(agent_type="quiz")
-        self.openai_client = OpenAIClient(model="qwen3.6:27b-mlx")
+        self.ollama_client = OllamaAgentClient(model="qwen3.6:27b-mlx")
         self.vector_client = VectorClient()
         self.mongodb_client = MongoDBClient()
     
@@ -503,7 +502,7 @@ class QuizAgent(LocalAgent):
         # RAG 컨텍스트 구성
         rag_context = self._build_rag_context(rag_results, mongodb_results)
 
-        # 2. OpenAI로 퀴즈 생성
+        # 2. Ollama로 퀴즈 생성
         category_kr = CATEGORY_NAMES_KR.get(category, category)
         difficulty_kr = DIFFICULTY_DESCRIPTIONS.get(difficulty, difficulty)
 
@@ -516,7 +515,7 @@ class QuizAgent(LocalAgent):
             rag_context=rag_context
         )
 
-        result = await self.openai_client.generate(
+        result = await self.ollama_client.generate(
             prompt=user_prompt,
             system_prompt=QUIZ_GENERATION_SYSTEM_PROMPT,
             temperature=0.7,
@@ -867,7 +866,6 @@ class QuizAgent(LocalAgent):
         existing_stats = await stats_collection.find_one({"userId": user_id})
 
         current_streak = 1
-        best_streak = 1
 
         if existing_stats:
             # 기존 통계 업데이트
@@ -895,22 +893,18 @@ class QuizAgent(LocalAgent):
                         # 최고 스트릭 업데이트
                         if current_streak > existing_stats.get("bestStreak", 0):
                             updates["$set"]["bestStreak"] = current_streak
-                        best_streak = max(current_streak, existing_stats.get("bestStreak", 0))
                     elif days_diff > 1:
                         # 스트릭 끊김
                         updates["$set"]["currentStreak"] = 1
                         current_streak = 1
-                        best_streak = existing_stats.get("bestStreak", 1)
                     else:
                         # 같은 날 (스트릭 유지)
                         current_streak = existing_stats.get("currentStreak", 1)
-                        best_streak = existing_stats.get("bestStreak", 1)
                 else:
                     updates["$set"]["currentStreak"] = 1
                     updates["$set"]["bestStreak"] = 1
             else:
                 current_streak = existing_stats.get("currentStreak", 0)
-                best_streak = existing_stats.get("bestStreak", 0)
 
             # 레벨 판정 (level_test만)
             if session_type == "level_test":

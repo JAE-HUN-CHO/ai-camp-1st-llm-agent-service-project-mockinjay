@@ -9,7 +9,7 @@ Pydantic models for notification scheduling and delivery:
 """
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any, Literal
-from datetime import datetime, time
+from datetime import datetime
 from enum import Enum
 
 

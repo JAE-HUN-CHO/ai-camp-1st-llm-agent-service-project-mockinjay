@@ -3,7 +3,7 @@ Bookmark Service
 Business logic for user bookmarks management
 사용자 북마크 관리를 위한 비즈니스 로직
 """
-from typing import Dict, Any, List
+from typing import Dict, Any
 from datetime import datetime
 from fastapi import HTTPException, status
 import logging

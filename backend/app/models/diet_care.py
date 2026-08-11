@@ -7,7 +7,7 @@ goal management, and progress tracking.
 """
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal, Dict, Any
-from datetime import datetime, date
+from datetime import datetime
 from enum import Enum
 
 
@@ -82,7 +82,7 @@ class NutriCoachRequest(BaseModel):
 
 
 class NutritionAnalysisResult(BaseModel):
-    """Structured nutrition analysis result from GPT-4 Vision"""
+    """Structured nutrition analysis result from local Ollama vision."""
     foods: List[FoodItem] = Field(..., description="Identified food items")
     total_calories: float = Field(..., ge=0)
     total_protein_g: float = Field(..., ge=0)

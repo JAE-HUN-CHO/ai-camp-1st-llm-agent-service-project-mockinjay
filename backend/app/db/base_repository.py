@@ -15,13 +15,10 @@ from typing import Optional, List, Dict, Any, Generic, TypeVar
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError, DuplicateKeyError
 from bson import ObjectId
-from datetime import datetime
 import logging
 
 from app.core.exceptions import (
-    DatabaseConnectionError,
-    DatabaseQueryError,
-    ResourceNotFoundError
+    DatabaseQueryError
 )
 
 logger = logging.getLogger(__name__)

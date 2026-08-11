@@ -1,5 +1,10 @@
 # CareGuide 재구성 실행 계획
 
+> 실행 계획의 migration 입력과 당시 경로는 historical reference다. 현재 product root,
+> provider, cache source of truth는 `DOCUMENT_CONSISTENCY_MATRIX.md`와 ADR-011을
+> 따른다. 이 계획의 Phase gate를 다시 실행할 때도 `frontend/`와 local Ollama/MongoDB를
+> 대상으로 한다.
+
 ## 목표
 
 CareGuide를 AI가 좁은 맥락에서 빠르게 이해하고 안전하게 수정할 수 있는 구조로 정리한다.

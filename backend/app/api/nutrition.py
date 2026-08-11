@@ -4,6 +4,7 @@ import logging
 from Agent.core.contracts import AgentRequest
 from app.features.chat.runtime import get_context_system
 from app.services.agent_runtime import get_agent_runtime
+from app.utils.upload import read_validated_image
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,9 @@ async def analyze_nutrition(
     image_data = None
     if image and image.filename:  # Check if image has a filename (actual file uploaded)
         import base64
-        contents = await image.read()
+        contents = await read_validated_image(image)
         image_data = base64.b64encode(contents).decode('utf-8')
-        logger.info(f"🖼️ Image uploaded: filename={image.filename}, size={len(image_data)} bytes (base64)")
+        logger.info("🖼️ Validated nutrition image uploaded (%d base64 bytes)", len(image_data))
 
     context = {
         "image_data": image_data,

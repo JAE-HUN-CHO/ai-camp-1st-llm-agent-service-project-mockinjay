@@ -11,9 +11,8 @@ This module contains all Phase 3 advanced components:
 """
 
 import asyncio
-import time
 import logging
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Tuple
 from functools import lru_cache
 import numpy as np
 from sentence_transformers import CrossEncoder
@@ -21,7 +20,6 @@ try:
     from app.adapters.ollama.client import OllamaSyncClient
 except ModuleNotFoundError:
     from backend.app.adapters.ollama.client import OllamaSyncClient
-import hashlib
 from collections import defaultdict
 from datetime import datetime, timedelta
 

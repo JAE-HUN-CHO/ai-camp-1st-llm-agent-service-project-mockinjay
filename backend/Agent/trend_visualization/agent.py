@@ -1,10 +1,8 @@
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, List, TypedDict, Tuple
+from typing import Dict, Any, Optional, List, TypedDict
 import logging
-from datetime import datetime
 import os
-import asyncio
 import json
 from app.adapters.ollama.client import OllamaClient
 
@@ -262,7 +260,7 @@ class TrendVisualizationAgent(LocalAgent):
                     pubmed_data["end_year"] = end_year
                 except Exception as e:
                     logger.error(f"   ⚠️ Trends fetch failed: {e}")
-                    state["error"] = f"시간별 트렌드 데이터 가져오기 실패 (Rate Limit 가능성)"
+                    state["error"] = "시간별 트렌드 데이터 가져오기 실패 (Rate Limit 가능성)"
                     state["status"] = "error"
                     return state
                 
@@ -281,7 +279,7 @@ class TrendVisualizationAgent(LocalAgent):
                 # 지역별 분포 분석
                 countries = context.get("countries", None)
                 
-                logger.info(f"   Fetching geographic distribution...")
+                logger.info("   Fetching geographic distribution...")
                 
                 try:
                     geo_data = await self.pubmed.searcher.get_geographic_distribution_parallel(
@@ -350,7 +348,7 @@ class TrendVisualizationAgent(LocalAgent):
 
             elif analysis_type == "mesh_categories":
                 # MeSH 카테고리 분석 (subheading 사용)
-                logger.info(f"   Fetching MeSH subheadings...")
+                logger.info("   Fetching MeSH subheadings...")
 
                 # MeSH subheadings만 사용 (categories는 PubMed API에서 직접 지원하지 않음)
                 default_subheadings = [
@@ -402,7 +400,7 @@ class TrendVisualizationAgent(LocalAgent):
 
             else:
                 # 기본: 최근 논문 검색
-                logger.info(f"   Fetching recent papers...")
+                logger.info("   Fetching recent papers...")
                 try:
                     papers = await self.pubmed.search(
                         query=keywords[0],
@@ -840,7 +838,7 @@ PubMed 검색 결과를 바탕으로 최신 연구 동향을 확인하세요."""
         fallback: str
     ) -> str:
         """
-        Use OpenAI-compatible client to create a natural-language explanation.
+        Use the local Ollama client to create a natural-language explanation.
         Falls back to the templated explanation if the LLM call fails.
         """
         try:

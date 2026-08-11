@@ -9,7 +9,6 @@ from pathlib import Path
 import asyncio
 import json
 from datetime import datetime
-import httpx
 
 # Add backend to path
 backend_path = Path(__file__).parent.parent.parent
@@ -64,7 +63,7 @@ async def test_agent(agent_type: str, query: str):
         )
         
         # 실행
-        print(f"⏳ Processing...")
+        print("⏳ Processing...")
         start_time = datetime.now()
         response = await agent.process(request)
         duration = (datetime.now() - start_time).total_seconds()
@@ -73,7 +72,7 @@ async def test_agent(agent_type: str, query: str):
         print(f"\n✅ Response received in {duration:.2f}s")
         print(f"📊 Status: {response.status}")
         print(f"🔢 Tokens used: {response.tokens_used}")
-        print(f"\n💬 Answer:")
+        print("\n💬 Answer:")
         print("-"*80)
         # 답변이 너무 길면 앞부분만 출력
         answer_preview = response.answer[:500] + "..." if len(response.answer) > 500 else response.answer
@@ -92,7 +91,7 @@ async def test_agent(agent_type: str, query: str):
                 print(f"  {i}. {paper.get('title', 'N/A')}")
         
         if response.metadata:
-            print(f"\n🔍 Metadata:")
+            print("\n🔍 Metadata:")
             for key, value in list(response.metadata.items())[:5]:
                 if key not in ['sources', 'papers']:
                     print(f"  • {key}: {value}")
@@ -157,7 +156,7 @@ async def main():
             result = sock.connect_ex((host, port))
             sock.close()
             return result == 0
-        except:
+        except Exception:
             return False
     
     server_running = is_port_open('localhost', 8800)
@@ -198,12 +197,12 @@ async def main():
     print(f"❌ Failed/Skipped: {len(failed)}/5")
     
     if successful:
-        print(f"\n🎯 Successful Tests:")
+        print("\n🎯 Successful Tests:")
         for r in successful:
             print(f"  • {r['agent_type']}: {r['answer_length']} chars, {r['duration']:.2f}s, {r['tokens_used']} tokens")
     
     if failed:
-        print(f"\n⚠️  Failed/Skipped Tests:")
+        print("\n⚠️  Failed/Skipped Tests:")
         for r in failed:
             note = r.get('note', r.get('error', 'Unknown'))
             print(f"  • {r['agent_type']}: {note}")

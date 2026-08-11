@@ -12,6 +12,18 @@ if str(backend_dir) not in sys.path:
 from app.api import clinical_trials
 
 
+class _AsyncCacheCollection:
+    def __init__(self) -> None:
+        self.entries = {}
+
+    async def find_one(self, query):
+        return self.entries.get(query["cache_key"])
+
+    async def update_one(self, query, update, upsert=False):
+        assert upsert is True
+        self.entries[query["cache_key"]] = update["$set"]
+
+
 @pytest.fixture(autouse=True)
 def clear_trial_cache():
     clinical_trials._trials_cache.clear()
@@ -101,3 +113,14 @@ async def test_provider_walks_clinical_trials_next_page_token(monkeypatch) -> No
     assert requests[1]["pageToken"] == "page-2"
     assert "countTotal" not in requests[1]
     assert data["totalCount"] == 25
+
+
+@pytest.mark.asyncio
+async def test_persistent_cache_round_trip_uses_shared_mongo_tier(monkeypatch) -> None:
+    collection = _AsyncCacheCollection()
+    monkeypatch.setattr(clinical_trials, "get_clinical_trials_cache_collection", lambda: collection)
+
+    await clinical_trials.set_persistent_cache("trials:kidney", {"trials": []})
+
+    assert await clinical_trials.get_persistent_cache("trials:kidney") == {"trials": []}
+    assert collection.entries["trials:kidney"]["expires_at"] > collection.entries["trials:kidney"]["fresh_until"]

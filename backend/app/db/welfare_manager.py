@@ -21,8 +21,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from typing import List, Dict, Optional, Tuple, Any
 from enum import Enum
 import os
-import hashlib
-import json
 from dotenv import load_dotenv
 from pymongo import ASCENDING, TEXT
 import logging
@@ -907,7 +905,6 @@ async def test_welfare_manager():
     - Scores are descending
     - Cache is faster
     """
-    import asyncio
 
     print("\n" + "="*80)
     print("WELFARE MANAGER TEST")
@@ -920,12 +917,12 @@ async def test_welfare_manager():
     print("\n[Test 1] Statistics")
     stats = await manager.get_stats()
     print(f"  Total programs: {stats.get('total', 0)}")
-    print(f"  By category:")
+    print("  By category:")
     for cat, count in sorted(stats.get('by_category', {}).items()):
         print(f"    - {cat}: {count}")
 
     assert stats["total"] == 13, f"Expected 13, got {stats['total']}"
-    print(f"  ✅ Stats test passed")
+    print("  ✅ Stats test passed")
 
     # Test 2: Text search
     print("\n[Test 2] Text Search")
@@ -941,7 +938,7 @@ async def test_welfare_manager():
         scores = [r.get("score", 0) for r in results]
         assert scores == sorted(scores, reverse=True), "Scores not descending"
 
-    print(f"  ✅ Text search test passed")
+    print("  ✅ Text search test passed")
 
     # Test 3: Category search
     print("\n[Test 3] Category Search")
@@ -951,9 +948,9 @@ async def test_welfare_manager():
     for cat in categories[:2]:  # Test first 2
         results = await manager.search_by_category(cat)
         print(f"  '{cat}': {len(results)} programs")
-        assert all(r["category"] == cat for r in results), f"Wrong category in results"
+        assert all(r["category"] == cat for r in results), "Wrong category in results"
 
-    print(f"  ✅ Category search test passed")
+    print("  ✅ Category search test passed")
 
     # Test 4: Disease search
     print("\n[Test 4] Disease Search")
@@ -963,7 +960,7 @@ async def test_welfare_manager():
         print(f"  '{disease}': {len(results)} programs")
         assert all(disease in r["target_disease"] for r in results), f"{disease} not in target_disease"
 
-    print(f"  ✅ Disease search test passed")
+    print("  ✅ Disease search test passed")
 
     # Test 5: CKD stage search
     print("\n[Test 5] CKD Stage Search")
@@ -971,7 +968,7 @@ async def test_welfare_manager():
         results = await manager.search_by_ckd_stage(stage)
         print(f"  CKD stage {stage}: {len(results)} programs")
 
-    print(f"  ✅ CKD stage search test passed")
+    print("  ✅ CKD stage search test passed")
 
     # Test 6: Get by ID
     print("\n[Test 6] Get by ID")
@@ -982,33 +979,33 @@ async def test_welfare_manager():
     print(f"  Benefits: {prog['benefits'].get('copay_rate', 'N/A')}")
     print(f"  Contact: {prog['contact']['phone']}")
     print(f"  Fact checked: {prog.get('fact_check_verified', False)}")
-    print(f"  ✅ Get by ID test passed")
+    print("  ✅ Get by ID test passed")
 
     # Test 7: Cache performance
     print("\n[Test 7] Cache Performance")
     start = time.time()
-    stats1 = await manager.get_stats(use_cache=True)
+    await manager.get_stats(use_cache=True)
     time1 = time.time() - start
 
     start = time.time()
-    stats2 = await manager.get_stats(use_cache=True)
+    await manager.get_stats(use_cache=True)
     time2 = time.time() - start
 
     print(f"  First call (cache miss): {time1*1000:.2f}ms")
     print(f"  Second call (cache hit): {time2*1000:.2f}ms")
     print(f"  Speedup: {time1/time2:.1f}x")
     assert time2 < time1, "Cache not faster"
-    print(f"  ✅ Cache test passed")
+    print("  ✅ Cache test passed")
 
     await manager.close()
 
     print("\n" + "="*80)
     print("✅ ALL TESTS PASSED!")
     print("="*80)
-    print(f"\nNext steps:")
-    print(f"  1. Implement Pydantic models (app/models/welfare.py)")
-    print(f"  2. Implement search_welfare_programs Tool")
-    print(f"  3. Read: docs/welfare/03_WELFARE_PARLANT_INTEGRATION.md")
+    print("\nNext steps:")
+    print("  1. Implement Pydantic models (app/models/welfare.py)")
+    print("  2. Implement search_welfare_programs Tool")
+    print("  3. Read: docs/welfare/03_WELFARE_PARLANT_INTEGRATION.md")
     print("="*80 + "\n")
 
 

@@ -1,11 +1,10 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional
 import os
 from dotenv import load_dotenv
 from pymongo import UpdateOne, ASCENDING, TEXT
 import asyncio
 import logging
-from functools import lru_cache
 import time
 
 load_dotenv()
@@ -333,7 +332,7 @@ class OptimizedMongoDBManager:
 
             if operations:
                 try:
-                    result = await self.db.papers_kidney.bulk_write(
+                    await self.db.papers_kidney.bulk_write(
                         operations,
                         ordered=False  # Continue on error
                     )
@@ -537,7 +536,7 @@ async def test_projection_optimization():
     print(f"Data transferred: {optimized_size / 1024:.1f} KB")
 
     # Show improvement
-    print(f"\n🚀 Performance Improvement:")
+    print("\n🚀 Performance Improvement:")
     print(f"   Time: {time_full/time_optimized:.2f}x faster")
     print(f"   Data: {full_size/optimized_size:.2f}x less data transferred")
 

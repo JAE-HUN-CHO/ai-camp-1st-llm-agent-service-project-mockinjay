@@ -3,7 +3,7 @@ Points Service
 Business logic for user points and level management
 사용자 포인트 및 레벨 관리를 위한 비즈니스 로직
 """
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from fastapi import HTTPException, status
 import logging

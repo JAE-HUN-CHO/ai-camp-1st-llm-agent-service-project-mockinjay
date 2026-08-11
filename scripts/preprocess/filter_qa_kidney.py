@@ -7,9 +7,8 @@ QA Dataset Kidney Filtering Script
 
 import json
 import re
-import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Tuple
 
 # 파일 경로
 BASE_DIR = Path(__file__).parent.parent
@@ -71,7 +70,7 @@ class KidneyTerminologyMatcher:
             '콩팥', '신장', '투석', '신부전', '신증후군'
         }
 
-        print(f"✅ Loaded terminology:")
+        print("✅ Loaded terminology:")
         print(f"   - Core kidney terms: {len(self.core_kidney_terms)}")
         print(f"   - High specificity terms: {len(self.high_specificity_terms)}")
         print(f"   - Kidney sources: {len(self.kidney_sources)}")
@@ -202,7 +201,7 @@ def filter_qa_data():
     # 필터링 진행
     print(f"🔍 Filtering QA data from: {INPUT_FILE.name}")
     print(f"📝 Output file: {OUTPUT_FILE.name}")
-    print(f"⚠️  WARNING: This will process 2,224,451 QA pairs. Expected time: ~10-15 hours")
+    print("⚠️  WARNING: This will process 2,224,451 QA pairs. Expected time: ~10-15 hours")
     print()
 
     with open(INPUT_FILE, 'r', encoding='utf-8') as infile, \

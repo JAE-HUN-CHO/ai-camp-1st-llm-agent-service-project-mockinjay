@@ -5,11 +5,11 @@ import asyncio
 import numpy as np
 import pytest
 
-from backend.Agent.research_paper.server.nlp_service import TextEmbedding3SmallEmbedder
+from backend.Agent.research_paper.server.nlp_service import OllamaEmbeddingGenerator
 
 
-def _embedder(model: str = "test-local", dimensions: int = 1536) -> TextEmbedding3SmallEmbedder:
-    instance = TextEmbedding3SmallEmbedder.__new__(TextEmbedding3SmallEmbedder)
+def _embedder(model: str = "test-local", dimensions: int = 1536) -> OllamaEmbeddingGenerator:
+    instance = OllamaEmbeddingGenerator.__new__(OllamaEmbeddingGenerator)
     instance.dimensions = dimensions
     instance.local_model_name = model
     instance.local_cache_model = f"local/{model}/{dimensions}d"

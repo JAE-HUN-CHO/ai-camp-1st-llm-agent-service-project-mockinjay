@@ -1,11 +1,11 @@
 """
 알림 서비스 비즈니스 로직
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 from app.db.connection import get_notifications_collection, get_notification_settings_collection
-from app.models.notification import NotificationCreate, NotificationResponse, NotificationSettings
+from app.models.notification import NotificationCreate
 
 
 async def create_notification(notification: NotificationCreate) -> str:

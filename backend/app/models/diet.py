@@ -7,7 +7,7 @@ Pydantic models for Diet Care feature, used for:
 - Type safety across layers
 """
 from pydantic import BaseModel, Field, validator, HttpUrl
-from typing import Optional, List, Literal
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 

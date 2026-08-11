@@ -86,7 +86,7 @@ frontend/src/features/<feature>/cache/
 | `backend/app/api/news.py` | HTTP router + 외부 news 조회 + cache + cache clear | transport가 cache 정책을 소유 | news query module + cache adapter |
 | `backend/app/services/pubmed_search.py` | PubMed client + translation cache + count cache | provider와 computation cache 변경이 함께 발생 | PubMed adapter / translation cache / count repository |
 | `backend/app/db/vector_manager.py` | Pinecone + embedding model + disk cache + LRU | ADR, provider, cache가 한 implementation에 묶임 | VectorSearch adapter / Embedding adapter / Cache adapter |
-| `new_frontend/src/services/translateApi.ts` | HTTP 호출 + localStorage schema + eviction | frontend API module이 persistence까지 담당 | translation client / UX cache |
+| `frontend/src/services/translateApi.ts` | HTTP 호출 + localStorage schema + eviction | frontend API module이 persistence까지 담당 | translation client / UX cache |
 | `backend/Agent/research_paper/server/cache_manager.py` | global cache instance + server lifecycle | hidden mutable state | injected cache adapter |
 | `backend/app/api/chat.py`, `session.py` | global active stream registry | request scope가 process global state로 누수 | stream registry adapter |
 | `backend/Agent/core/agent_registry.py` | decorator import order + global registry | composition root가 숨겨짐 | explicit registry adapter |

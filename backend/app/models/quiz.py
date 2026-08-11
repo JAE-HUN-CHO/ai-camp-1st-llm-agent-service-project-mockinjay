@@ -1,8 +1,7 @@
 # Quiz 데이터 모델
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
-from datetime import datetime
+from typing import Optional, List
 
 
 # ============================================================================

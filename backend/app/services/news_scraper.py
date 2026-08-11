@@ -9,16 +9,12 @@ from typing import List, Dict, Any, Set, Optional
 from datetime import datetime, timedelta
 import logging
 import hashlib
-import re
-from urllib.parse import urljoin, quote
-import asyncio
 import os
 
 logger = logging.getLogger(__name__)
 
 try:
     from deep_translator import GoogleTranslator
-    from langdetect import detect, LangDetectException
     TRANSLATION_AVAILABLE = True
 except ImportError:
     TRANSLATION_AVAILABLE = False
@@ -267,7 +263,7 @@ class NewsScraperService:
             chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
             text = ' '.join(chunk for chunk in chunks if chunk)
             return text
-        except:
+        except Exception:
             return html_text
 
     def _extract_image_from_html(self, html_text: str) -> Optional[str]:
@@ -280,7 +276,7 @@ class NewsScraperService:
             img = soup.find('img')
             if img and img.get('src'):
                 return img.get('src')
-        except:
+        except Exception:
             pass
         return None
 
@@ -315,7 +311,7 @@ class NewsScraperService:
                 return f"{diff.seconds // 60}분전"
             else:
                 return "방금 전"
-        except:
+        except Exception:
             return '최근'
 
     def _is_korean(self, text: str) -> bool:
@@ -353,7 +349,7 @@ class NewsScraperService:
             translated = translator.translate(text)
             return translated if translated else text
 
-        except Exception as e:
+        except Exception:
             logger.debug(f"Translation skipped for '{text[:30]}...'")
             return text  # Return original on error
 
@@ -521,7 +517,7 @@ class NewsScraperService:
                         'relevance_score': self._calculate_relevance(title, ''),
                         'keywords': self._extract_matched_keywords(title)
                     })
-                except:
+                except Exception:
                     continue
 
             logger.info(f"Scraped {len(news_items)} from MOHW (after filtering)")
@@ -573,7 +569,7 @@ class NewsScraperService:
                         'relevance_score': self._calculate_relevance(title, ''),
                         'keywords': self._extract_matched_keywords(title)
                     })
-                except:
+                except Exception:
                     continue
 
             logger.info(f"Scraped {len(news_items)} from KDCA")
@@ -627,7 +623,7 @@ class NewsScraperService:
                         'relevance_score': self._calculate_relevance(title, ''),
                         'keywords': self._extract_matched_keywords(title)
                     })
-                except:
+                except Exception:
                     continue
 
             logger.info(f"Scraped {len(news_items)} from MFDS")

@@ -9,9 +9,6 @@ Paper Dataset Integrator Script (Filtered Version)
 import os
 import json
 import logging
-from datetime import datetime
-from pathlib import Path
-import pandas as pd
 from datasets import load_dataset
 
 # 로깅 설정
@@ -327,7 +324,7 @@ def main():
     original_count = len(all_papers)
     all_papers, removed_na, removed_fig = clean_paper_data(all_papers)
 
-    print(f"\n[Data Cleaning]")
+    print("\n[Data Cleaning]")
     print(f"  Original papers: {original_count}")
     print(f"  Removed [Not Available] titles: {removed_na}")
     print(f"  Removed [Figure: see text] abstracts: {removed_fig}")
@@ -359,7 +356,7 @@ def main():
     logger.info("="*60)
     title_duplicates = find_duplicates_by_title(all_papers)
 
-    print(f"\n[Title Duplicates]")
+    print("\n[Title Duplicates]")
     print(f"  Found {len(title_duplicates)} duplicate titles")
     print(f"  Total duplicate entries: {sum(len(indices) for indices in title_duplicates.values())}")
 
@@ -368,20 +365,6 @@ def main():
     for i, (title, indices) in enumerate(list(title_duplicates.items())[:5]):
         print(f"    {i+1}. Title: {title[:80]}...")
         print(f"       Appears {len(indices)} times at indices: {indices[:10]}")
-
-    # Title 중복 정보 저장
-    title_dup_summary = {
-        'duplicate_count': len(title_duplicates),
-        'total_duplicate_entries': sum(len(indices) for indices in title_duplicates.values()),
-        'sample_duplicates': [
-            {
-                'title': title[:200],
-                'count': len(indices),
-                'indices': indices[:20]
-            }
-            for title, indices in list(title_duplicates.items())[:50]
-        ]
-    }
 
     # with open('outputs/paper_dataset/preprocess/title_duplicates.json', 'w', encoding='utf-8') as f:
     #     json.dump(title_dup_summary, f, ensure_ascii=False, indent=2)
@@ -392,7 +375,7 @@ def main():
     logger.info("="*60)
     abstract_duplicates = find_duplicates_by_abstract(all_papers)
 
-    print(f"\n[Abstract Duplicates]")
+    print("\n[Abstract Duplicates]")
     print(f"  Found {len(abstract_duplicates)} duplicate abstracts")
     print(f"  Total duplicate entries: {sum(len(indices) for indices in abstract_duplicates.values())}")
 
@@ -401,20 +384,6 @@ def main():
     for i, (abstract, indices) in enumerate(list(abstract_duplicates.items())[:5]):
         print(f"    {i+1}. Abstract: {abstract[:80]}...")
         print(f"       Appears {len(indices)} times at indices: {indices[:10]}")
-
-    # Abstract 중복 정보 저장
-    abstract_dup_summary = {
-        'duplicate_count': len(abstract_duplicates),
-        'total_duplicate_entries': sum(len(indices) for indices in abstract_duplicates.values()),
-        'sample_duplicates': [
-            {
-                'abstract': abstract[:200],
-                'count': len(indices),
-                'indices': indices[:20]
-            }
-            for abstract, indices in list(abstract_duplicates.items())[:50]
-        ]
-    }
 
     # with open('outputs/paper_dataset/preprocess/abstract_duplicates.json', 'w', encoding='utf-8') as f:
     #     json.dump(abstract_dup_summary, f, ensure_ascii=False, indent=2)
@@ -425,7 +394,7 @@ def main():
     logger.info("="*60)
     unique_by_title = remove_duplicates_by_title(all_papers)
 
-    print(f"\n[After Title Deduplication]")
+    print("\n[After Title Deduplication]")
     print(f"  Before: {len(all_papers)} papers")
     print(f"  After: {len(unique_by_title)} papers")
     print(f"  Removed: {len(all_papers) - len(unique_by_title)} duplicate titles")

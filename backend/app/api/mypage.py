@@ -279,9 +279,6 @@ async def get_notifications(
         if unreadOnly:
             query["read"] = False
 
-        # Get total count
-        total_count = await notifications_collection.count_documents(query)
-
         # Fetch notifications
         cursor = notifications_collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
         notifications = await cursor.to_list(length=limit)

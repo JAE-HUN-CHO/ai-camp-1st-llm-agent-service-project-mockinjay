@@ -469,16 +469,16 @@ const ComponentShowcasePage: React.FC = () => {
         </p>
         <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
           <li>
-            <strong>Full Guide:</strong> /new_frontend/PHASE4_UX_COMPONENT_LIBRARY.md
+            <strong>Full Guide:</strong> docs/PHASE4_UX_COMPONENT_LIBRARY.md
           </li>
           <li>
-            <strong>Quick Reference:</strong> /new_frontend/PHASE4_QUICK_REFERENCE.md
+            <strong>Quick Reference:</strong> docs/PHASE4_QUICK_REFERENCE.md
           </li>
           <li>
-            <strong>Testing Checklist:</strong> /new_frontend/PHASE4_TESTING_CHECKLIST.md
+            <strong>Testing Checklist:</strong> docs/PHASE4_TESTING_CHECKLIST.md
           </li>
           <li>
-            <strong>Implementation Summary:</strong> /new_frontend/PHASE4_IMPLEMENTATION_SUMMARY.md
+            <strong>Implementation Summary:</strong> docs/PHASE4_IMPLEMENTATION_SUMMARY.md
           </li>
         </ul>
       </Card>

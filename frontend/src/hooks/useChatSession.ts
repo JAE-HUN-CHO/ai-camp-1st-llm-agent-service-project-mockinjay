@@ -2,39 +2,14 @@
  * useChatSession Hook
  * 채팅 세션 관리 훅
  *
- * Manages chat session lifecycle, expiration, and message persistence.
- * 채팅 세션 라이프사이클, 만료, 메시지 지속성을 관리합니다.
+ * Manages chat session lifecycle, expiration, and backend history restoration.
+ * 채팅 세션 라이프사이클과 백엔드 히스토리 복원을 관리합니다.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import api, { getChatHistory } from '../services/api';
-import type { ChatMessage, StoredMessage } from '../types/chat';
-import { STORAGE_KEYS, TIMEOUTS } from '../config/constants';
+import type { ChatMessage } from '../types/chat';
 import { useAuth } from '../contexts/AuthContext';
-
-const MESSAGES_STORAGE_KEY = 'careguide_room_messages' as const;
-
-/**
- * Convert StoredMessage to ChatMessage (deserialize)
- * StoredMessage를 ChatMessage로 변환 (역직렬화)
- */
-function deserializeMessage(stored: StoredMessage): ChatMessage {
-  return {
-    ...stored,
-    timestamp: new Date(stored.timestamp),
-  };
-}
-
-/**
- * Convert ChatMessage to StoredMessage (serialize)
- * ChatMessage를 StoredMessage로 변환 (직렬화)
- */
-function serializeMessage(message: ChatMessage): StoredMessage {
-  return {
-    ...message,
-    timestamp: message.timestamp.toISOString(),
-  };
-}
 
 export function useChatSession(roomId: string | null) {
   const { user } = useAuth();
@@ -47,40 +22,8 @@ export function useChatSession(roomId: string | null) {
 
   // Messages state per room
   // 방별 메시지 상태
-  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>(() => {
-    try {
-      const saved = localStorage.getItem(MESSAGES_STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed: Record<string, StoredMessage[]> = JSON.parse(saved);
-          const result: Record<string, ChatMessage[]> = {};
-          Object.keys(parsed).forEach((key) => {
-            result[key] = parsed[key].map(deserializeMessage);
-          });
-          return result;
-        } catch (e) {
-          console.error('Error loading messages:', e);
-        }
-      }
-    } catch (e) {
-      console.error('Error accessing localStorage:', e);
-    }
-    return {};
-  });
-
-  // Save messages to localStorage whenever they change
-  // 메시지가 변경될 때마다 localStorage에 저장
-  useEffect(() => {
-    try {
-      const serialized: Record<string, StoredMessage[]> = {};
-      Object.keys(messages).forEach((key) => {
-        serialized[key] = messages[key].map(serializeMessage);
-      });
-      localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(serialized));
-    } catch (e) {
-      console.error('Error saving messages to localStorage:', e);
-    }
-  }, [messages]);
+  // Chat content stays in memory and is restored from backend history.
+  const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
 
   /**
    * Initialize or restore session
@@ -88,58 +31,17 @@ export function useChatSession(roomId: string | null) {
    */
   const initializeSession = useCallback(async () => {
     try {
-      let storedSession: string | null = null;
-      let lastActive: string | null = null;
-
-      try {
-        storedSession = localStorage.getItem(STORAGE_KEYS.SESSION_ID);
-        lastActive = localStorage.getItem(STORAGE_KEYS.LAST_ACTIVE);
-      } catch (e) {
-        console.error('Error reading from localStorage:', e);
-      }
-
-      // If we have a roomId, include it in the session
-      // roomId가 있으면 세션에 포함
-
-      const now = Date.now();
-
-      // Check if session is valid (exists and not expired)
-      // 세션이 유효한지 확인 (존재하고 만료되지 않음)
-      if (
-        storedSession &&
-        lastActive &&
-        now - parseInt(lastActive) < TIMEOUTS.SESSION_TIMEOUT
-      ) {
-        setSessionId(storedSession);
-      } else {
-        // Create new session if expired or doesn't exist
-        // 만료되었거나 존재하지 않으면 새 세션 생성
-        const response = await api.post('/api/session/create', {
-          user_id: user?.id || 'guest_user',
-          room_id: roomId || undefined,
-        });
-        // Backend returns SuccessResponse format: { message, data: { session_id, ... } }
-        const newSessionId = response.data.data?.session_id || response.data.session_id;
-        setSessionId(newSessionId);
-
-        try {
-          localStorage.setItem(STORAGE_KEYS.SESSION_ID, newSessionId);
-        } catch (e) {
-          console.error('Error saving session ID to localStorage:', e);
-        }
-      }
-
-      // Update timestamp
-      // 타임스탬프 업데이트
-      try {
-        localStorage.setItem(STORAGE_KEYS.LAST_ACTIVE, now.toString());
-      } catch (e) {
-        console.error('Error saving last active timestamp to localStorage:', e);
-      }
+      const response = await api.post('/api/session/create', {
+        user_id: user?.id || 'guest_user',
+        room_id: roomId || undefined,
+      });
+      // Backend returns SuccessResponse format: { message, data: { session_id, ... } }
+      const newSessionId = response.data.data?.session_id || response.data.session_id;
+      setSessionId(newSessionId);
     } catch (error) {
       console.error('Failed to initialize session:', error);
     }
-  }, [user?.id]);
+  }, [roomId, user?.id]);
 
   // Initialize session on mount
   // 마운트 시 세션 초기화
@@ -166,13 +68,6 @@ export function useChatSession(roomId: string | null) {
         [roomId]: [...(prev[roomId] || []), message],
       }));
 
-      // Update last active timestamp
-      // 마지막 활동 타임스탬프 업데이트
-      try {
-        localStorage.setItem(STORAGE_KEYS.LAST_ACTIVE, Date.now().toString());
-      } catch (e) {
-        console.error('Error updating last active timestamp:', e);
-      }
     },
     [roomId]
   );
@@ -214,11 +109,6 @@ export function useChatSession(roomId: string | null) {
    */
   const clearAllMessages = useCallback(() => {
     setMessages({});
-    try {
-      localStorage.removeItem(MESSAGES_STORAGE_KEY);
-    } catch (e) {
-      console.error('Error removing messages from localStorage:', e);
-    }
   }, []);
 
   /**
@@ -305,13 +195,6 @@ export function useChatSession(roomId: string | null) {
       // Backend returns SuccessResponse format: { message, data: { session_id, ... } }
       const newSessionId = response.data.data?.session_id || response.data.session_id;
       setSessionId(newSessionId);
-
-      try {
-        localStorage.setItem(STORAGE_KEYS.SESSION_ID, newSessionId);
-        localStorage.setItem(STORAGE_KEYS.LAST_ACTIVE, Date.now().toString());
-      } catch (e) {
-        console.error('Error saving session data to localStorage:', e);
-      }
 
       setIsSessionExpired(false);
       return newSessionId;

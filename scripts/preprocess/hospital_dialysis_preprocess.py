@@ -58,7 +58,7 @@ def get_kakao_coord(address: str):
         if resp.status_code == 200 and resp.json().get("documents"):
             doc = resp.json()["documents"][0]
             return float(doc["y"]), float(doc["x"])  # lat, lng
-    except:
+    except Exception:
         pass
     return None, None
 
@@ -138,8 +138,8 @@ for _, row in tqdm(df_base.iterrows(), total=len(df_base)):
 
 # 5. 저장
 timestamp = datetime.now().strftime("%Y%m%d")
-csv_file = OUTPUT_DIR / f"hospital_pharmacy_dialysis_2025.csv"
-jsonl_file = OUTPUT_DIR / f"hospital_pharmacy_dialysis_2025.jsonl"
+csv_file = OUTPUT_DIR / "hospital_pharmacy_dialysis_2025.csv"
+jsonl_file = OUTPUT_DIR / "hospital_pharmacy_dialysis_2025.jsonl"
 
 pd.DataFrame(records).to_csv(csv_file, index=False, encoding="utf-8-sig")
 with open(jsonl_file, "w", encoding="utf-8") as f:

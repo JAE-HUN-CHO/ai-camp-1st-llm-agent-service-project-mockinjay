@@ -67,7 +67,7 @@ const ChangePasswordPage: React.FC = () => {
     }
 
     try {
-      await api.put('/api/auth/change-password', {
+      await api.post('/api/auth/change-password', {
         current_password: formData.currentPassword,
         new_password: formData.newPassword,
       });

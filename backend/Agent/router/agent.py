@@ -7,7 +7,7 @@ import logging
 import json
 import asyncio
 import os
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 
 from app.adapters.ollama.client import OllamaClient
 
@@ -140,7 +140,7 @@ class RouterAgent(LocalAgent):
         is_emergency = result.get("is_emergency", False)
         
         # Log classification details
-        logger.info(f"📊 Intent Classification:")
+        logger.info("📊 Intent Classification:")
         logger.info(f"   Query: {query}")
         logger.info(f"   Intents: {intents}")
         
@@ -185,7 +185,7 @@ class RouterAgent(LocalAgent):
 
         if has_hospital_keyword:
             # Hospital queries go ONLY to medical_welfare
-            logger.info(f"🏥 Hospital keyword detected, routing ONLY to medical_welfare")
+            logger.info("🏥 Hospital keyword detected, routing ONLY to medical_welfare")
             return ["medical_welfare"]
 
         return agents

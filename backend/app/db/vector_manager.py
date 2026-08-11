@@ -1,9 +1,8 @@
-import sys
 from pathlib import Path
 import hashlib
 import pickle
 import asyncio
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
@@ -16,10 +15,6 @@ try:
     from app.adapters.ollama.client import OllamaSyncClient
 except ImportError:
     from backend.app.adapters.ollama.client import OllamaSyncClient
-try:
-    from app.db.mongodb_manager import MongoDBManager as OptimizedMongoDBManager
-except ImportError:
-    from mongodb_manager import MongoDBManager as OptimizedMongoDBManager
 
 # Chonkie imports for chunking and refinement
 try:
@@ -614,7 +609,7 @@ async def test_caching_performance():
 
     # Show cache stats
     cache_stats = manager_with_cache.get_cache_stats()
-    print(f"\nCache Statistics:")
+    print("\nCache Statistics:")
     for key, value in cache_stats.items():
         print(f"  {key}: {value}")
 
@@ -663,7 +658,7 @@ async def test_batch_processing():
 
     # Show cache effectiveness
     cache_stats = manager.get_cache_stats()
-    print(f"\nCache Statistics:")
+    print("\nCache Statistics:")
     for key, value in cache_stats.items():
         print(f"  {key}: {value}")
 
@@ -701,7 +696,7 @@ async def test_parallel_search():
 
     # Parallel search
     start = time.time()
-    parallel_results = await manager.parallel_semantic_search(queries, top_k=5, namespace="papers_kidney")
+    await manager.parallel_semantic_search(queries, top_k=5, namespace="papers_kidney")
     time_parallel = time.time() - start
     print(f"Parallel: {time_parallel:.2f}s")
 

@@ -1,5 +1,10 @@
 # CareGuide 재구성 실행 상태
 
+> 이 문서는 Phase 0–6 작업의 실행 스냅샷이다. 당시의 `new_frontend`/provider/cache
+> 표는 historical evidence이며, 현재 계약과 검증 결과는
+> [`DOCUMENT_CONSISTENCY_MATRIX.md`](DOCUMENT_CONSISTENCY_MATRIX.md),
+> [ADR-011](../adr/ADR-011-current-runtime-contract.md), 그리고 현재 테스트를 따른다.
+
 - **Started:** 2026-08-11 (Asia/Seoul)
 - **Scope:** `CARE_GUIDE_REORGANIZATION_EXECUTION_PLAN.md`의 Phase 0–6
 - **Decision rule:** 기존 사용자 변경과 untracked 데이터는 보존하며, parity·복구 가능성·회귀 테스트 없이 삭제/덮어쓰기를 수행하지 않는다.

@@ -2,7 +2,7 @@
 Standard API Response Models
 """
 from pydantic import BaseModel, Field
-from typing import Any, Optional, List, Dict
+from typing import Any, Optional, List
 from datetime import datetime
 
 

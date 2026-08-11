@@ -44,22 +44,6 @@ interface LocationState {
   selectedCategory?: string;
 }
 
-/**
- * Stored messages format for localStorage
- * localStorage용 메시지 포맷
- */
-interface StoredMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  intents?: IntentCategory[];
-  agents?: AgentType[];
-  confidence?: number;
-  isDirectResponse?: boolean;
-  isEmergency?: boolean;
-}
-
 const ChatPageEnhanced: React.FC = () => {
   const { t } = useApp();
   const { user } = useAuth();
@@ -90,29 +74,9 @@ const ChatPageEnhanced: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Messages state (keyed by room ID)
-  const [messagesByRoom, setMessagesByRoom] = useState<Record<string, ChatMessage[]>>(() => {
-    try {
-      const saved = localStorage.getItem('careguide_chat_messages_by_room');
-      if (saved) {
-        try {
-          const parsed: Record<string, StoredMessage[]> = JSON.parse(saved);
-          const result: Record<string, ChatMessage[]> = {};
-          Object.keys(parsed).forEach((roomId) => {
-            result[roomId] = parsed[roomId].map((msg) => ({
-              ...msg,
-              timestamp: new Date(msg.timestamp),
-            }));
-          });
-          return result;
-        } catch (e) {
-          console.error('Error parsing messages:', e);
-        }
-      }
-    } catch (e) {
-      console.warn('Could not access localStorage for chat messages:', e);
-    }
-    return {};
-  });
+  // Chat content is restored from backend history; never persist health data in
+  // browser storage.
+  const [messagesByRoom, setMessagesByRoom] = useState<Record<string, ChatMessage[]>>({});
 
   // Input state
   const [input, setInput] = useState('');
@@ -162,22 +126,6 @@ const ChatPageEnhanced: React.FC = () => {
     const timer = setTimeout(() => setPageVisible(true), 50);
     return () => clearTimeout(timer);
   }, []);
-
-  // Save messages to localStorage
-  useEffect(() => {
-    try {
-      const serialized: Record<string, StoredMessage[]> = {};
-      Object.keys(messagesByRoom).forEach((roomId) => {
-        serialized[roomId] = messagesByRoom[roomId].map((msg) => ({
-          ...msg,
-          timestamp: msg.timestamp.toISOString(),
-        }));
-      });
-      localStorage.setItem('careguide_chat_messages_by_room', JSON.stringify(serialized));
-    } catch (e) {
-      console.warn('Could not save chat messages to localStorage:', e);
-    }
-  }, [messagesByRoom]);
 
   // Handle initial message from MainPage
   useEffect(() => {

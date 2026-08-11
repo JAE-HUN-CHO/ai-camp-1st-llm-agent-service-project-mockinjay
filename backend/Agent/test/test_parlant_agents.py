@@ -12,14 +12,14 @@ from Agent.core.contracts import AgentRequest
 
 # Import agents to ensure they are registered
 try:
-    from Agent.research_paper.agent import ResearchPaperAgent
-    from Agent.medical_welfare.agent import MedicalWelfareAgent
+    from Agent.research_paper.agent import ResearchPaperAgent  # noqa: F401
+    from Agent.medical_welfare.agent import MedicalWelfareAgent  # noqa: F401
 except ImportError:
     # If imports fail, try to rely on auto-discovery or check paths
     print("Warning: Could not import agent classes directly. Relying on Registry.")
 
 async def test_agent(agent_type, query):
-    print(f"\n" + "="*50)
+    print("\n" + "="*50)
     print(f"🧪 Testing Agent: {agent_type}")
     print(f"📝 Input Query: {query}")
     print("="*50)
@@ -51,7 +51,7 @@ async def test_agent(agent_type, query):
                 for src in response.sources[:3]:
                     print(f" - {src.get('title', 'No title')}")
         except asyncio.TimeoutError:
-            print(f"\n❌ Timeout: Agent took longer than 600s (10 minutes)")
+            print("\n❌ Timeout: Agent took longer than 600s (10 minutes)")
 
                 
     except Exception as e:

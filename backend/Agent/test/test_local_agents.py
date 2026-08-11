@@ -14,12 +14,9 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from Agent.core.agent_registry import AgentRegistry
-from Agent.core.contracts import AgentRequest, AgentResponse
+from Agent.core.contracts import AgentRequest
 
 # 에이전트 import (자동 등록됨)
-from Agent.nutrition.agent import NutritionAgent
-from Agent.quiz.agent import QuizAgent
-from Agent.trend_visualization.agent import TrendVisualizationAgent
 
 
 def print_separator(title: str = ""):
@@ -92,7 +89,7 @@ async def test_nutrition_agent():
         if response1.metadata:
             print(f"✅ Analysis Type: {response1.metadata.get('analysisType')}")
             if response1.metadata.get('nutritionData'):
-                print(f"✅ Nutrition Data: 있음")
+                print("✅ Nutrition Data: 있음")
         
         return True
         
@@ -225,7 +222,7 @@ async def main():
     
     # 1. AgentRegistry 테스트
     try:
-        registered_agents = await test_agent_registry()
+        await test_agent_registry()
         test_results["agent_registry"] = True
     except Exception as e:
         print(f"❌ AgentRegistry 테스트 실패: {e}")

@@ -4,17 +4,14 @@ Handles clinical trial data from ClinicalTrials.gov
 """
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 import logging
 import httpx
-from datetime import datetime
-import os
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from app.adapters.ollama.client import OllamaClient
+from app.db.connection import get_clinical_trials_cache_collection
 import hashlib
-import json
-from functools import lru_cache
-import asyncio
 
 # Load environment variables
 load_dotenv()
@@ -32,6 +29,49 @@ ollama_client: Optional[OllamaClient] = None
 _trials_cache = {}
 _translation_cache = {}  # Key: text hash -> {translation, timestamp}
 CACHE_TTL = 3600  # Cache for 1 hour
+
+
+async def get_persistent_cache(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Read a shared cache entry; unit tests and cold starts may have no DB."""
+    try:
+        entry = await get_clinical_trials_cache_collection().find_one({"cache_key": cache_key})
+    except Exception:
+        return None
+    if not entry or entry.get("fresh_until", datetime.min) <= datetime.now():
+        return None
+    return entry.get("data")
+
+
+async def get_persistent_stale_cache(cache_key: str) -> Optional[Dict[str, Any]]:
+    """Read a recently expired entry for bounded provider-outage fallback."""
+    try:
+        entry = await get_clinical_trials_cache_collection().find_one({"cache_key": cache_key})
+    except Exception:
+        return None
+    if not entry or entry.get("expires_at", datetime.min) <= datetime.now():
+        return None
+    return entry.get("data")
+
+
+async def set_persistent_cache(cache_key: str, data: Any) -> None:
+    """Write a bounded shared cache entry without making the provider path fail."""
+    try:
+        now = datetime.now()
+        await get_clinical_trials_cache_collection().update_one(
+            {"cache_key": cache_key},
+            {
+                "$set": {
+                    "cache_key": cache_key,
+                    "data": data,
+                    "updated_at": now,
+                    "fresh_until": now + timedelta(seconds=CACHE_TTL),
+                    "expires_at": now + timedelta(seconds=CACHE_TTL * 2),
+                }
+            },
+            upsert=True,
+        )
+    except Exception:
+        logger.debug("Clinical-trial cache persistence unavailable", exc_info=True)
 
 
 def get_ollama_client() -> OllamaClient:
@@ -245,7 +285,12 @@ async def translate_to_korean(text: str) -> str:
     if not text or len(text.strip()) == 0:
         return text
 
-    # Check cache first
+    # Mongo is the shared cache; the process cache remains a fast local tier.
+    persistent_key = f"translation:{get_text_hash(text)}"
+    cached = await get_persistent_cache(persistent_key)
+    if cached:
+        set_cached_translation(text, cached)
+        return cached
     cached = get_cached_translation(text)
     if cached:
         return cached
@@ -268,6 +313,7 @@ async def translate_to_korean(text: str) -> str:
 
         # Cache the translation
         set_cached_translation(text, translation)
+        await set_persistent_cache(persistent_key, translation)
 
         return translation
     except Exception as e:
@@ -418,7 +464,21 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
     try:
         logger.info(f"Clinical trials list request: condition={request.condition}, page={request.page}")
 
-        # Check cache first
+        # Check the shared Mongo cache first, then the process-local tier.
+        cache_key = get_cache_key(
+            request.condition, request.page, request.page_size, request.status
+        )
+        persistent_response = await get_persistent_cache(cache_key)
+        if persistent_response:
+            set_cached_trials(
+                request.condition,
+                request.page,
+                request.page_size,
+                persistent_response,
+                request.status,
+            )
+            return persistent_response
+
         cached_response = get_cached_trials(
             request.condition, request.page, request.page_size, request.status
         )
@@ -463,13 +523,18 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
             response,
             request.status,
         )
+        await set_persistent_cache(cache_key, response)
 
         return response
 
     except Exception as e:
-        stale_response = get_stale_cached_trials(
-            request.condition, request.page, request.page_size, request.status
+        stale_response = await get_persistent_stale_cache(
+            get_cache_key(request.condition, request.page, request.page_size, request.status)
         )
+        if stale_response is None:
+            stale_response = get_stale_cached_trials(
+            request.condition, request.page, request.page_size, request.status
+            )
         if stale_response is not None:
             logger.warning("ClinicalTrials provider failed; returning stale cached response", exc_info=True)
             return {**stale_response, "stale": True}

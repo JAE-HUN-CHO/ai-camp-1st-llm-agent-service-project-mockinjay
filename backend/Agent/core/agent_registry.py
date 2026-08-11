@@ -2,8 +2,11 @@
 에이전트 레지스트리 - 플러그인 자동 등록 시스템
 """
 
-from typing import Dict, Type, List, Any
+from typing import TYPE_CHECKING, Dict, Type, List, Any
 import logging
+
+if TYPE_CHECKING:
+    from ..base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +61,7 @@ class AgentRegistry:
         
         Args:
             agent_type: 에이전트 타입
-            **dependencies: 의존성 주입 (openai_service 등)
+            **dependencies: 의존성 주입 (model_service 등)
             
         Returns:
             생성된 에이전트 인스턴스

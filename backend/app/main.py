@@ -1,6 +1,4 @@
-import os
 import sys
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,12 +23,12 @@ from app.core.context_system import ContextSystem
 from app.features.research.runtime import ResearchRuntime
 from app.api.chat import close_parlant_server
 from app.api.careguide import router as careguide_router
+from app.api.auth_enhanced import router as auth_enhanced_router
 from app.api.clinical_trials import router as clinical_trials_router
 from app.api.terms import router as terms_router
 from app.api.diet_care import router as diet_care_router
 from app.api.news import router as news_router
 from app.api.error_handlers import (
-    not_found_handler,
     internal_server_error_handler,
     validation_error_handler
 )
@@ -107,6 +104,7 @@ app.add_middleware(AuthenticationMiddleware)
 # Include routers
 # Include CareGuide Master Router (contains all main API routes)
 app.include_router(careguide_router)
+app.include_router(auth_enhanced_router)
 
 # Include additional routers from PR #25
 app.include_router(clinical_trials_router)

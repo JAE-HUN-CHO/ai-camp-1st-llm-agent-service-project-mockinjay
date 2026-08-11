@@ -7,8 +7,6 @@ QA Dataset Integrator Script
 import os
 import json
 import logging
-from datetime import datetime
-from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
 from datasets import load_dataset
@@ -66,7 +64,7 @@ def curate_category_with_ai(question: str, answer: str, max_retries: int = 3) ->
                 # 응답에서 카테고리 추출
                 category = message.content[1].text
                 logger.info(f"✓ AI-generated category: {category}")
-                if type(category) == str and category.strip():
+                if isinstance(category, str) and category.strip():
                     return category
                 
                 else:
@@ -233,7 +231,7 @@ def main():
     # CSV로도 저장s
     df = pd.DataFrame(unique_qa_pairs)
     df.to_csv('/Users/jaehuncho/Coding/ai-camp-1st-llm-agent-service-project-mockinjay/data/preprocess/qa_dataset/qa_dataset_unified.csv', index=False, encoding='utf-8')
-    logger.info(f"Saved unified QA dataset to CSV")
+    logger.info("Saved unified QA dataset to CSV")
 
     # # Source별로 저장
     # sources = set(qa.get('source') for qa in unique_qa_pairs)

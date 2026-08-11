@@ -35,7 +35,7 @@ from app.core.context_system import context_system
 
 async def test_router_with_context():
     print("\n" + "="*60)
-    print(f"🚀 Starting Router + Context Integration Test")
+    print("🚀 Starting Router + Context Integration Test")
     print(f"📄 Logging to {log_filename}")
     print("="*60 + "\n")
 
@@ -107,7 +107,7 @@ async def test_router_with_context():
 
         try:
             # Process with Router (wait for completion)
-            print(f"⏳ Processing query...")
+            print("⏳ Processing query...")
             start_time = datetime.now()
             response = await router.process(request)
             duration = (datetime.now() - start_time).total_seconds()
@@ -121,7 +121,7 @@ async def test_router_with_context():
             logger.info(f"   Answer: {response.answer[:100]}...") # Log first 100 chars
 
             # Save to Context History
-            print(f"💾 Saving to conversation history...")
+            print("💾 Saving to conversation history...")
             await context_system.context_engineer.db_manager.save_conversation(
                 user_id,
                 session_id,
@@ -130,16 +130,16 @@ async def test_router_with_context():
                 response.answer
             )
             logger.info("💾 Saved to conversation history")
-            print(f"✓ Saved successfully")
+            print("✓ Saved successfully")
             
             # Trigger Context Analysis immediately for next step
-            print(f"🧠 Updating context for next step...")
+            print("🧠 Updating context for next step...")
             await context_system.context_engineer.analyze_and_update_context(user_id)
-            print(f"✓ Context updated")
+            print("✓ Context updated")
             
             # Wait before next step to ensure sequential processing
             if idx < len(journey_steps):
-                print(f"\n⏸️  Waiting 1 second before next step...")
+                print("\n⏸️  Waiting 1 second before next step...")
                 await asyncio.sleep(1)
 
         except Exception as e:

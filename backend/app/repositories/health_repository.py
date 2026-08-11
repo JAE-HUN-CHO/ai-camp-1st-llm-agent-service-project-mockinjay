@@ -10,16 +10,16 @@ Data access layer for health-related collections:
 Implements async operations with Motor driver
 """
 from typing import List, Optional, Dict, Any
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 from app.db.connection import Database
 from app.models.health import (
-    LabResult, LabTestType, LabResultStatus,
-    Medication, MedicationFrequency,
-    VitalSign, VitalSignType, VitalSignStatus,
-    HealthEvent, HealthEventType
+    LabTestType, LabResultStatus,
+    MedicationFrequency,
+    VitalSignType, VitalSignStatus,
+    HealthEventType
 )
 
 

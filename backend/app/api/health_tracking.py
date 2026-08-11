@@ -10,7 +10,7 @@ Endpoints for tracking health data for CKD patients:
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from bson import ObjectId
@@ -26,16 +26,7 @@ from app.models.health_tracking import (
     UpdateMedicationRequest,
     MedicationResponse,
     MedicationListResponse,
-    MedicationAdherenceResponse,
-    CreateVitalSignsRequest,
-    VitalSignsResponse,
-    VitalSignsListResponse,
-    CreateSymptomRequest,
-    SymptomResponse,
-    SymptomListResponse,
-    SymptomSummaryResponse,
     LabTestType,
-    MedicationType,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,7 +85,7 @@ async def create_lab_result(
     }
 
     labs_collection = get_labs_collection()
-    result = labs_collection.insert_one(lab_doc)
+    result = await labs_collection.insert_one(lab_doc)
 
     logger.info(f"Created lab result {result.inserted_id} for user {user_id}")
 
@@ -149,7 +140,8 @@ async def get_lab_results(
     }
 
     labs_collection = get_labs_collection()
-    labs = list(labs_collection.find(query).sort("test_date", -1).limit(limit))
+    cursor = labs_collection.find(query).sort("test_date", -1).limit(limit)
+    labs = [lab async for lab in cursor]
 
     # Convert to response models
     lab_responses = []
@@ -232,7 +224,8 @@ async def get_lab_trend(
         )
 
     # Get labs with this field
-    labs = list(labs_collection.find(query).sort("test_date", 1))
+    cursor = labs_collection.find(query).sort("test_date", 1)
+    labs = [lab async for lab in cursor]
 
     # Extract data points
     data_points = []
@@ -318,7 +311,7 @@ async def delete_lab_result(
 
     labs_collection = get_labs_collection()
     # Find and check ownership
-    lab = labs_collection.find_one({"_id": lab_object_id})
+    lab = await labs_collection.find_one({"_id": lab_object_id})
 
     if not lab:
         raise HTTPException(
@@ -332,7 +325,7 @@ async def delete_lab_result(
             detail="You can only delete your own lab results"
         )
 
-    labs_collection.delete_one({"_id": lab_object_id})
+    await labs_collection.delete_one({"_id": lab_object_id})
     logger.info(f"Deleted lab result {lab_id} for user {user_id}")
 
 
@@ -377,7 +370,7 @@ async def create_medication(
     }
 
     medications_collection = get_medications_collection()
-    result = medications_collection.insert_one(med_doc)
+    result = await medications_collection.insert_one(med_doc)
 
     logger.info(f"Created medication {result.inserted_id} for user {user_id}")
 
@@ -413,7 +406,8 @@ async def get_medications(
         query["is_active"] = True
 
     medications_collection = get_medications_collection()
-    medications = list(medications_collection.find(query).sort("created_at", -1))
+    cursor = medications_collection.find(query).sort("created_at", -1)
+    medications = [medication async for medication in cursor]
 
     # Convert to response models
     med_responses = []
@@ -484,7 +478,7 @@ async def update_medication(
 
     medications_collection = get_medications_collection()
     # Find and check ownership
-    medication = medications_collection.find_one({"_id": med_object_id})
+    medication = await medications_collection.find_one({"_id": med_object_id})
 
     if not medication:
         raise HTTPException(
@@ -505,13 +499,13 @@ async def update_medication(
 
     update_dict["updated_at"] = datetime.utcnow()
 
-    medications_collection.update_one(
+    await medications_collection.update_one(
         {"_id": med_object_id},
         {"$set": update_dict}
     )
 
     # Fetch updated medication
-    updated_med = medications_collection.find_one({"_id": med_object_id})
+    updated_med = await medications_collection.find_one({"_id": med_object_id})
 
     logger.info(f"Updated medication {medication_id} for user {user_id}")
 
@@ -563,7 +557,7 @@ async def delete_medication(
 
     medications_collection = get_medications_collection()
     # Find and check ownership
-    medication = medications_collection.find_one({"_id": med_object_id})
+    medication = await medications_collection.find_one({"_id": med_object_id})
 
     if not medication:
         raise HTTPException(
@@ -578,7 +572,7 @@ async def delete_medication(
         )
 
     # Soft delete
-    medications_collection.update_one(
+    await medications_collection.update_one(
         {"_id": med_object_id},
         {"$set": {"is_active": False, "updated_at": datetime.utcnow()}}
     )

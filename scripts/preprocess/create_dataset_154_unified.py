@@ -3,9 +3,7 @@
 Create a unified dataset from AI Hub 154 data
 """
 import json
-import os
 from pathlib import Path
-from typing import Dict, List, Any
 import logging
 from datetime import datetime
 
@@ -82,7 +80,7 @@ def create_unified_dataset():
 
     # Calculate file size
     file_size_mb = output_file.stat().st_size / (1024 * 1024)
-    logger.info(f"\n✓ Dataset saved successfully!")
+    logger.info("\n✓ Dataset saved successfully!")
     logger.info(f"  File: {output_file}")
     logger.info(f"  Size: {file_size_mb:.2f} MB")
 

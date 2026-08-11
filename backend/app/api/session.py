@@ -3,14 +3,12 @@ Session Control API Router
 Handles session lifecycle, reset operations, and stream control
 """
 from fastapi import APIRouter, HTTPException, Query, Request
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 import logging
-import uuid
 
 from app.models.chat import (
-    SessionCreate, SessionResponse, SessionReset,
-    SessionResetResponse, StreamControlResponse
+    SessionCreate, SessionReset
 )
 from app.models.responses import SuccessResponse
 from app.features.chat.runtime import get_context_system, get_stream_registry
@@ -295,7 +293,7 @@ async def clear_session_history(
         conv_count = await db_manager.db.conversation_history.count_documents(delete_query)
 
         # Delete conversations
-        result = await db_manager.db.conversation_history.delete_many(delete_query)
+        await db_manager.db.conversation_history.delete_many(delete_query)
 
         # Update room message count if room_id specified
         if room_id:

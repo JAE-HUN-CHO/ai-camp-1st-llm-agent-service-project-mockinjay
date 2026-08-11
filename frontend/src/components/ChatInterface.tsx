@@ -30,11 +30,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Constants for storage keys
-  const STORAGE_KEY_SESSION = 'careguide_session_id';
-  const STORAGE_KEY_MESSAGES = 'careguide_chat_messages';
-  const STORAGE_KEY_TIMESTAMP = 'careguide_last_active';
-  const SESSION_TIMEOUT = 60 * 60 * 1000; // 1 hour in ms (for session validity)
   const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in ms (for screen clear)
 
   // State for idle/session expiration
@@ -45,54 +40,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
   useEffect(() => {
     const initSession = async () => {
       try {
-        let storedSession: string | null = null;
-        let storedMessages: string | null = null;
-        let lastActive: string | null = null;
-
-        // Safe localStorage access
-        try {
-          storedSession = localStorage.getItem(STORAGE_KEY_SESSION);
-          storedMessages = localStorage.getItem(STORAGE_KEY_MESSAGES);
-          lastActive = localStorage.getItem(STORAGE_KEY_TIMESTAMP);
-        } catch (e) {
-          console.warn('Could not access localStorage for session:', e);
-        }
-
-        const now = Date.now();
-
-        // Check if session is valid (exists and not expired)
-        if (storedSession && lastActive && (now - parseInt(lastActive) < SESSION_TIMEOUT)) {
-          setSessionId(storedSession);
-          if (storedMessages) {
-            // Restore messages, converting timestamp strings back to Date objects
-            const parsedMessages = JSON.parse(storedMessages).map((msg: any) => ({
-              ...msg,
-              timestamp: new Date(msg.timestamp)
-            }));
-            setMessages(parsedMessages);
-          }
-        } else {
-          // Create new session if expired or doesn't exist
-          // Use actual user ID if logged in, otherwise use guest_user
-          const userId = user?.id || 'guest_user';
-          const response = await api.post('/api/session/create', { user_id: userId });
-          const newSessionId = response.data.session_id;
-          setSessionId(newSessionId);
-          setMessages([]); // Clear messages for new session
-
-          try {
-            localStorage.setItem(STORAGE_KEY_SESSION, newSessionId);
-            localStorage.removeItem(STORAGE_KEY_MESSAGES); // Clear stored messages
-          } catch (e) {
-            console.warn('Could not save session to localStorage:', e);
-          }
-        }
-        // Update timestamp
-        try {
-          localStorage.setItem(STORAGE_KEY_TIMESTAMP, now.toString());
-        } catch (e) {
-          console.warn('Could not save timestamp to localStorage:', e);
-        }
+        // Chat content and session identifiers stay in memory. Backend history
+        // is the source of truth for restoration.
+        const userId = user?.id || 'guest_user';
+        const response = await api.post('/api/session/create', { user_id: userId });
+        const newSessionId = response.data.session_id;
+        setSessionId(newSessionId);
+        setMessages([]);
       } catch (error) {
         console.error('Failed to initialize session:', error);
       }
@@ -106,7 +60,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
       setIsSessionExpired(true);
       setMessages([]); // Clear messages from screen only
       // Note: Messages are still saved in DB (automatically by backend)
-      // localStorage is also preserved for potential recovery
+      // Backend history remains available for an explicit restore action.
     }
   }, [messages.length]);
 
@@ -174,25 +128,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
   const startNewConversation = useCallback(() => {
     setIsSessionExpired(false);
     setMessages([]);
-    // Clear localStorage messages for fresh start
-    try {
-      localStorage.removeItem(STORAGE_KEY_MESSAGES);
-    } catch (e) {
-      console.warn('Could not clear messages from localStorage:', e);
-    }
   }, []);
 
   useEffect(() => {
     scrollToBottom();
-    // Save messages to local storage whenever they change
-    if (messages.length > 0) {
-      try {
-        localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(messages));
-        localStorage.setItem(STORAGE_KEY_TIMESTAMP, Date.now().toString());
-      } catch (e) {
-        console.warn('Could not save messages to localStorage:', e);
-      }
-    }
   }, [messages]);
 
   const scrollToBottom = () => {

@@ -1,6 +1,6 @@
 # Community API endpoints (posts and comments)
 from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Request
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from bson import ObjectId
 from pathlib import Path
@@ -8,9 +8,8 @@ import os
 import uuid
 import logging
 
-from app.models.community import Post, PostCreate, PostUpdate, PostType, Comment, CommentCreate, CommentUpdate
+from app.models.community import PostCreate, PostUpdate, PostType, CommentCreate, CommentUpdate
 from app.db.connection import db
-from app.services.auth import get_current_user
 from app.utils.upload import validate_upload_filename
 
 # Configure logger for this module (모듈 로거 설정)

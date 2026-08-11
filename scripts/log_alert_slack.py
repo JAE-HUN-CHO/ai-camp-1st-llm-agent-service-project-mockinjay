@@ -93,7 +93,7 @@ def send_slack_alert(alert_type, message):
     try:
         response = requests.post(SLACK_WEBHOOK, json=payload, timeout=5)
         if response.status_code == 200:
-            print(f"✅ Slack 알람 전송 성공")
+            print("✅ Slack 알람 전송 성공")
         else:
             print(f"❌ Slack 알람 전송 실패: {response.status_code}")
     except Exception as e:
@@ -107,9 +107,9 @@ def monitor_log(log_file):
     print(f"감지 패턴: {list(ALERT_PATTERNS.keys())}")
     
     if SLACK_WEBHOOK:
-        print(f"✅ Slack 연동 활성화")
+        print("✅ Slack 연동 활성화")
     else:
-        print(f"⚠️  Slack 연동 비활성화 (환경변수 미설정)")
+        print("⚠️  Slack 연동 비활성화 (환경변수 미설정)")
     
     print("Ctrl+C로 중단\n")
     

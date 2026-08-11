@@ -21,8 +21,7 @@ from enum import Enum
 import logging
 
 from app.models.diet import (
-    DietGoal, MealLog, UserStreak,
-    CKDStage, MealType, Nutrients,
+    DietGoal, MealLog, CKDStage, MealType, Nutrients,
     CreateMealRequest, UpdateGoalRequest,
     DailyProgress, NutrientAdherence
 )

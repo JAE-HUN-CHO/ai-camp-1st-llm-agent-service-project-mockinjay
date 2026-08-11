@@ -1,7 +1,7 @@
 """
 Nutrition Analyzer Service
 
-This module provides AI-powered food image analysis using GPT-4 Vision API.
+This module provides AI-powered food image analysis using the local Ollama vision model.
 It analyzes food images to extract detailed nutritional information and provides
 personalized recommendations for CKD (Chronic Kidney Disease) patients.
 
@@ -20,12 +20,10 @@ Usage:
         prompt="What's in this meal?"
     )
 """
-import os
 import json
 import logging
 import base64
-from typing import Dict, Any, List, Optional
-from io import BytesIO
+from typing import Any, List, Optional
 
 from app.adapters.ollama.client import OllamaClient, OllamaSyncClient, OllamaProviderError
 
@@ -36,7 +34,7 @@ from app.models.diet_care import (
     MealType
 )
 from app.core.exceptions import (
-    OpenAIAPIError,
+    OllamaAPIError,
     ImageProcessingError,
     ValidationError
 )
@@ -46,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 class NutritionAnalyzerService:
     """
-    AI-powered nutrition analysis service using GPT-4 Vision.
+    AI-powered nutrition analysis service using local Ollama vision.
 
     This service analyzes food images and provides detailed nutritional
     information with CKD-specific recommendations and warnings.
@@ -99,7 +97,7 @@ class NutritionAnalyzerService:
             NutritionAnalysisResult with foods, totals, recommendations, warnings
 
         Raises:
-            OpenAIAPIError: If OpenAI API call fails
+            OllamaAPIError: If local inference fails
             ImageProcessingError: If image cannot be processed
             ValidationError: If inputs are invalid
 
@@ -120,7 +118,7 @@ class NutritionAnalyzerService:
         # Build analysis prompt
         analysis_prompt = self._build_analysis_prompt(user_profile, prompt)
 
-        # Call GPT-4 Vision API
+        # Call the local Ollama vision API
         try:
             response = await self._call_local_ollama(image_base64, analysis_prompt)
 
@@ -246,7 +244,7 @@ class NutritionAnalyzerService:
 
     def _get_system_prompt(self) -> str:
         """
-        Get system prompt for GPT-4 Vision.
+        Get system prompt for the local Ollama vision model.
 
         Returns:
             System prompt string defining AI behavior
@@ -269,7 +267,7 @@ Respond ONLY with valid JSON following the specified format."""
         user_prompt: Optional[str]
     ) -> str:
         """
-        Build analysis prompt for GPT-4 Vision.
+        Build analysis prompt for the local Ollama vision model.
 
         Args:
             user_profile: User's health profile
@@ -353,7 +351,7 @@ Respond ONLY with valid JSON following the specified format."""
             API response object
 
         Raises:
-            OpenAIAPIError: compatibility error when local inference fails
+            OllamaAPIError: when local inference fails
         """
         try:
             response = await self.async_client.chat.completions.create(
@@ -386,13 +384,13 @@ Respond ONLY with valid JSON following the specified format."""
 
         except OllamaProviderError as e:
             logger.error("Ollama API error: %s", e)
-            raise OpenAIAPIError(
+            raise OllamaAPIError(
                 reason=f"Ollama API error: {str(e)}",
                 status_code=getattr(e, 'status_code', None)
             )
         except Exception as e:
             logger.error(f"Unexpected API error: {e}", exc_info=True)
-            raise OpenAIAPIError(reason=f"Unexpected error: {str(e)}")
+            raise OllamaAPIError(reason=f"Unexpected error: {str(e)}")
 
     def _parse_api_response(
         self,
@@ -664,7 +662,7 @@ nutrition_analyzer_service = NutritionAnalyzerService()
 Unit tests for NutritionAnalyzerService:
 
 1. test_analyze_food_image_success():
-   - Mock OpenAI API response
+   - Mock Ollama response
    - Verify NutritionAnalysisResult structure
    - Check food items parsed correctly
 
@@ -678,9 +676,9 @@ Unit tests for NutritionAnalyzerService:
    - Test with oversized image
    - Verify ValidationError raised
 
-4. test_openai_api_error():
+4. test_ollama_api_error():
    - Mock API failure
-   - Verify OpenAIAPIError raised
+   - Verify OllamaAPIError raised
    - Check error message format
 
 5. test_recommendations_generation():

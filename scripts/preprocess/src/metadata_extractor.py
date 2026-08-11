@@ -13,8 +13,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Dict, Optional
 from dotenv import load_dotenv
 from backend.app.adapters.ollama.client import OllamaSyncClient
 import time
@@ -316,11 +315,8 @@ class MetadataExtractor:
             data = json.load(f)
 
         records = data.get("data", [])
-        total = len(records)
-
         if sample_size:
             records = records[:sample_size]
-            total = len(records)
             logger.info(f"Processing sample of {sample_size} records")
 
         processed_count = 0

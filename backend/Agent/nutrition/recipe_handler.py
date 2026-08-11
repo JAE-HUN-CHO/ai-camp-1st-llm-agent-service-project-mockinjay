@@ -2,6 +2,7 @@
 Recipe Handler - 레시피 생성 요청 처리
 """
 import logging
+import os
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -267,7 +268,7 @@ class RecipeHandler:
     ) -> str:
         """LLM 실패 시 간단한 레시피 텍스트 생성"""
         text = f"# {modified_recipe['recipe_name']}\n\n"
-        text += f"신장병 환자분을 위한 저염식 레시피입니다.\n\n"
+        text += "신장병 환자분을 위한 저염식 레시피입니다.\n\n"
 
         if modified_recipe["substitutions"]:
             text += "**식재료 변경:**\n"

@@ -6,7 +6,7 @@ Nutrition Agent Implementation
 import os
 import logging
 import json
-from typing import Dict, Any, Optional, List
+from typing import TYPE_CHECKING, Dict, Any, List
 from app.adapters.ollama.client import OllamaClient
 from ..base_agent import BaseAgent
 from ..core.types import AgentType
@@ -20,6 +20,9 @@ from .prompts import (
     ALTERNATIVE_INGREDIENT_PROMPT,
     get_profile_instructions
 )
+
+if TYPE_CHECKING:
+    from ..core.contracts import AgentRequest, AgentResponse
 
 # Lazy import RAG (only if needed)
 try:
@@ -37,7 +40,7 @@ except ImportError:
 
 # Recipe generator
 try:
-    from tools.recipe_generator import get_recipe_generator
+    from tools.recipe_generator import get_recipe_generator  # noqa: F401
     RECIPE_GENERATOR_AVAILABLE = True
 except ImportError:
     RECIPE_GENERATOR_AVAILABLE = False
@@ -143,7 +146,7 @@ class NutritionAgent(BaseAgent):
         Returns:
             AgentResponse: 통일된 응답 형식
         """
-        from ..core.contracts import AgentRequest, AgentResponse
+        from ..core.contracts import AgentResponse
 
         # Extract fields from AgentRequest
         user_input = request.query
@@ -231,7 +234,7 @@ class NutritionAgent(BaseAgent):
         케이스 4: unclear - 판별 불가 → 에러 메시지
         케이스 5: irrelevant - 무관 이미지 → 에러 메시지
         """
-        logger.info(f"🖼️ Image upload - classifying into 5 cases")
+        logger.info("🖼️ Image upload - classifying into 5 cases")
 
         # Step 1: 이미지 분류 (5가지 케이스)
         classification = await self._classify_image(image_data)

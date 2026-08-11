@@ -3,18 +3,25 @@ Nutrition RAG - local image encoder + MongoDB vector hybrid search
 음식 이미지-텍스트 동시 검색을 위한 RAG 시스템
 """
 
-import os
 import logging
 from typing import List, Dict, Any, Optional, Union
-from io import BytesIO
-import base64
 
 import torch
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
-from rank_bm25 import BM25Okapi
+from app.adapters.ollama.client import OllamaSyncClient
 
 logger = logging.getLogger(__name__)
+
+
+class KeywordScorer:
+    """Small dependency-free scorer for the optional local keyword tier."""
+
+    def __init__(self, corpus: list[list[str]]) -> None:
+        self.corpus = corpus
+
+    def get_scores(self, query: list[str]) -> list[float]:
+        query_terms = set(query)
+        return [float(sum(term in query_terms for term in document)) for document in self.corpus]
 
 
 class NutritionRAG:
@@ -23,12 +30,11 @@ class NutritionRAG:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # CLIP 모델 초기화
-        logger.info(f"🔧 Loading CLIP model on {self.device}")
-        self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        self.model.to(self.device)
-        self.model.eval()
+        # Ollama is the only model provider. Ollama's embedding endpoint is
+        # text-only, so the legacy image encoder is intentionally not loaded
+        # from a hosted model at process startup.
+        logger.info("NutritionRAG using local Ollama embeddings")
+        self.embedding_client = OllamaSyncClient()
 
         # Hosted vector stores are not used. MongoDB Atlas Local is the
         # persistence target; this legacy CLIP surface remains read-only until
@@ -36,7 +42,7 @@ class NutritionRAG:
         self.pc = None
         self.index = None
 
-        # BM25 for keyword search (in-memory cache)
+        # Keyword scoring for the optional in-memory search tier
         self.bm25 = None
         self.food_corpus = []
 
@@ -76,28 +82,10 @@ class NutritionRAG:
         Returns:
             CLIP image embedding (512-dim)
         """
-        try:
-            # Base64 string to PIL Image
-            if isinstance(image_input, str):
-                image_bytes = base64.b64decode(image_input)
-                image = Image.open(BytesIO(image_bytes)).convert("RGB")
-            else:
-                image = image_input
-
-            # CLIP preprocessing
-            inputs = self.processor(images=image, return_tensors="pt")
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-            with torch.no_grad():
-                image_features = self.model.get_image_features(**inputs)
-                # Normalize
-                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-
-            return image_features.cpu().squeeze()
-
-        except Exception as e:
-            logger.error(f"Image encoding failed: {e}")
-            raise
+        logger.error("Image encoding is disabled: Ollama's configured embedding model is text-only")
+        raise RuntimeError(
+            "Ollama's configured embedding model is text-only; image vector search is disabled"
+        )
 
     def encode_text(self, text: str) -> torch.Tensor:
         """
@@ -110,19 +98,8 @@ class NutritionRAG:
             CLIP text embedding (512-dim)
         """
         try:
-            # Truncate text to fit CLIP's 77 token limit (~200 chars for Korean)
-            if len(text) > 200:
-                text = text[:200]
-
-            inputs = self.processor(text=[text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-            with torch.no_grad():
-                text_features = self.model.get_text_features(**inputs)
-                # Normalize
-                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-
-            return text_features.cpu().squeeze()
+            response = self.embedding_client.embeddings.create(input=text)
+            return torch.tensor(response.data[0].embedding)
 
         except Exception as e:
             logger.error(f"Text encoding failed: {e}")
@@ -242,7 +219,7 @@ class NutritionRAG:
         # Semantic search
         semantic_results = self.search_by_text(query, top_k=top_k * 2)
 
-        # BM25 keyword search (if corpus loaded)
+        # Keyword search (if a local corpus is loaded)
         if self.bm25 and self.food_corpus:
             tokenized_query = query.split()
             bm25_scores = self.bm25.get_scores(tokenized_query)
@@ -277,22 +254,22 @@ class NutritionRAG:
 
     def load_food_corpus(self, foods: List[Dict[str, Any]]):
         """
-        BM25를 위한 음식 코퍼스 로드
+        로컬 keyword 검색을 위한 음식 코퍼스 로드
 
         Args:
             foods: List of {dish_name, ingredients, recipe, nutrition}
         """
         self.food_corpus = foods
 
-        # Tokenize for BM25
+        # Tokenize for the dependency-free keyword scorer
         corpus_texts = [
             f"{food['dish_name']} {' '.join(food.get('ingredients', []))} {food.get('recipe', '')}"
             for food in foods
         ]
         tokenized_corpus = [doc.split() for doc in corpus_texts]
 
-        self.bm25 = BM25Okapi(tokenized_corpus)
-        logger.info(f"📚 BM25 corpus loaded: {len(foods)} foods")
+        self.bm25 = KeywordScorer(tokenized_corpus)
+        logger.info(f"📚 Keyword corpus loaded: {len(foods)} foods")
 
     def upsert_food(
         self,
