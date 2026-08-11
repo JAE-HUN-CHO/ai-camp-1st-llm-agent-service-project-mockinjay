@@ -20,21 +20,17 @@ Usage:
     )
 """
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 from app.models.diet_care import (
     DailyProgressResponse,
     WeeklyProgressResponse,
     DailySummary,
-    NutrientProgress,
-    NutritionGoals
+    NutrientProgress
 )
 from app.models.diet import (
-    MealLog,
-    DietGoal,
-    Nutrients
+    DietGoal
 )
 from app.repositories.meal_repository import meal_repository
 from app.repositories.goal_repository import goal_repository

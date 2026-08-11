@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 import asyncio
 import time
-from typing import Dict, Any, List
 import json
 
 # Add backend to path
@@ -318,8 +317,8 @@ class ComprehensiveAgentTester:
                 
                 # Test 3.3: Server connection (간단한 테스트)
                 print(f"\n   ⚠️  Skipping process() test for {agent_type}")
-                print(f"   → Requires Parlant server running on port 8800")
-                print(f"   → Run: source .venv/bin/activate && python backend/Agent/parlant_common/run_unified_server.py")
+                print("   → Requires Parlant server running on port 8800")
+                print("   → Run: source .venv/bin/activate && python backend/Agent/parlant_common/run_unified_server.py")
                 
                 self.log_test(
                     f"Remote/{agent_type}",
@@ -448,14 +447,14 @@ class ComprehensiveAgentTester:
         print(f"⏭️  스킵: {skipped}")
         
         if failed > 0:
-            print(f"\n❌ 실패한 테스트:")
+            print("\n❌ 실패한 테스트:")
             for test in self.results["tests"]:
                 if test["status"] == "FAIL":
                     print(f"   • [{test['category']}] {test['name']}")
                     print(f"     → {test['message']}")
         
         # 카테고리별 통계
-        print(f"\n📂 카테고리별 통계:")
+        print("\n📂 카테고리별 통계:")
         categories = {}
         for test in self.results["tests"]:
             cat = test["category"]

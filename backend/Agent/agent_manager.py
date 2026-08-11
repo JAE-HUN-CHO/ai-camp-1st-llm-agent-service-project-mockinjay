@@ -13,12 +13,12 @@ from .core.agent_registry import AgentRegistry
 from .core.contracts import AgentRequest, AgentResponse
 
 # 에이전트 자동 import (자동 등록됨)
-from .medical_welfare.agent import MedicalWelfareAgent
-from .nutrition.agent import NutritionAgent
-from .research_paper.agent import ResearchPaperAgent
-from .trend_visualization.agent import TrendVisualizationAgent
-from .quiz.agent import QuizAgent
-from .router.agent import RouterAgent
+from .medical_welfare import agent as _medical_welfare_agent  # noqa: F401
+from .nutrition import agent as _nutrition_agent  # noqa: F401
+from .research_paper import agent as _research_paper_agent  # noqa: F401
+from .trend_visualization import agent as _trend_visualization_agent  # noqa: F401
+from .quiz import agent as _quiz_agent  # noqa: F401
+from .router import agent as _router_agent  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -233,4 +233,3 @@ class AgentManager:
                 available[agent_type] = {"error": str(e)}
         
         return available
-

@@ -2,7 +2,7 @@
 로컬 에이전트 - 로컬에서 직접 실행되는 에이전트 기본 클래스
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from ..base_agent import BaseAgent
 from ..core.types import AgentType
 from ..core.contracts import AgentRequest, AgentResponse
@@ -14,12 +14,12 @@ class LocalAgent(BaseAgent):
     def __init__(
         self,
         agent_type: str,
-        openai_service: Optional[Any] = None,
+        model_service: Optional[Any] = None,
         # 다른 서비스들도 주입 가능
     ):
         super().__init__(agent_type)
-        self.openai_service = openai_service
-        # OpenAI 서비스는 lazy loading으로 각 에이전트에서 초기화
+        self.model_service = model_service
+        # Model services are initialized lazily by concrete agents.
     
     @property
     def execution_type(self) -> AgentType:

@@ -6,9 +6,8 @@ Medical Dataset Kidney Filtering Script
 
 import json
 import re
-import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, Tuple
 
 # 파일 경로
 BASE_DIR = Path(__file__).parent.parent
@@ -60,7 +59,7 @@ class KidneyTerminologyMatcher:
             '신동맥협착', '수신증', '신세포암', '콩팥암'
         }
 
-        print(f"✅ Loaded terminology:")
+        print("✅ Loaded terminology:")
         print(f"   - Core kidney terms: {len(self.core_kidney_terms)}")
         print(f"   - High specificity terms: {len(self.high_specificity_terms)}")
 

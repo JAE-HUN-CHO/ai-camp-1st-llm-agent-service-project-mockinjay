@@ -86,7 +86,7 @@ async def get_profile(context: ToolContext) -> str:
                     print(f"✅ Profile extracted from customer object: {profile}")
                     return profile
 
-    print(f"ℹ️  Using default profile limits (guidelines control actual behavior)")
+    print("ℹ️  Using default profile limits (guidelines control actual behavior)")
     return "general"
 
 

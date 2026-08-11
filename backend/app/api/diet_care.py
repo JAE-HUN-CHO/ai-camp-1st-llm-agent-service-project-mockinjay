@@ -3,14 +3,14 @@ Diet Care API Router
 
 This module provides all endpoints for the Diet Care feature:
 - Session management for food analysis
-- Nutrition analysis using GPT-4 Vision
+- Nutrition analysis using local Ollama vision
 - Meal logging and history
 - Nutrition goals management
 - Progress tracking and statistics
 """
 import logging
 import uuid
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
@@ -23,9 +23,7 @@ from app.db.connection import (
     get_diet_goals_collection
 )
 from app.models.diet_care import (
-    CreateSessionRequest,
     CreateSessionResponse,
-    NutriCoachRequest,
     NutriCoachResponse,
     CreateMealRequest,
     MealResponse,
@@ -44,6 +42,7 @@ from app.models.diet_care import (
     DailySummary
 )
 from app.services.nutrition_analyzer import get_nutrition_analyzer
+from app.utils.upload import read_validated_image
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +169,7 @@ async def analyze_nutrition(
     user_id: str = Depends(get_current_user)
 ) -> NutriCoachResponse:
     """
-    Analyze food nutrition using GPT-4 Vision.
+    Analyze food nutrition using local Ollama vision.
 
     Accepts multipart/form-data with:
     - session_id: Session ID from create_analysis_session
@@ -220,8 +219,8 @@ async def analyze_nutrition(
         # Read image data if provided
         image_data = None
         if image:
-            image_data = await image.read()
-            logger.info(f"Received image: {image.filename}, size: {len(image_data)} bytes")
+            image_data = await read_validated_image(image)
+            logger.info("Received validated nutrition image (%d bytes)", len(image_data))
 
         # Build user profile
         user_profile = None

@@ -3,17 +3,15 @@ Rooms API Router
 Handles chat room CRUD operations and room-specific history
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from typing import Optional
 import logging
 import uuid
 from datetime import datetime
 
 from app.models.chat import (
-    RoomCreate, RoomUpdate, RoomResponse, RoomListResponse,
-    RoomHistoryResponse, ConversationItem, LastMessage,
-    RoomCreateWithSession, RoomResponseWithSession
+    RoomCreate, RoomUpdate, RoomResponse, ConversationItem, LastMessage,
+    RoomCreateWithSession
 )
-from app.models.responses import SuccessResponse, ErrorResponse
+from app.models.responses import SuccessResponse
 from app.features.chat.runtime import get_context_system
 from Agent.core.contracts import AgentRequest
 from app.api.dependencies import get_current_user

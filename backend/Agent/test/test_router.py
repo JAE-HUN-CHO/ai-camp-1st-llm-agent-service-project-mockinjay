@@ -5,7 +5,6 @@ Test script for Router Agent with Detailed Logging
 import sys
 import asyncio
 import logging
-import json
 from pathlib import Path
 from datetime import datetime
 
@@ -110,11 +109,11 @@ async def test_router():
                 
                 for agent_name, agent_answer in individual_responses.items():
                     logger.info(f"\n┌─ Agent: {agent_name.upper()} ─┐")
-                    logger.info(f"│")
+                    logger.info("│")
                     # Split answer into lines for better formatting
                     for line in agent_answer.split('\n'):
                         logger.info(f"│ {line}")
-                    logger.info(f"│")
+                    logger.info("│")
                     logger.info(f"└{'─'*48}┘\n")
             
             # Log Final Response (Synthesized or Direct)

@@ -18,7 +18,7 @@ Exception Hierarchy:
     │   ├── AnalysisLimitExceededError
     │   └── MealLogLimitExceededError
     ├── ExternalServiceError (502)
-    │   ├── OpenAIAPIError
+    │   ├── OllamaAPIError
     │   └── ImageProcessingError
     └── DatabaseError (500)
         ├── ConnectionError
@@ -236,8 +236,8 @@ class ExternalServiceError(DietCareException):
         super().__init__(message, status_code=502, detail=detail)
 
 
-class OpenAIAPIError(ExternalServiceError):
-    """Raised when OpenAI API call fails"""
+class OllamaAPIError(ExternalServiceError):
+    """Raised when the local Ollama provider fails."""
 
     def __init__(self, reason: str, status_code: Optional[int] = None):
         detail = {"reason": reason}

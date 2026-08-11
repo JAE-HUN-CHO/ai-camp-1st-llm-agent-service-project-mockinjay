@@ -11,7 +11,6 @@ Additional authentication endpoints:
 import logging
 from datetime import datetime, timedelta
 import secrets
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.db.connection import get_users_collection

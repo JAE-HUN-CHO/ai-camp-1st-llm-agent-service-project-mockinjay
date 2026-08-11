@@ -4,6 +4,11 @@
 - **Purpose:** 구조 통합·cache 분리·local-first 전환 전의 사실 기준
 - **Source:** 현재 체크아웃의 파일 목록과 manifest를 읽어 작성
 
+> 이 문서는 2026-08-11 통합 전의 historical baseline입니다. 현재 제품
+> 경로·provider·Agent 계약은 [ADR-011](../adr/ADR-011-current-runtime-contract.md)과
+> `AGENTS.md`를 우선하며, 이 표의 `new_frontend` 및 legacy 역할 표기는
+> 당시 migration 입력을 설명하는 기록입니다.
+
 ## Target top-level vs current top-level
 
 | Target | Current | Action |

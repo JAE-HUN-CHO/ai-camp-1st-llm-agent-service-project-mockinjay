@@ -61,18 +61,11 @@ export const API_ENDPOINTS = {
   // Auth
   AUTH_LOGIN: '/api/auth/login',
   AUTH_REGISTER: '/api/auth/register',
-  AUTH_LOGOUT: '/api/auth/logout',
 
   // Community
   COMMUNITY_POSTS: '/api/community/posts',
   COMMUNITY_CREATE_POST: '/api/community/posts',
 
-  // Quiz
-  QUIZ_START: '/api/quiz/start',
-  QUIZ_SUBMIT: '/api/quiz/submit',
-
-  // Trends
-  TRENDS_DATA: '/api/trends',
 } as const;
 
 /**

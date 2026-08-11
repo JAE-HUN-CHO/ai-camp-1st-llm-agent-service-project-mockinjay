@@ -2,6 +2,10 @@
 
 > 만성콩팥병(CKD) 환자를 위한 종합 케어 플랫폼
 
+현재 구현과 문서가 충돌하면 [`agents/DOCUMENT_CONSISTENCY_MATRIX.md`](agents/DOCUMENT_CONSISTENCY_MATRIX.md)의
+normative 문서와 Accepted ADR을 우선한다. 과거 설계·리포트는 삭제하지 않고 historical
+참고자료로 보존한다.
+
 ## 프로젝트 개요
 
 CareGuide는 만성콩팥병 환자에게 AI 챗봇 기반 의료정보, 영양 관리, 커뮤니티 기능을 제공하는 웹 플랫폼입니다.
@@ -12,10 +16,10 @@ CareGuide는 만성콩팥병 환자에게 AI 챗봇 기반 의료정보, 영양 
 - Python 3.10+
 - FastAPI
 - MongoDB
-- OpenAI API
+- Ollama (`qwen3.6:27b-mlx`) with local MongoDB Atlas Local vector search
 
 ### Frontend
-- React 18
+- React 19
 - TypeScript
 - Tailwind CSS
 - Vite

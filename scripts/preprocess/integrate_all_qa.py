@@ -8,7 +8,6 @@ import os
 from glob import glob
 from pathlib import Path
 import hashlib
-import requests
 from tqdm import tqdm
 from dotenv import load_dotenv
 

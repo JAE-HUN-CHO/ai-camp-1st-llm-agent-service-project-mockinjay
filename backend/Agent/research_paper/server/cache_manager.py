@@ -18,9 +18,9 @@ import pickle
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Any, Union, Tuple
+from typing import Dict, List, Optional, Any
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 
@@ -497,7 +497,7 @@ async def test_cache_warming():
 
     # Show cache contents
     stats = await cache.get_stats()
-    print(f"Cache stats after warming:")
+    print("Cache stats after warming:")
     print(f"  Sets: {stats['sets']}")
     print(f"  Hit rate: {stats['hit_rate']}")
 

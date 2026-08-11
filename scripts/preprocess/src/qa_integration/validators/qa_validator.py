@@ -6,7 +6,7 @@ Validates QA pairs for quality and completeness
 
 import logging
 import re
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 

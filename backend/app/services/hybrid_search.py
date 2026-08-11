@@ -2,7 +2,6 @@ import asyncio
 import time
 import logging
 from typing import List, Dict, Optional, Tuple
-from functools import lru_cache
 import hashlib
 from dotenv import load_dotenv
 import os
@@ -310,18 +309,18 @@ class OptimizedHybridSearchEngine:
 
         # Local vector search (use pre-computed embedding)
         if query_embedding:
-            pinecone_search = self._semantic_search_with_embedding(
+            semantic_search = self._semantic_search_with_embedding(
                 query_embedding, namespace, limit * 2
             )
         else:
-            pinecone_search = self.vector_db.semantic_search(
+            semantic_search = self.vector_db.semantic_search(
                 query, top_k=limit * 2, namespace=namespace
             )
 
         # Execute both searches in parallel
         keyword_results, semantic_matches = await asyncio.gather(
             mongo_search,
-            pinecone_search
+            semantic_search
         )
 
         # Merge results with improved scoring
@@ -552,7 +551,7 @@ async def test_optimization_performance():
     # Test 2: Cached query performance
     print("\n[TEST 2] Same query with caching...")
     start = time.time()
-    cached_results = await engine.search_all_sources(
+    await engine.search_all_sources(
         query,
         max_per_source=10,
         use_semantic=True,

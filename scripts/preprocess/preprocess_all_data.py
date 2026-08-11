@@ -7,10 +7,8 @@ Processes all 3 datasets:
 """
 
 import argparse
-import json
 import logging
 from pathlib import Path
-from datetime import datetime
 from src.metadata_extractor import MetadataExtractor
 
 logger = logging.getLogger(__name__)

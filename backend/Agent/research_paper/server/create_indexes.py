@@ -12,7 +12,7 @@ Run this script after initial data load for best performance.
 import asyncio
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING, DESCENDING, TEXT, GEO2D
+from pymongo import ASCENDING, DESCENDING, TEXT
 from typing import List, Dict, Tuple
 import os
 from dotenv import load_dotenv

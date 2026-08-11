@@ -3,7 +3,6 @@ Bookmark service - Research paper bookmark management (async version)
 """
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from bson import ObjectId
 from app.db.connection import get_bookmarks_collection
 import csv
 from io import StringIO
@@ -236,7 +235,7 @@ async def export_bookmarks_bibtex(user_id: str, pmids: Optional[List[str]] = Non
         if bm.get("publication_date"):
             try:
                 year = bm["publication_date"][:4]
-            except:
+            except (TypeError, AttributeError, IndexError):
                 pass
 
         # Build BibTeX entry

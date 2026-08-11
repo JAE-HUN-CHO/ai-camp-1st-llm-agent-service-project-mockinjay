@@ -9,7 +9,7 @@ Papers Dataset Kidney Filtering Script
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
 
 # 파일 경로
 BASE_DIR = Path(__file__).parent.parent
@@ -78,7 +78,7 @@ class KidneyTerminologyMatcher:
         # 모든 약어를 대소문자 구분하여 세트로 저장
         self.abbreviations = set(self.terminology.get('all_abbreviations', []))
 
-        print(f"✅ Loaded terminology:")
+        print("✅ Loaded terminology:")
         print(f"   - Core kidney terms: {len(self.core_kidney_terms)}")
         print(f"   - High specificity terms: {len(self.high_specificity_terms)}")
         print(f"   - General terms: {len(self.general_terms)}")

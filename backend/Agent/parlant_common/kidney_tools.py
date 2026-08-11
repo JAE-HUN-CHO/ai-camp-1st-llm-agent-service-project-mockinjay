@@ -6,6 +6,7 @@ import parlant.sdk as p
 from parlant.sdk import ToolContext, ToolResult
 from typing import Optional
 import logging
+from .utils import get_profile
 
 logger = logging.getLogger(__name__)
 
@@ -456,4 +457,3 @@ async def get_symptom_info(context: ToolContext, symptoms: str) -> ToolResult:
                 "profile": profile
             }
         )
-

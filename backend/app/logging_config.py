@@ -3,10 +3,28 @@ Logging Configuration
 Structured logging with rotating file handlers
 """
 import logging
+import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from app.config import settings
+
+
+class SensitiveDataFilter(logging.Filter):
+    """Redact common health, credential, and user-data fields from messages."""
+
+    _field_names = (
+        r"password|token|api[_-]?key|email|user[_-]?id|userid|query|content|response|filename"
+    )
+    _pattern = re.compile(
+        rf"(?i)({_field_names})\s*[:=]\s*(.*?)(?=\s+(?:{_field_names})\s*[:=]|[,}}\n]|$)"
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        record.msg = self._pattern.sub(r"\1=<redacted>", message)
+        record.args = ()
+        return True
 
 
 def setup_logging():
@@ -34,6 +52,7 @@ def setup_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG if settings.is_development else logging.INFO)
     console_handler.setFormatter(log_format)
+    console_handler.addFilter(SensitiveDataFilter())
     root_logger.addHandler(console_handler)
 
     # File Handler - All logs
@@ -45,6 +64,7 @@ def setup_logging():
     )
     all_logs_handler.setLevel(logging.DEBUG)
     all_logs_handler.setFormatter(log_format)
+    all_logs_handler.addFilter(SensitiveDataFilter())
     root_logger.addHandler(all_logs_handler)
 
     # File Handler - Error logs only
@@ -56,6 +76,7 @@ def setup_logging():
     )
     error_logs_handler.setLevel(logging.ERROR)
     error_logs_handler.setFormatter(log_format)
+    error_logs_handler.addFilter(SensitiveDataFilter())
     root_logger.addHandler(error_logs_handler)
 
     # Configure specific loggers

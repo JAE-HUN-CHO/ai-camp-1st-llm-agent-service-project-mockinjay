@@ -8,7 +8,7 @@ from typing import List
 import secrets
 
 
-DEFAULT_MONGODB_URI = "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin"
+DEFAULT_MONGODB_URI = "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin&directConnection=true"
 
 
 class Settings(BaseSettings):

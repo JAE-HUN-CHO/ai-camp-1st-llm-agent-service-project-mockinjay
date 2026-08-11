@@ -1,10 +1,9 @@
 """
 Gamification service - Points and Level System business logic
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 from datetime import datetime
-from bson import ObjectId
-from app.db.connection import get_points_collection, get_points_transactions_collection, get_users_collection
+from app.db.connection import get_points_collection, get_points_transactions_collection
 
 
 # Level configuration

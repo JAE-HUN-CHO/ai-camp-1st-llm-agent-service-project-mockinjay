@@ -3,18 +3,15 @@ Bookmarks API Router
 논문 북마크 API 엔드포인트 - /api/bookmarks
 프론트엔드 호환용 별도 라우터 (mypage/bookmarks와 별개)
 """
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, status, Query
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime
 import logging
 
-from app.services.auth import get_current_user
 from app.services.bookmark_service import (
     create_bookmark,
     get_user_bookmarks,
-    delete_bookmark,
-    update_bookmark_memo,
 )
 
 logger = logging.getLogger(__name__)

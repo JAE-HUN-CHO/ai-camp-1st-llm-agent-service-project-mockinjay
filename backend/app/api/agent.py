@@ -240,7 +240,6 @@ async def list_agents(request: Request):
     """
     List available agents and their mappings
     """
-    agent_manager = get_agent_runtime(request).agent_manager
     return {
         "agents": AGENT_TYPE_MAP,
         "descriptions": {

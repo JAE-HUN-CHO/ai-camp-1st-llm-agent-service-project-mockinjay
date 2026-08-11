@@ -19,7 +19,8 @@ async def get_health_records(user_id: str = Depends(get_current_user)):
     현재 로그인한 사용자의 모든 건강 기록을 조회합니다.
     """
     health_records_collection = get_health_records_collection()
-    records = list(health_records_collection.find({"user_id": user_id}).sort("date", -1))
+    cursor = health_records_collection.find({"user_id": user_id}).sort("date", -1)
+    records = [record async for record in cursor]
     
     return [
         {
@@ -45,7 +46,7 @@ async def create_health_record(
         "created_at": datetime.utcnow()
     }
 
-    result = health_records_collection.insert_one(record_doc)
+    result = await health_records_collection.insert_one(record_doc)
     
     return {
         "id": str(result.inserted_id),
@@ -64,7 +65,7 @@ async def update_health_record(
     """
     health_records_collection = get_health_records_collection()
     # 권한 확인
-    existing_record = health_records_collection.find_one({
+    existing_record = await health_records_collection.find_one({
         "_id": ObjectId(record_id),
         "user_id": user_id
     })
@@ -78,13 +79,13 @@ async def update_health_record(
     if not update_data:
         raise HTTPException(status_code=400, detail="업데이트할 데이터가 없습니다")
     
-    health_records_collection.update_one(
+    await health_records_collection.update_one(
         {"_id": ObjectId(record_id)},
         {"$set": update_data}
     )
     
     # 업데이트된 기록 조회
-    updated_record = health_records_collection.find_one({"_id": ObjectId(record_id)})
+    updated_record = await health_records_collection.find_one({"_id": ObjectId(record_id)})
     
     return {
         "id": str(updated_record["_id"]),
@@ -101,7 +102,7 @@ async def delete_health_record(
     건강 기록을 삭제합니다.
     """
     health_records_collection = get_health_records_collection()
-    result = health_records_collection.delete_one({
+    result = await health_records_collection.delete_one({
         "_id": ObjectId(record_id),
         "user_id": user_id
     })

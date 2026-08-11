@@ -1,5 +1,5 @@
 """
-Nutrition Analyzer Service - GPT-4 Vision Integration
+Nutrition Analyzer Service - Ollama Vision Integration
 
 This service uses the local Ollama vision-capable model to analyze food images
 and extract detailed nutrition information for CKD (Chronic Kidney Disease) patients.
@@ -17,8 +17,7 @@ from app.adapters.ollama.client import OllamaClient, OllamaProviderError
 from app.models.diet_care import (
     FoodItem,
     NutritionAnalysisResult,
-    UserProfile,
-    MealType
+    UserProfile
 )
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class NutritionAnalyzer:
     """
-    Service for analyzing food images and text using GPT-4 Vision.
+    Service for analyzing food images and text using local Ollama vision.
 
     This analyzer is specifically designed for CKD patients and provides:
     - Detailed nutrition breakdown (protein, sodium, potassium, phosphorus)
@@ -71,8 +70,7 @@ class NutritionAnalyzer:
         content = self._build_message_content(prompt, image_data, text_description)
 
         try:
-            # Call GPT-4 Vision
-            logger.info("Calling GPT-4 Vision for nutrition analysis")
+            logger.info("Calling Ollama vision model for nutrition analysis")
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -91,7 +89,7 @@ class NutritionAnalyzer:
 
             # Parse the response
             result_text = response.choices[0].message.content
-            logger.info(f"GPT-4 Vision response received: {len(result_text)} characters")
+            logger.info(f"Ollama vision response received: {len(result_text)} characters")
 
             # Extract JSON from response
             analysis_result = self._parse_gpt_response(result_text)
@@ -106,7 +104,7 @@ class NutritionAnalyzer:
             raise
 
     def _get_system_prompt(self) -> str:
-        """Get the system prompt for GPT-4"""
+        """Get the system prompt for the local vision model."""
         return """You are a specialized nutrition analyzer for Chronic Kidney Disease (CKD) patients.
 Your role is to analyze food images and descriptions, providing detailed nutrition information
 with a focus on key nutrients that CKD patients must monitor: protein, sodium, potassium, and phosphorus.
@@ -190,7 +188,7 @@ Be accurate, conservative in estimates, and prioritize patient safety."""
         image_data: Optional[bytes],
         text_description: Optional[str]
     ) -> List[Dict[str, Any]]:
-        """Build the message content array for GPT-4 Vision"""
+        """Build the message content array for local Ollama vision."""
         content = []
 
         # Add text prompt
@@ -252,10 +250,10 @@ Be accurate, conservative in estimates, and prioritize patient safety."""
 
     def _parse_gpt_response(self, response_text: str) -> NutritionAnalysisResult:
         """
-        Parse GPT-4 response into NutritionAnalysisResult.
+        Parse the Ollama response into NutritionAnalysisResult.
 
         Args:
-            response_text: Raw text response from GPT-4
+            response_text: Raw text response from Ollama
 
         Returns:
             NutritionAnalysisResult: Parsed and validated result
@@ -308,7 +306,7 @@ Be accurate, conservative in estimates, and prioritize patient safety."""
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
             logger.error(f"Response text: {response_text[:500]}")
-            raise ValueError(f"Invalid JSON response from GPT-4: {str(e)}")
+            raise ValueError(f"Invalid JSON response from Ollama: {str(e)}")
         except Exception as e:
             logger.error(f"Error parsing GPT response: {e}")
             raise ValueError(f"Failed to parse analysis result: {str(e)}")

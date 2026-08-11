@@ -12,17 +12,13 @@ CareGuide Healthcare Chatbot v2 - OPTIMIZED
 import parlant.sdk as p
 from parlant.sdk import ToolContext, ToolResult
 import asyncio
-from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
 import uuid
-import os
-from typing import Optional, Dict, Sequence, Union
-from types import NoneType
+from typing import Optional
 
-from bson import ObjectId
-from toon_format import encode, decode
+from toon_format import encode
 import time
 from pathlib import Path
 import sys
@@ -38,8 +34,6 @@ from Agent.parlant_common import (
 )
 # ==================== Optimized Imports ====================
 from app.services.hybrid_search import OptimizedHybridSearchEngine
-import json
-import logging
 
 # Optional: Cache Manager (requires Redis)
 try:
@@ -59,15 +53,13 @@ try:
     from advanced_components import (
         QueryRouter,
         PerformanceMonitor,
-        CrossEncoderReranker,
-        HybridScoringSystem
+        CrossEncoderReranker
     )
 except ImportError:
     from Agent.research_paper.server.advanced_components import (
         QueryRouter,
         PerformanceMonitor,
-        CrossEncoderReranker,
-        HybridScoringSystem
+        CrossEncoderReranker
     )
 
 # ==================== Configuration ====================
@@ -307,7 +299,6 @@ async def search_medical_qa(
 
 
 
-import math
 
 @p.tool
 async def cal_gfr(
@@ -1005,7 +996,7 @@ async def add_guidelines(agent: p.Agent):
     # )
 
 
-    fast_answer_guideline = await agent.create_guideline(
+    _fast_answer_guideline = await agent.create_guideline(
         condition="Always respond any query",
         action="Always respond with a fast and concise answer. Never use exaggerated or inaccurate information. Base responses only on verified medical knowledge and search results."
     )
@@ -1052,7 +1043,7 @@ async def add_guidelines(agent: p.Agent):
 async def create_integrated_medical_journey(agent: p.Agent) -> p.Journey:
     journey = await agent.create_journey(
         title="Medical & Research Assistant",
-        description=f"Simple 3-step flow with tool fallback.",
+        description="Simple 3-step flow with tool fallback.",
         conditions=["User asks any medical question or related question"],
     )
 
@@ -1146,7 +1137,7 @@ async def register_agent(server: p.Server) -> None:
     print("\n[2/3] Loading default profile...")
     profile = get_default_profile()
 
-    print(f"\n[3/3] Setting up Parlant Server...")
+    print("\n[3/3] Setting up Parlant Server...")
     if server:  # Use provided server
         # Create Agent
         agent = await server.create_agent(
@@ -1175,14 +1166,14 @@ async def register_agent(server: p.Server) -> None:
         print("="*70)
         print("🎉 CareGuide v2.0 Server Successfully Started!")
         print("="*70)
-        print(f"\n📋 **Server Information**:")
+        print("\n📋 **Server Information**:")
         print(f"  • CareGuide Agent ID: {agent.id}")
         print(f"  • Customer ID: {customer.id}")
         print(f"  • Medical Journey ID: {journey.id}")
         # print(f"  • Research Journey ID: {research_journey.id}")
         # print(f"  • Welfare Journey ID (CareGuide): {welfare_journey.id}")
 
-        print(f"\n👤 **User Profile**:")
+        print("\n👤 **User Profile**:")
         profile_display = {
             "researcher": "Researcher/Expert",
             "patient": "Patient/Experience Holder",

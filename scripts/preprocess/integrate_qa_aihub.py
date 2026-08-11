@@ -4,7 +4,6 @@ AI Hub QA Datasets Integration Script
 Integrates datasets 8, 9, and 120 into a unified format
 """
 
-import os
 import sys
 import json
 import logging
@@ -217,7 +216,7 @@ class AIHubDatasetIntegrator:
         report = self.validator.generate_validation_report(valid_pairs, invalid_pairs)
 
         self.logger.info(f"\n{'=' * 80}")
-        self.logger.info(f"VALIDATION COMPLETE")
+        self.logger.info("VALIDATION COMPLETE")
         self.logger.info(f"Valid: {len(valid_pairs)}, Invalid: {len(invalid_pairs)}")
         self.logger.info(f"Validation Rate: {report['validation_rate']:.2%}")
         self.logger.info(f"{'=' * 80}")

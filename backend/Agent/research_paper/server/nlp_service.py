@@ -20,9 +20,8 @@ import logging
 import hashlib
 import pickle
 from pathlib import Path
-from typing import Any, Mapping, Optional, List, Dict, Tuple, AsyncIterator
+from typing import Any, Optional, List, Dict, Tuple, AsyncIterator
 from functools import wraps
-from collections import defaultdict
 from dataclasses import dataclass
 import json
 
@@ -245,7 +244,7 @@ class EmbeddingCache:
 
 # ==================== Tokenizer ====================
 
-class GPT4oMiniTokenizer:
+class OllamaTokenizer:
     """Tokenizer for the local Ollama generation model"""
 
     def __init__(self):
@@ -267,7 +266,7 @@ class GPT4oMiniTokenizer:
 
 # ==================== Generator ====================
 
-class GPT4oMiniGenerator:
+class OllamaGenerator:
     """
     Text generator using the local Ollama model
 
@@ -280,19 +279,17 @@ class GPT4oMiniGenerator:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         model_name: str = "qwen3.6:27b-mlx"
     ):
         """
         Initialize generator
 
         Args:
-            api_key: Deprecated compatibility argument; ignored.
             model_name: Model to use
         """
         self.model_name = os.getenv("OLLAMA_MODEL", model_name)
         self.client = OllamaClient(model=self.model_name)
-        self.tokenizer = GPT4oMiniTokenizer()
+        self.tokenizer = OllamaTokenizer()
 
         # Stats
         self.total_calls = 0
@@ -415,7 +412,7 @@ class GPT4oMiniGenerator:
 
 # ==================== Embedder ====================
 
-class TextEmbedding3SmallEmbedder:
+class OllamaEmbeddingGenerator:
     """
     Embedder using nomic-embed-text-v2-moe embeddings
 
@@ -428,7 +425,6 @@ class TextEmbedding3SmallEmbedder:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         model_name: str = "nomic-embed-text-v2-moe",
         dimensions: int = 1536,
         local_fallback_model: str = "sentence-transformers/all-MiniLM-L6-v2",
@@ -439,7 +435,6 @@ class TextEmbedding3SmallEmbedder:
         Initialize embedder
 
         Args:
-            api_key: Deprecated compatibility argument; ignored.
             model_name: Ollama embedding model
             dimensions: Embedding dimensions
             local_fallback_model: Local model for fallback
@@ -450,7 +445,7 @@ class TextEmbedding3SmallEmbedder:
         self.dimensions = dimensions
         self.client = OllamaClient(embedding_model=self.model_name)
 
-        self.tokenizer = GPT4oMiniTokenizer()
+        self.tokenizer = OllamaTokenizer()
 
         # Ollama is the only embedding provider.
         self.local_model_name = self.model_name
@@ -591,7 +586,6 @@ class HealthcareNLPService:
 
     def __init__(
         self,
-        openai_api_key: Optional[str] = None,
         use_cache: bool = True,
         cache_dir: str = "./nlp_cache"
     ):
@@ -599,16 +593,12 @@ class HealthcareNLPService:
         Initialize NLP service
 
         Args:
-            openai_api_key: retained for backward compatibility and ignored
             use_cache: Enable caching
             cache_dir: Cache directory
         """
-        # Compatibility marker; this is not a credential.
-        self.api_key = "ollama"
         # Initialize components
-        del openai_api_key
-        self.generator = GPT4oMiniGenerator()
-        self.embedder = TextEmbedding3SmallEmbedder(
+        self.generator = OllamaGenerator()
+        self.embedder = OllamaEmbeddingGenerator(
             use_cache=use_cache,
             cache_dir=cache_dir
         )

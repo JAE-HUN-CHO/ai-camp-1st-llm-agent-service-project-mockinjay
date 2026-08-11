@@ -36,9 +36,6 @@ client = httpx.AsyncClient(timeout=30.0)
 # Import Agents to ensure registration
 from Agent.medical_welfare.agent import MedicalWelfareAgent
 from Agent.research_paper.agent import ResearchPaperAgent
-from Agent.nutrition.agent import NutritionAgent
-from Agent.quiz.agent import QuizAgent
-from Agent.trend_visualization.agent import TrendVisualizationAgent
 from Agent.core.contracts import AgentRequest
 from app.services.agent_runtime import AgentRuntime, get_agent_runtime
 from app.api.dependencies import get_request_user_id, require_user_match
@@ -745,7 +742,7 @@ async def _proxy_request(path: str, request: Request, base_url: str):
             detail=f"Parlant server unavailable at {base_url}. Please ensure the Parlant server is running."
         )
     except httpx.TimeoutException:
-        logger.error(f"Timeout connecting to Parlant server")
+        logger.error("Timeout connecting to Parlant server")
         raise HTTPException(
             status_code=504,
             detail="Parlant server timeout"

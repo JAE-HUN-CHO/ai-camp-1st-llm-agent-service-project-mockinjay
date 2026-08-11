@@ -4,7 +4,7 @@ Wraps existing OptimizedMongoDBManager for Agent use
 """
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 # Add app path for imports
 backend_path = Path(__file__).parent.parent.parent

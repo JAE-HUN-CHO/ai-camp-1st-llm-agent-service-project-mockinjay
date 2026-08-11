@@ -1,8 +1,6 @@
-import requests
 import os
 from dotenv import load_dotenv
 from glob import glob
-import time
 from PyPDF2 import PdfReader, PdfWriter
 import tempfile
 
@@ -70,7 +68,7 @@ def process_file_with_splits(filename, api_key, max_divisor=10):
     base_filename = filename.split("/")[-1].replace(".pdf", "").replace(".html", "")
 
     # 먼저 전체 파일 시도
-    print(f"  Trying full file...")
+    print("  Trying full file...")
     success, response_text = ocr_file(filename, api_key)
 
     if success:
@@ -82,11 +80,11 @@ def process_file_with_splits(filename, api_key, max_divisor=10):
         return True
 
     # 실패하면 페이지 분할 시도
-    print(f"  Full file failed, trying page splits...")
+    print("  Full file failed, trying page splits...")
 
     # 파일이 PDF인지 확인 (HTML은 페이지 분할이 안됨)
     if not filename.endswith(".pdf"):
-        print(f"  Cannot split non-PDF file. Skipping.")
+        print("  Cannot split non-PDF file. Skipping.")
         return False
 
     # divisor 2부터 max_divisor까지 시도
@@ -126,12 +124,13 @@ def process_file_with_splits(filename, api_key, max_divisor=10):
             for temp_file in temp_files:
                 try:
                     os.unlink(temp_file)
-                except:
+                except OSError:
                     pass
 
-    print(f"  ✗ All split attempts failed")
+    print("  ✗ All split attempts failed")
     return False
 
-for filename in total_files:
-    print(f"Processing file: {filename}")
-    process_file_with_splits(filename, api_key, max_divisor=10)
+if __name__ == "__main__":
+    for filename in total_files:
+        print(f"Processing file: {filename}")
+        process_file_with_splits(filename, None, max_divisor=10)

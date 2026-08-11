@@ -2,7 +2,7 @@
 Authentication Middleware
 Validates JWT tokens for protected routes
 """
-from fastapi import Request, HTTPException, status
+from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from jose import jwt, JWTError
 from starlette.middleware.base import BaseHTTPMiddleware

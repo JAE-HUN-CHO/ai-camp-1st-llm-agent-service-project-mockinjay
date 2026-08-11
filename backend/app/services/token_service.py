@@ -2,8 +2,7 @@
 Token service - AI usage token management
 """
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
-from bson import ObjectId
+from datetime import datetime
 from app.db.connection import get_tokens_collection, get_token_transactions_collection, get_points_collection
 
 

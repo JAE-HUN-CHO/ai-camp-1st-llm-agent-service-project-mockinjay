@@ -1,13 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends, Form
-from fastapi.security import OAuth2PasswordRequestForm
-from app.models.user import UserCreate, UserResponse, ProfileUpdateRequest, ProfileType
+from app.models.user import UserCreate, ProfileUpdateRequest, ProfileType
 from app.services.auth import hash_password, verify_password, create_access_token, get_current_user
 from app.services.parlant_service import create_parlant_customer, update_parlant_customer_profile
 from app.db.connection import get_users_collection
 from app.utils.validators import PasswordValidator, UsernameValidator
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Literal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -241,7 +239,7 @@ async def signup(user: UserCreate):
         "diagnosis": getattr(user, 'diagnosis', None),
         "created_at": datetime.utcnow()
     }
-    result = await users_collection.insert_one(user_doc)
+    await users_collection.insert_one(user_doc)
 
     return {"success": True, "message": "회원가입 성공"}
 

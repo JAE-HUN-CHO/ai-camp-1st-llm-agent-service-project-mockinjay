@@ -11,9 +11,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Any, Mapping, Sequence, TypeVar, Generic, cast, get_args
-from dataclasses import dataclass
-from functools import cached_property
+from typing import Any, Mapping, TypeVar
 
 # Parlant imports
 from parlant.core.nlp.service import NLPService
@@ -21,12 +19,11 @@ from parlant.core.nlp.generation import BaseSchematicGenerator, SchematicGenerat
 from parlant.core.nlp.generation_info import GenerationInfo as ParlantGenerationInfo
 from parlant.core.nlp.generation_info import UsageInfo as ParlantUsageInfo
 from parlant.core.nlp.embedding import BaseEmbedder, EmbeddingResult
-from parlant.core.nlp.moderation import BaseModerationService, ModerationCheck, NoModeration, CustomerModerationContext
+from parlant.core.nlp.moderation import NoModeration
 from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
-from parlant.core.nlp.policies import policy, retry
 from typing_extensions import override
 
 # Local imports
@@ -306,7 +303,7 @@ class ParlantHealthcareNLPService(NLPService):
             meter=self._meter,
         )
 
-    async def get_moderation_service(self) -> ModerationService:
+    async def get_moderation_service(self) -> NoModeration:
         """
         Return moderation service.
 

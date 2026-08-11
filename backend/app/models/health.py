@@ -8,7 +8,7 @@ Pydantic models for health tracking features:
 - Health events (hospitalizations, procedures)
 """
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Literal, Dict, Any
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 from enum import Enum
 
@@ -273,7 +273,7 @@ class CreateMedicationRequest(BaseModel):
                 "schedule": ["09:00", "21:00"],
                 "route": "oral",
                 "start_date": "2025-11-28",
-                "end_date": null,
+                "end_date": None,
                 "prescribing_doctor": "Dr. Kim",
                 "purpose": "Manage fluid retention",
                 "side_effects": ["dizziness", "increased urination"]

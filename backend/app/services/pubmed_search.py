@@ -3,7 +3,7 @@ import os
 import asyncio
 import httpx
 import time
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from threading import Lock
@@ -598,7 +598,6 @@ class PubMedAdvancedSearch:
 # ==================== Test Functions ====================
 async def test_optimized_performance():
     """Test the performance improvements"""
-    import time
 
     searcher = OptimizedPubMedSearch()
 

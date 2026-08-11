@@ -13,11 +13,9 @@ Medical Welfare Agent를 위한 독립 Parlant 서버
 import parlant.sdk as p
 from parlant.sdk import ToolContext, ToolResult
 import asyncio
-from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
 import time
 from pathlib import Path
 import sys
@@ -36,9 +34,6 @@ import logging
 # 공통 도구 imports
 from Agent.parlant_common import (
     check_emergency_keywords,
-    get_kidney_stage_info,
-    get_symptom_info,
-    get_profile,
     convert_objectid_to_str,
     get_default_profile
 )
@@ -433,7 +428,7 @@ async def add_guidelines(agent: p.Agent):
     # )
 
 
-    fast_answer_guideline = await agent.create_guideline(
+    _fast_answer_guideline = await agent.create_guideline(
         condition="Always respond any query",
         action="Always respond with a fast and concise answer. Never use exaggerated or inaccurate information. Base responses only on verified medical knowledge and search results."
     )
@@ -535,7 +530,7 @@ async def register_agent(server: p.Server):
         print("="*70)
         print("🎉 Medical Welfare Server Successfully Started!")
         print("="*70)
-        print(f"\n📋 **Server Information**:")
+        print("\n📋 **Server Information**:")
         print(f"  • Medical Welfare Agent ID: {agent.id}")
         print(f"  • Customer ID: {customer.id}")
         print(f"  • Welfare Journey ID: {welfare_journey.id}")
@@ -572,4 +567,3 @@ if __name__ == "__main__":
             logger.info("👋 Server shutdown complete")
 
     asyncio.run(run_standalone())
-

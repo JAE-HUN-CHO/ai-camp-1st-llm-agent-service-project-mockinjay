@@ -24,5 +24,5 @@
 - PRs should summarize scope, list test commands run, link issues/docs, and attach screenshots or API samples for UI/API changes. Flag schema or environment variable impacts.
 
 ## Security & Configuration Tips
-- Backend loads `.env` via `python-dotenv`; set `MONGODB_URI`, `OPENAI_API_KEY`, `PINECONE_API_KEY`, `PUBMED_EMAIL`, and optional `NCBI_API_KEY`. Never commit secrets; use local `.env` and sanitized examples.
+- Backend loads `.env` via `python-dotenv`; local development uses MongoDB Atlas Local and Ollama (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `OLLAMA_EMBEDDING_MODEL`). Do not add hosted-provider keys to `.env.example`; never commit secrets.
 - Ensure MongoDB is running locally before `uvicorn`. Keep generated uploads and caches out of PRs unless debugging storage issues.

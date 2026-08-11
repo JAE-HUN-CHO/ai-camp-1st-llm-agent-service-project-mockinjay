@@ -4,7 +4,6 @@ Dataset 8 Loader - 전문 의학지식 데이터
 Loads professional medical knowledge QA pairs from AI Hub dataset 8
 """
 
-import os
 import json
 import logging
 from pathlib import Path

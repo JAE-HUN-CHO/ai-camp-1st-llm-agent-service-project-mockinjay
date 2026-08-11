@@ -5,12 +5,12 @@ Handles kidney/health-related news from multiple sources:
 2. RSS Feeds (unlimited, no API key required)
 3. NewsData.io (fallback, 200 requests/day)
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 import hashlib

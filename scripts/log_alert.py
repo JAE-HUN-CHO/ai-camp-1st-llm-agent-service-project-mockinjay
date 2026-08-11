@@ -27,7 +27,7 @@ def send_alert(alert_type, message):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
     print(f"\n{'='*60}")
-    print(f"🚨 알람 발생!")
+    print("🚨 알람 발생!")
     print(f"시간: {timestamp}")
     print(f"타입: {alert_type}")
     print(f"메시지: {message}")

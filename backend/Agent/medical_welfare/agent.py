@@ -15,7 +15,7 @@ import asyncio
 import subprocess
 import time
 import httpx
-from asyncio import Queue, Task
+from asyncio import Queue
 
 # Add backend path
 backend_path = Path(__file__).parent.parent.parent
@@ -263,7 +263,7 @@ class MedicalWelfareAgent(LocalAgent):
                         logger.error(f"❌ Polling error: {e}")
                         break
                     if "504" in str(e) or "Gateway Timeout" in str(e):
-                        logger.debug(f"⏳ No new events (timeout)")
+                        logger.debug("⏳ No new events (timeout)")
                         continue
                     else:
                         logger.error(f"❌ Polling error: {e}")
@@ -529,7 +529,7 @@ class MedicalWelfareAgent(LocalAgent):
                     context_info += f"\n[현재 질문]\n{request.query}"
 
                     message_to_send = context_info
-                    logger.info(f"✅ Context injected into Parlant message")
+                    logger.info("✅ Context injected into Parlant message")
 
             # Start continuous polling if not already started (use last_offset from existing session)
             # 아직 시작하지 않았다면 연속 폴링 시작 (기존 세션의 last_offset 사용)
@@ -578,7 +578,7 @@ class MedicalWelfareAgent(LocalAgent):
                 # Check ready timeout
                 if ready_received and ready_timer_start is not None:
                     if time.time() - ready_timer_start > ready_wait_timeout:
-                        logger.info(f"✅ Response complete (ready timeout expired)")
+                        logger.info("✅ Response complete (ready timeout expired)")
                         response_complete = True
                         break
 
@@ -590,7 +590,7 @@ class MedicalWelfareAgent(LocalAgent):
                 if idle_start_time is not None:
                     idle_duration = time.time() - idle_start_time
                     if agent_messages and idle_duration > idle_timeout:
-                        logger.info(f"✅ Response complete (fallback: idle timeout)")
+                        logger.info("✅ Response complete (fallback: idle timeout)")
                         break
 
                 try:
@@ -614,7 +614,7 @@ class MedicalWelfareAgent(LocalAgent):
                     if hasattr(event, 'kind') and event.kind == 'message' and event.source in ('agent', 'ai_agent'):
                         # Reset ready timer on new message
                         if ready_received:
-                            logger.info(f"📨 New message after ready - resetting timer")
+                            logger.info("📨 New message after ready - resetting timer")
                             ready_received = False
                             ready_timer_start = None
                             
@@ -644,7 +644,7 @@ class MedicalWelfareAgent(LocalAgent):
 
                         # cancelled
                         elif status == 'cancelled':
-                            logger.warning(f"⚠️ Agent was cancelled")
+                            logger.warning("⚠️ Agent was cancelled")
                             break
 
                 except asyncio.TimeoutError:
@@ -748,7 +748,7 @@ class MedicalWelfareAgent(LocalAgent):
                     context_info += f"\n[현재 질문]\n{request.query}"
 
                     message_to_send = context_info
-                    logger.info(f"✅ Context injected into Parlant message")
+                    logger.info("✅ Context injected into Parlant message")
 
             # Start continuous polling if not already started (use last_offset from existing session)
             # 아직 시작하지 않았다면 연속 폴링 시작 (기존 세션의 last_offset 사용)
@@ -790,7 +790,7 @@ class MedicalWelfareAgent(LocalAgent):
             while True:
                 elapsed = time.time() - start_time
                 if elapsed > max_wait:
-                    logger.warning(f"⏰ Stream max wait time exceeded")
+                    logger.warning("⏰ Stream max wait time exceeded")
                     break
 
                 if response_complete:
@@ -809,7 +809,7 @@ class MedicalWelfareAgent(LocalAgent):
                 if idle_start_time is not None:
                     idle_duration = time.time() - idle_start_time
                     if message_count > 0 and idle_duration > idle_timeout:
-                        logger.info(f"✅ Stream complete (fallback: idle timeout)")
+                        logger.info("✅ Stream complete (fallback: idle timeout)")
                         break
 
                 try:
@@ -839,7 +839,7 @@ class MedicalWelfareAgent(LocalAgent):
                         # Reset ready timer on new message (Parlant 1:N pattern)
                         # 새 메시지가 오면 ready 타이머 리셋 (Parlant 1:N 패턴)
                         if ready_received:
-                            logger.info(f"📨 New message after ready - resetting timer")
+                            logger.info("📨 New message after ready - resetting timer")
                             ready_timer_start = None
                             ready_received = False
 
@@ -889,7 +889,7 @@ class MedicalWelfareAgent(LocalAgent):
                             }
                             return
                         elif status == 'cancelled':
-                            logger.warning(f"⚠️ Agent was cancelled")
+                            logger.warning("⚠️ Agent was cancelled")
                             break
 
                 except asyncio.TimeoutError:

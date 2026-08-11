@@ -12,7 +12,6 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any
 
 # 프로젝트 루트를 sys.path에 추가
 project_root = Path(__file__).parent.parent
@@ -51,9 +50,9 @@ async def embed_kidney_data_to_local_vector():
 
         # MongoDB vector index setup is owned by the database adapter.
         print("🔮 MongoDB vector index 경로 확인 중...")
-        print(f"   인덱스 이름: kidney-medical-embeddings")
+        print("   인덱스 이름: kidney-medical-embeddings")
         print(f"   임베딩 모델: {os.getenv('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text-v2-moe')}")
-        print(f"   메트릭: cosine")
+        print("   메트릭: cosine")
         await vector_manager.create_index()
         print("✅ MongoDB vector adapter 경로 준비 완료\n")
 
@@ -101,7 +100,7 @@ async def embed_kidney_data_to_local_vector():
             print(f"   문서 수: {total_docs:,}개")
 
             if total_docs == 0:
-                print(f"   ⚠️  경고: 컬렉션이 비어있습니다\n")
+                print("   ⚠️  경고: 컬렉션이 비어있습니다\n")
                 continue
 
             start_time = datetime.now()
@@ -111,7 +110,7 @@ async def embed_kidney_data_to_local_vector():
             embedded_count = 0
 
             # 모든 문서를 메모리에 로드 (최적화 가능)
-            print(f"   📥 문서 읽기 중...")
+            print("   📥 문서 읽기 중...")
             cursor = collection.find({})
             docs = await cursor.to_list(length=total_docs)
             print(f"   ✅ {len(docs):,}개 문서 로드 완료")
@@ -179,7 +178,7 @@ async def embed_kidney_data_to_local_vector():
         print("=" * 80)
         print("📈 임베딩 완료 통계")
         print("=" * 80)
-        print(f"인덱스: kidney-medical-embeddings")
+        print("인덱스: kidney-medical-embeddings")
         print(f"총 임베딩된 벡터: {total_embedded:,}개\n")
 
         # MongoDB vector adapter 통계 확인
@@ -188,7 +187,7 @@ async def embed_kidney_data_to_local_vector():
             stats = await vector_manager.get_index_stats()
             if stats:
                 print(f"   전체 벡터 수: {stats.get('total_vector_count', 'N/A'):,}")
-                print(f"   네임스페이스 정보:")
+                print("   네임스페이스 정보:")
                 namespaces = stats.get("namespaces", {})
                 for ns_name, ns_info in namespaces.items():
                     print(f"     - {ns_name}: {ns_info.get('vector_count', 0):,}개")

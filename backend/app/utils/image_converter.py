@@ -6,11 +6,11 @@ from PIL import Image
 import io
 import base64
 import logging
-from typing import Tuple, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# OpenAI API가 지원하는 이미지 포맷
+# Ollama vision adapter가 지원하는 이미지 포맷
 SUPPORTED_FORMATS = {'png', 'jpeg', 'jpg', 'gif', 'webp'}
 
 # 변환이 필요한 포맷

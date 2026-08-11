@@ -54,11 +54,32 @@ async def create_indexes(db: AsyncIOMotorDatabase):
         # Points History Collection Indexes
         await create_points_history_indexes(db)
 
+        # Clinical-trial provider cache indexes (Mongo is the shared source of truth)
+        await create_clinical_trials_cache_indexes(db)
+
         logger.info("All database indexes created successfully")
 
     except Exception as e:
         logger.error(f"Error creating database indexes: {e!s}")
         raise
+
+
+async def create_clinical_trials_cache_indexes(db: AsyncIOMotorDatabase):
+    """Create bounded TTL indexes for provider-computation trial cache."""
+    await db["clinical_trials_cache"].create_indexes(
+        [
+            IndexModel(
+                [("cache_key", ASCENDING)],
+                unique=True,
+                name="idx_clinical_trials_cache_key",
+            ),
+            IndexModel(
+                [("expires_at", ASCENDING)],
+                expireAfterSeconds=0,
+                name="idx_clinical_trials_cache_expiry",
+            ),
+        ]
+    )
 
 
 async def create_chat_indexes(db: AsyncIOMotorDatabase):

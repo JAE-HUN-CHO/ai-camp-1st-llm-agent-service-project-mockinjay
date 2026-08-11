@@ -4,9 +4,13 @@
 
 ## How to use this index
 
+현재 계약의 우선순위는 `docs/agents/DOCUMENT_CONSISTENCY_MATRIX.md`와 가장 최근의
+명시적 Accepted ADR에 있다. Accepted ADR-004/005/006은 직접 수정하지 않으며, 결정
+변경이 필요하면 다음 ADR을 추가한다.
+
 - AI 에이전트(Verdent / Claude Code / Codex 등)는 작업 시작 전에 **모든 `Accepted` ADR을 먼저 읽어야** 합니다.
 - `Accepted` 상태의 ADR은 **편집하지 않습니다**. 변경이 필요하면 새 ADR을 작성해 기존 ADR을 `Superseded` 처리하세요.
-- 새 ADR은 다음 번호(`ADR-008-<slug>.md`)로 작성합니다.
+- 새 ADR은 현재 최대 번호 다음(`ADR-012-<slug>.md`)으로 작성합니다.
 - ADR Status: `Proposed` → `Accepted` → (필요 시) `Superseded`
 
 ## Status legend
@@ -31,6 +35,7 @@
 | [ADR-008](./ADR-008-single-frontend-root.md) | Single Frontend Root Directory | 🟡 Proposed | `frontend/`, `new_frontend/`, `stitch_frontend/`를 최종 `frontend/` 하나로 통합하는 제안 |
 | [ADR-009](./ADR-009-local-first-runtime.md) | Local-First Runtime and Package Policy | 🟡 Proposed | 최신 호환 패키지를 lock하고 로컬 모델·로컬 MongoDB를 기본 실행 경로로 삼는 제안 |
 | [ADR-010](./ADR-010-local-embedding-dimension-policy.md) | Local Embedding Dimension Compatibility | 🟡 Proposed | ADR-005의 1536d 계약을 local provider와 cache에서 fail-closed로 보호 |
+| [ADR-011](./ADR-011-current-runtime-contract.md) | Current Runtime and Product Contract | ✅ Accepted | `frontend/`, Ollama-only, local MongoDB, 5개 runtime agent의 현재 계약 |
 
 ## Hard constraints (binding for all agents)
 

@@ -7,13 +7,12 @@ import asyncio
 import json
 import logging
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any
 from app.adapters.ollama.client import OllamaClient
 
 from prompts import (
     format_classification_prompt,
     INTENT_CLASSIFICATION_TEST_CASES,
-    IntentCategory,
     is_emergency_query,
     get_intent_metadata
 )
@@ -223,7 +222,7 @@ async def run_all_tests():
                 logger.error(f"Description: {result['description']}")
                 logger.error(f"Expected: {result['expected_intents']}")
                 logger.error(f"Actual: {result['actual_intents']}")
-                logger.error(f"Failures:")
+                logger.error("Failures:")
                 for failure in result["failures"]:
                     logger.error(f"  - {failure}")
                 logger.error(f"Reasoning: {result['reasoning'][:200]}...")
@@ -235,7 +234,7 @@ async def run_all_tests():
         logger.info("CRITICAL TEST RESULT")
         logger.info(f"{'='*80}")
         logger.info(f"Query: {critical_test['query']}")
-        logger.info(f"Expected: MEDICAL_INFO")
+        logger.info("Expected: MEDICAL_INFO")
         logger.info(f"Actual: {critical_test['actual_intents']}")
         logger.info(f"Status: {'✓ PASS' if critical_test['passed'] else '✗ FAIL'}")
         logger.info(f"Confidence: {critical_test['actual_confidence']:.2f}")
@@ -325,7 +324,7 @@ async def interactive_test():
         print(f"Primary: {result.get('primary_intent', '')}")
         print(f"Confidence: {result.get('confidence', 0.0):.2f}")
         print(f"Emergency: {result.get('is_emergency', False)}")
-        print(f"\nReasoning:")
+        print("\nReasoning:")
         print(result.get('reasoning', ''))
         print("-"*80)
 
