@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["data", "frontend", "parlant-data"]
+
+[tool.ruff.lint]
+# Keep the repository gate aligned with the documented backend verification
+# contract. Legacy modules intentionally perform path/bootstrap imports before
+# importing application modules, so E402 is excluded for the whole backend.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402"]
