@@ -22,6 +22,8 @@ class _Collection:
         self.name = name
         self.events = events
         self.fail_on = fail_on
+        self.distinct_values: list[object] = []
+        self.remaining_counts: dict[object, int] = {}
 
     async def update_one(self, query, update, **kwargs):
         self.events.append(("update_one", self.name, query, update))
@@ -46,6 +48,14 @@ class _Collection:
         if self.fail_on == "delete_one":
             raise RuntimeError("delete failed")
         return _Result()
+
+    async def distinct(self, key, query, **kwargs):
+        self.events.append(("distinct", self.name, key, query))
+        return self.distinct_values
+
+    async def count_documents(self, query, **kwargs):
+        self.events.append(("count_documents", self.name, query))
+        return self.remaining_counts.get(query.get("postId"), 0)
 
 
 class _Database:
@@ -91,6 +101,10 @@ async def test_user_owned_cleanup_uses_canonical_collections_and_fields():
     assert {"userId", "user_id"} == {
         next(iter(condition)) for condition in bookmark_event[2]["$or"]
     }
+    for condition in bookmark_event[2]["$or"]:
+        values = next(iter(condition.values()))["$in"]
+        assert user_id in values
+        assert ObjectId(user_id) in values
 
     posts_event = next(
         event
@@ -100,6 +114,30 @@ async def test_user_owned_cleanup_uses_canonical_collections_and_fields():
     assert posts_event[3]["$set"] == {
         "isDeleted": True,
         "userId": "deleted_user",
+    }
+
+
+@pytest.mark.asyncio
+async def test_user_owned_cleanup_recomputes_affected_post_like_counters():
+    events: list[tuple] = []
+    database = _Database(events)
+    likes = database.collections["likes"]
+    likes.distinct_values = ["507f1f77bcf86cd799439012"]
+    likes.remaining_counts = {"507f1f77bcf86cd799439012": 3}
+
+    await auth_enhanced._delete_user_owned_data(
+        database, "507f1f77bcf86cd799439011"
+    )
+
+    post_counter_update = next(
+        event
+        for event in events
+        if event[0] == "update_one"
+        and event[1] == "posts"
+        and event[3] == {"$set": {"likes": 3}}
+    )
+    assert post_counter_update[2] == {
+        "_id": ObjectId("507f1f77bcf86cd799439012")
     }
 
 

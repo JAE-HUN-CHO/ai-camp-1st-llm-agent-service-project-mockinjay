@@ -9,9 +9,9 @@ Additional authentication endpoints:
 """
 
 import logging
-from datetime import datetime, timedelta
+from collections.abc import Iterable
+from datetime import datetime, timedelta, timezone
 import secrets
-from typing import Iterable
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -111,7 +111,24 @@ async def _delete_user_owned_data(database, user_id: str) -> None:
 
     # Likes and anonymous-number mappings are user-owned auxiliary records.
     auxiliary_filter = _ownership_filter(user_id, ("userId", "user_id"))
-    await database["likes"].delete_many(auxiliary_filter)
+    likes_collection = database["likes"]
+    affected_post_ids = await likes_collection.distinct("postId", auxiliary_filter)
+    await likes_collection.delete_many(auxiliary_filter)
+
+    # `posts.likes` is a denormalized counter maintained by the community API.
+    # Recompute it after deleting likes so retries are idempotent and cannot
+    # double-decrement the counter.
+    for post_id in affected_post_ids:
+        remaining_likes = await likes_collection.count_documents({"postId": post_id})
+        try:
+            post_object_id = post_id if isinstance(post_id, ObjectId) else ObjectId(post_id)
+        except (InvalidId, TypeError, ValueError):
+            continue
+        await database["posts"].update_one(
+            {"_id": post_object_id},
+            {"$set": {"likes": remaining_likes}},
+        )
+
     await database["post_anonymous_users"].delete_many(auxiliary_filter)
 
 
@@ -123,7 +140,7 @@ async def _mark_deletion_failed(users_collection, user_id, error: Exception) -> 
             {
                 "$set": {
                     "deletion_status": "failed",
-                    "deletion_failed_at": datetime.utcnow(),
+                    "deletion_failed_at": datetime.now(timezone.utc),
                 },
                 "$unset": {"deletion_error": ""},
             },
@@ -451,7 +468,7 @@ async def delete_account(
             {
                 "$set": {
                     "deletion_status": "in_progress",
-                    "deletion_started_at": datetime.utcnow(),
+                    "deletion_started_at": datetime.now(timezone.utc),
                 },
                 "$unset": {"deletion_failed_at": "", "deletion_error": ""},
             },
