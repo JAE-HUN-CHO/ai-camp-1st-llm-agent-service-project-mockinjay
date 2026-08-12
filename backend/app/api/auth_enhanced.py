@@ -11,7 +11,10 @@ Additional authentication endpoints:
 import logging
 from datetime import datetime, timedelta
 import secrets
+from typing import Iterable
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.db.connection import get_users_collection
 from app.services.auth import hash_password, verify_password, get_current_user
@@ -34,6 +37,100 @@ from app.utils.validators import PasswordValidator
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth-enhanced"])
+
+
+# These collections are written by both the current MyPage APIs and older
+# compatibility APIs.  Cleanup must cover both ownership field spellings so a
+# retry cannot leave user data behind in a legacy collection.
+_USER_OWNED_COLLECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("chat_rooms", ("user_id",)),
+    ("conversation_history", ("user_id",)),
+    ("bookmarks", ("userId", "user_id")),
+    ("user_preferences", ("userId", "user_id")),
+    ("notifications", ("userId", "user_id")),
+    ("notification_settings", ("userId", "user_id")),
+    ("user_context", ("user_id",)),
+    ("health_profiles", ("userId", "user_id")),
+    ("health_records", ("user_id",)),
+    ("health_labs", ("user_id",)),
+    ("health_medications", ("user_id",)),
+    ("health_vitals", ("user_id",)),
+    ("health_symptoms", ("user_id",)),
+    ("lab_results", ("user_id",)),
+    ("medications", ("user_id",)),
+    ("vital_signs", ("user_id",)),
+    ("health_events", ("user_id",)),
+    ("diet_sessions", ("user_id",)),
+    ("diet_meals", ("user_id",)),
+    ("diet_goals", ("user_id",)),
+    ("meal_logs", ("user_id",)),
+    ("nutrition_analyses", ("user_id",)),
+    ("user_streaks", ("user_id",)),
+    ("points", ("userId", "user_id")),
+    ("points_transactions", ("userId", "user_id")),
+    ("points_history", ("userId", "user_id")),
+    ("user_levels", ("userId", "user_id")),
+    ("user_badges", ("userId", "user_id")),
+    ("user_points", ("userId", "user_id")),
+    ("tokens", ("userId", "user_id")),
+    ("token_transactions", ("userId", "user_id")),
+)
+
+
+def _user_id_values(user_id: str) -> list[object]:
+    """Return string and ObjectId forms used by legacy user-owned records."""
+    values: list[object] = [user_id]
+    try:
+        values.append(ObjectId(user_id))
+    except (InvalidId, TypeError, ValueError):
+        pass
+    return values
+
+
+def _ownership_filter(user_id: str, fields: Iterable[str]) -> dict:
+    """Build a filter that matches all supported ownership field variants."""
+    values = _user_id_values(user_id)
+    return {"$or": [{field: {"$in": values}} for field in fields]}
+
+
+async def _delete_user_owned_data(database, user_id: str) -> None:
+    """Delete user-owned records in an idempotent, retry-safe manner."""
+    for collection_name, fields in _USER_OWNED_COLLECTIONS:
+        await database[collection_name].delete_many(_ownership_filter(user_id, fields))
+
+    # Preserve community moderation history while removing the user's identity.
+    community_filter = _ownership_filter(user_id, ("userId",))
+    await database["posts"].update_many(
+        community_filter,
+        {"$set": {"isDeleted": True, "userId": "deleted_user"}},
+    )
+    await database["comments"].update_many(
+        community_filter,
+        {"$set": {"isDeleted": True, "userId": "deleted_user"}},
+    )
+
+    # Likes and anonymous-number mappings are user-owned auxiliary records.
+    auxiliary_filter = _ownership_filter(user_id, ("userId", "user_id"))
+    await database["likes"].delete_many(auxiliary_filter)
+    await database["post_anonymous_users"].delete_many(auxiliary_filter)
+
+
+async def _mark_deletion_failed(users_collection, user_id, error: Exception) -> None:
+    """Leave a retry marker without persisting sensitive exception details."""
+    try:
+        await users_collection.update_one(
+            {"_id": user_id},
+            {
+                "$set": {
+                    "deletion_status": "failed",
+                    "deletion_failed_at": datetime.utcnow(),
+                },
+                "$unset": {"deletion_error": ""},
+            },
+        )
+    except Exception:
+        logger.exception("Failed to persist account deletion failure state")
+    logger.error("Account deletion failed and remains retryable: %s", error)
 
 
 # ============================================
@@ -345,40 +442,27 @@ async def delete_account(
     # TODO: Export user data before deletion (GDPR compliance)
     # data_export_url = await export_user_data(user_id)
 
-    # Delete user data from all collections
+    # Mark the operation before cleanup.  If the process or a database call
+    # fails, the user record remains available so the same request can retry
+    # the idempotent cleanup instead of leaving an orphaned partial deletion.
     try:
-        # Delete from users collection
-        await users_collection.delete_one({"_id": current_user["_id"]})
+        await users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {
+                "$set": {
+                    "deletion_status": "in_progress",
+                    "deletion_started_at": datetime.utcnow(),
+                },
+                "$unset": {"deletion_failed_at": "", "deletion_error": ""},
+            },
+        )
 
-        # Delete user data from other collections
         from app.db.connection import db
+        await _delete_user_owned_data(db, user_id)
 
-        # Chat rooms and messages
-        await db["rooms"].delete_many({"user_id": user_id})
-        await db["conversations"].delete_many({"user_id": user_id})
-
-        # Community posts and comments (mark as deleted but keep for moderation)
-        await db["posts"].update_many(
-            {"userId": user_id},
-            {"$set": {"isDeleted": True, "userId": "deleted_user"}}
-        )
-        await db["comments"].update_many(
-            {"userId": user_id},
-            {"$set": {"isDeleted": True, "userId": "deleted_user"}}
-        )
-
-        # Diet/health data
-        await db["diet_sessions"].delete_many({"user_id": user_id})
-        await db["diet_meals"].delete_many({"user_id": user_id})
-        await db["diet_goals"].delete_many({"user_id": user_id})
-        await db["health_labs"].delete_many({"user_id": user_id})
-        await db["health_medications"].delete_many({"user_id": user_id})
-        await db["health_vitals"].delete_many({"user_id": user_id})
-        await db["health_symptoms"].delete_many({"user_id": user_id})
-
-        # Bookmarks and preferences
-        await db["bookmarks"].delete_many({"user_id": user_id})
-        await db["user_preferences"].delete_many({"user_id": user_id})
+        # Delete the identity last.  All dependent cleanup above is safe to
+        # repeat if this request is retried after a transient failure.
+        await users_collection.delete_one({"_id": current_user["_id"]})
 
         logger.info(f"Account deleted successfully for user {user_id}")
 
@@ -389,10 +473,10 @@ async def delete_account(
         )
 
     except Exception as e:
-        logger.error(f"Error deleting account for user {user_id}: {e}", exc_info=True)
+        await _mark_deletion_failed(users_collection, current_user["_id"], e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="계정 삭제 중 오류가 발생했습니다"
+            detail="계정 삭제 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요"
         )
 
 
