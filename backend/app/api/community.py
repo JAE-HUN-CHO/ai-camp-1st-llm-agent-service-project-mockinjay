@@ -144,43 +144,6 @@ def serialize_post(post: dict) -> dict:
 
 
 # ============================================================================
-# DEBUG Endpoint (for troubleshooting)
-# ============================================================================
-
-@router.get("/debug")
-async def debug_posts():
-    """
-    Debug endpoint to check raw MongoDB data.
-    """
-    collection = db["posts"]
-
-    # Get all posts count
-    total_count = await collection.count_documents({})
-    deleted_count = await collection.count_documents({"isDeleted": True})
-    active_count = await collection.count_documents({"isDeleted": False})
-
-    # Get sample posts (raw data)
-    sample_cursor = collection.find({}).limit(5)
-    sample_posts = await sample_cursor.to_list(length=5)
-
-    # Convert ObjectId to string for JSON serialization
-    for post in sample_posts:
-        post["_id"] = str(post["_id"])
-        for field in ["createdAt", "updatedAt", "lastActivityAt"]:
-            if field in post and hasattr(post[field], 'isoformat'):
-                post[field] = post[field].isoformat()
-
-    return {
-        "database": db.name,
-        "collection": "posts",
-        "total_count": total_count,
-        "deleted_count": deleted_count,
-        "active_count": active_count,
-        "sample_posts": sample_posts
-    }
-
-
-# ============================================================================
 # POST Endpoints
 # ============================================================================
 
