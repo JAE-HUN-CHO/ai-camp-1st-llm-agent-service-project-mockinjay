@@ -93,7 +93,11 @@ def _ownership_filter(user_id: str, fields: Iterable[str]) -> dict:
     return {"$or": [{field: {"$in": values}} for field in fields]}
 
 
-async def _delete_user_owned_data(database, user_id: str) -> None:
+async def _delete_user_owned_data(
+    database,
+    user_id: str,
+    like_post_ids: list[object] | None = None,
+) -> None:
     """Delete user-owned records in an idempotent, retry-safe manner."""
     for collection_name, fields in _USER_OWNED_COLLECTIONS:
         await database[collection_name].delete_many(_ownership_filter(user_id, fields))
@@ -112,7 +116,11 @@ async def _delete_user_owned_data(database, user_id: str) -> None:
     # Likes and anonymous-number mappings are user-owned auxiliary records.
     auxiliary_filter = _ownership_filter(user_id, ("userId", "user_id"))
     likes_collection = database["likes"]
-    affected_post_ids = await likes_collection.distinct("postId", auxiliary_filter)
+    affected_post_ids = (
+        like_post_ids
+        if like_post_ids is not None
+        else await likes_collection.distinct("postId", auxiliary_filter)
+    )
     await likes_collection.delete_many(auxiliary_filter)
 
     # `posts.likes` is a denormalized counter maintained by the community API.
@@ -459,23 +467,43 @@ async def delete_account(
     # TODO: Export user data before deletion (GDPR compliance)
     # data_export_url = await export_user_data(user_id)
 
-    # Mark the operation before cleanup.  If the process or a database call
-    # fails, the user record remains available so the same request can retry
-    # the idempotent cleanup instead of leaving an orphaned partial deletion.
     try:
+        from app.db.connection import db
+
+        # Persist the affected posts before deleting likes. If counter cleanup
+        # fails after the delete, a retry can use this checkpoint instead of an
+        # empty distinct() result.
+        like_post_ids = current_user.get("deletion_like_post_ids")
+        if like_post_ids is None:
+            like_post_ids = await db["likes"].distinct(
+                "postId",
+                _ownership_filter(user_id, ("userId", "user_id")),
+            )
+
+        # Mark the operation and its retry checkpoint before cleanup. If the
+        # process or a database call fails, the user record remains available
+        # so the same request can retry the idempotent cleanup instead of
+        # leaving an orphaned partial deletion.
         await users_collection.update_one(
             {"_id": current_user["_id"]},
             {
                 "$set": {
                     "deletion_status": "in_progress",
                     "deletion_started_at": datetime.now(timezone.utc),
+                    "deletion_like_post_ids": like_post_ids,
                 },
                 "$unset": {"deletion_failed_at": "", "deletion_error": ""},
             },
         )
 
-        from app.db.connection import db
-        await _delete_user_owned_data(db, user_id)
+        await _delete_user_owned_data(db, user_id, like_post_ids)
+
+        # Keep the checkpoint until every affected post counter has been
+        # reconciled successfully. A failure here remains retryable.
+        await users_collection.update_one(
+            {"_id": current_user["_id"]},
+            {"$unset": {"deletion_like_post_ids": ""}},
+        )
 
         # Delete the identity last.  All dependent cleanup above is safe to
         # repeat if this request is retried after a transient failure.

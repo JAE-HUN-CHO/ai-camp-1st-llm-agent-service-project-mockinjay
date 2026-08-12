@@ -142,6 +142,67 @@ async def test_user_owned_cleanup_recomputes_affected_post_like_counters():
 
 
 @pytest.mark.asyncio
+async def test_delete_account_retries_like_counter_cleanup_from_checkpoint(monkeypatch):
+    events: list[tuple] = []
+    users = _Collection("users", events)
+    database = _Database(events)
+    likes = database.collections["likes"]
+    post_id = "507f1f77bcf86cd799439012"
+    likes.distinct_values = [post_id]
+    likes.remaining_counts = {post_id: 3}
+    database.collections["posts"].fail_on = "update_one"
+    monkeypatch.setattr(auth_enhanced, "get_users_collection", lambda: users)
+    monkeypatch.setattr(auth_enhanced, "verify_password", lambda *_args: True)
+    monkeypatch.setattr("app.db.connection.db", database)
+
+    current_user = {"_id": ObjectId("507f1f77bcf86cd799439011"), "password": "hashed"}
+    with pytest.raises(HTTPException):
+        await auth_enhanced.delete_account(
+            DeleteAccountRequest(password="password", confirmation="DELETE"),
+            current_user,
+        )
+
+    checkpoint_event = next(
+        event
+        for event in events
+        if event[0] == "update_one"
+        and event[1] == "users"
+        and "deletion_like_post_ids" in event[3].get("$set", {})
+    )
+    assert checkpoint_event[3]["$set"]["deletion_like_post_ids"] == [post_id]
+    assert sum(event[0] == "distinct" and event[1] == "likes" for event in events) == 1
+
+    database.collections["posts"].fail_on = None
+    likes.distinct_values = []
+    retry_user = {
+        **current_user,
+        "deletion_like_post_ids": [post_id],
+    }
+    await auth_enhanced.delete_account(
+        DeleteAccountRequest(password="password", confirmation="DELETE"),
+        retry_user,
+    )
+
+    assert sum(event[0] == "distinct" and event[1] == "likes" for event in events) == 1
+    post_counter_updates = [
+        event
+        for event in events
+        if event[0] == "update_one"
+        and event[1] == "posts"
+        and event[3] == {"$set": {"likes": 3}}
+    ]
+    assert len(post_counter_updates) == 2
+    checkpoint_clear = next(
+        event
+        for event in events
+        if event[0] == "update_one"
+        and event[1] == "users"
+        and event[3].get("$unset") == {"deletion_like_post_ids": ""}
+    )
+    assert events.index(checkpoint_clear) > events.index(post_counter_updates[-1])
+
+
+@pytest.mark.asyncio
 async def test_delete_account_deletes_identity_last_and_marks_progress(monkeypatch):
     events: list[tuple] = []
     users = _Collection("users", events)
