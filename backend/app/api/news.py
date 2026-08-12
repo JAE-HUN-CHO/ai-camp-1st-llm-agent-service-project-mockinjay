@@ -5,7 +5,7 @@ Handles kidney/health-related news from multiple sources:
 2. RSS Feeds (unlimited, no API key required)
 3. NewsData.io (fallback, 200 requests/day)
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
@@ -431,107 +431,6 @@ async def fetch_newsdata(query: str, language: str = "en", page_size: int = 10) 
         return []
 
 
-# ==================== Mock Data (Fallback) ====================
-
-def get_mock_news(language: str = "en") -> List[NewsArticle]:
-    """Get mock news articles as fallback"""
-    if language == "ko":
-        mock_data = [
-            {
-                "id": "mock1",
-                "title": "신장 건강 지키는 새로운 식단 가이드라인 발표",
-                "description": "대한신장학회가 만성 신장 질환 환자를 위한 최신 식단 가이드라인을 발표했습니다. 저염식과 저단백 식단의 중요성을 강조하며, 단계별 맞춤 영양 관리 방법을 제시했습니다.",
-                "source": "메디컬타임즈",
-                "time": "2시간 전",
-                "image": "https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-            {
-                "id": "mock2",
-                "title": "조기 진단이 핵심, 신장병 예방 건강검진 확대",
-                "description": "보건복지부가 만성 신장 질환의 조기 발견을 위해 국가건강검진 항목에 신장 기능 검사를 추가하기로 했습니다.",
-                "source": "헬스조선",
-                "time": "5시간 전",
-                "image": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-            {
-                "id": "mock3",
-                "title": "투석 환자 삶의 질 개선 위한 신기술 개발",
-                "description": "서울대병원 연구팀이 투석 시간을 단축하고 효율을 높이는 새로운 혈액 투석 기술을 개발했습니다.",
-                "source": "청년의사",
-                "time": "1일 전",
-                "image": "https://images.unsplash.com/photo-1579154204601-01588f351e67?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-        ]
-    else:
-        mock_data = [
-            {
-                "id": "mock1",
-                "title": "New Dietary Guidelines for Kidney Health Released",
-                "description": "The National Kidney Foundation has released updated dietary guidelines for patients with chronic kidney disease. The guidelines emphasize the importance of low-sodium and protein-managed diets.",
-                "source": "Medical News Today",
-                "time": "2h ago",
-                "image": "https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-            {
-                "id": "mock2",
-                "title": "Early Detection Key: Kidney Screening Programs Expand",
-                "description": "Health authorities are expanding kidney function screening in routine checkups to catch chronic kidney disease earlier.",
-                "source": "Health Daily",
-                "time": "5h ago",
-                "image": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-            {
-                "id": "mock3",
-                "title": "Breakthrough in Dialysis Technology Improves Patient Quality of Life",
-                "description": "Researchers have developed a new dialysis technique that reduces treatment time while improving efficiency.",
-                "source": "Science Medical",
-                "time": "1d ago",
-                "image": "https://images.unsplash.com/photo-1579154204601-01588f351e67?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-            {
-                "id": "mock4",
-                "title": "Study Links Mediterranean Diet to Better Kidney Outcomes",
-                "description": "A new study shows that following a Mediterranean diet may help slow the progression of chronic kidney disease.",
-                "source": "Nephrology Weekly",
-                "time": "2d ago",
-                "image": "https://images.unsplash.com/photo-1532938911079-1b06ac7ceec7?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-            {
-                "id": "mock5",
-                "title": "Global Initiative Launched to Address Kidney Disease Burden",
-                "description": "International health organizations unite to launch a comprehensive program to reduce the global burden of kidney disease.",
-                "source": "WHO News",
-                "time": "3d ago",
-                "image": "https://images.unsplash.com/photo-1559757175-5700dde675bc?w=400&h=300&fit=crop",
-                "link": "#",
-            },
-        ]
-
-    return [
-        NewsArticle(
-            id=item["id"],
-            title=item["title"],
-            titleOriginal=item["title"],
-            description=item["description"],
-            descriptionOriginal=item["description"],
-            source=item["source"],
-            pubDate=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            time=item["time"],
-            image=item["image"],
-            link=item["link"],
-            language=language,
-        )
-        for item in mock_data
-    ]
-
-
 # ==================== API Endpoints ====================
 
 @router.post("/list", response_model=NewsResponse)
@@ -543,7 +442,8 @@ async def get_news_list(request: NewsRequest):
     1. GNews API (if API key available)
     2. RSS Feeds (always available)
     3. NewsData.io (if API key available)
-    4. Mock data (fallback)
+    If no configured provider returns data, the endpoint reports an
+    explicit upstream-unavailable error instead of fabricating articles.
     """
     try:
         # Check cache first
@@ -575,11 +475,11 @@ async def get_news_list(request: NewsRequest):
             if articles:
                 source_used = "newsdata"
 
-        # Fallback to mock data
         if not articles:
-            logger.info("Using mock news data as fallback")
-            articles = get_mock_news(request.language)
-            source_used = "mock"
+            raise HTTPException(
+                status_code=503,
+                detail="뉴스 제공자가 기사를 반환하지 않았습니다. 잠시 후 다시 시도해 주세요.",
+            )
 
         response_data = {
             "articles": articles[:request.page_size],
@@ -595,17 +495,43 @@ async def get_news_list(request: NewsRequest):
 
         return NewsResponse(**response_data)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching news: {e}", exc_info=True)
-        # Return mock data on error
-        mock_articles = get_mock_news(request.language)
-        return NewsResponse(
-            articles=mock_articles,
-            totalResults=len(mock_articles),
-            status="success",
-            cached=False,
-            sourceUsed="mock"
+        raise HTTPException(
+            status_code=502,
+            detail="외부 뉴스 제공자와 통신하지 못했습니다.",
         )
+
+
+@router.get("/detail/{article_id}", response_model=NewsArticle)
+async def get_news_detail(article_id: str, language: str = "en"):
+    """Return an article from the live provider/cache by its stable article id."""
+    for cached in _news_cache.values():
+        if not is_cache_valid(cached["timestamp"]):
+            continue
+        for article in cached["data"].get("articles", []):
+            article_id_value = article.id if isinstance(article, NewsArticle) else article.get("id")
+            if article_id_value == article_id:
+                return article if isinstance(article, NewsArticle) else NewsArticle(**article)
+
+    request = NewsRequest(language=language, page_size=50)
+    try:
+        providers = []
+        if GNEWS_API_KEY:
+            providers.append(await fetch_gnews("kidney health" if language == "en" else "신장 건강", language, 50))
+        providers.append(await fetch_all_rss_feeds(language))
+        if NEWSDATA_API_KEY:
+            providers.append(await fetch_newsdata(request.query, language, 50))
+        for articles in providers:
+            for article in articles:
+                if article.id == article_id:
+                    return article
+    except Exception as exc:
+        logger.error("Error fetching news detail: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="외부 뉴스 제공자와 통신하지 못했습니다.") from exc
+    raise HTTPException(status_code=404, detail="뉴스 기사를 찾을 수 없습니다.")
 
 
 @router.get("/health")

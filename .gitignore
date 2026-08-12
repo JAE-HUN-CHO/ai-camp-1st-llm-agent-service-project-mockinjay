@@ -219,6 +219,9 @@ __marimo__/
 
 data/raw/*
 
+# Local datasets, images, embeddings, and generated preprocessing outputs
+/data/
+
 # Local runtime state (never a source-of-truth artifact)
 /data/.mongo/
 /backend/uploads/

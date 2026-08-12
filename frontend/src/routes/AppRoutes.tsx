@@ -48,7 +48,6 @@ const HealthRecordsPage = lazy(() => import('../features/health/HealthRecordsPag
 const KidneyDiseaseStagePage = lazy(() => import('../pages/KidneyDiseaseStagePage'));
 const SupportPage = lazy(() => import('../pages/SupportPage'));
 const PlaceholderPage = lazy(() => import('../pages/PlaceholderPage'));
-const MobileAppLayouts = lazy(() => import('../pages/MobileAppLayouts'));
 
 // Account pages (newly implemented)
 const ProfileInfoPage = lazy(() => import('../features/account/ProfileInfoPage'));
@@ -135,9 +134,6 @@ const AppRoutes: React.FC = () => {
           <Route path="/terms-and-conditions" element={<TermsConditionsPage />} />
           <Route path={ROUTES.PRIVACY_POLICY} element={<PrivacyPolicyPage />} />
           <Route path={ROUTES.COOKIE_CONSENT} element={<CookieConsentPage />} />
-
-          {/* Mobile Layouts Prototype */}
-          <Route path="/mobile-layouts" element={<MobileAppLayouts />} />
 
           {/* ========================================== */}
           {/* Protected Routes (인증 필요) */}

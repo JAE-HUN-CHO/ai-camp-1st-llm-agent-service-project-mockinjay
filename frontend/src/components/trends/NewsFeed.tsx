@@ -17,6 +17,13 @@ import { useNavigate } from 'react-router-dom';
 import { ImageWithFallback } from '../ui/image-with-fallback';
 import { translateToKorean } from '../../services/translateApi';
 import api from '../../services/api';
+import { storage } from '../../utils/storage';
+import {
+  createNewsBookmark,
+  deleteNewsBookmark,
+  getNewsBookmarks,
+  type NewsBookmark,
+} from '../../services/bookmarkApi';
 
 // ==================== Types ====================
 
@@ -143,6 +150,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
   const [newsItems, setNewsItems] = useState<NewsItem[]>(providedNewsItems ?? []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [newsBookmarks, setNewsBookmarks] = useState<Map<string, NewsBookmark>>(new Map());
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
   const [isCached, setIsCached] = useState(false);
   const [sourceUsed, setSourceUsed] = useState<string>('');
@@ -152,6 +160,14 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
   const [viewMode, setViewMode] = useState<ViewMode>('original');
   const [translating, setTranslating] = useState(false);
   const [translatedItems, setTranslatedItems] = useState<Map<string, TranslationCacheEntry>>(new Map());
+  const userId = storage.get<{ id: string }>('careguide_user')?.id;
+
+  useEffect(() => {
+    if (!userId) return;
+    getNewsBookmarks(userId)
+      .then((items) => setNewsBookmarks(new Map(items.map((item) => [item.itemId, item]))))
+      .catch((err) => console.error('[NewsFeed] Failed to load bookmarks:', err));
+  }, [userId]);
 
   /**
    * Fetch news from API
@@ -291,18 +307,46 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
   /**
    * Handle bookmark toggle
    */
-  const handleBookmarkClick = useCallback((e: React.MouseEvent, newsId: string) => {
+  const handleBookmarkClick = useCallback(async (e: React.MouseEvent, news: NewsItem) => {
     e.stopPropagation();
-    setBookmarkedIds((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(newsId)) {
-        newSet.delete(newsId);
+    if (!userId) {
+      setBookmarkedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(news.id)) next.delete(news.id); else next.add(news.id);
+        return next;
+      });
+      setError('뉴스를 저장하려면 로그인해 주세요.');
+      return;
+    }
+    const existing = newsBookmarks.get(news.id);
+    try {
+      if (existing) {
+        await deleteNewsBookmark(existing.id);
+        setBookmarkedIds((prev) => { const next = new Set(prev); next.delete(news.id); return next; });
+        setNewsBookmarks((prev) => {
+          const next = new Map(prev);
+          next.delete(news.id);
+          return next;
+        });
       } else {
-        newSet.add(newsId);
+        const created = await createNewsBookmark({
+          userId,
+          articleId: news.id,
+          title: news.title,
+          description: news.description || undefined,
+          source: news.source,
+          pubDate: news.pubDate || news.time,
+          image: news.image || undefined,
+          link: news.link,
+          language: news.language,
+        });
+        setBookmarkedIds((prev) => { const next = new Set(prev); next.add(news.id); return next; });
+        setNewsBookmarks((prev) => new Map(prev).set(news.id, created));
       }
-      return newSet;
-    });
-  }, []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '뉴스 북마크를 저장하지 못했습니다.');
+    }
+  }, [newsBookmarks, userId]);
 
   /**
    * Handle news card click
@@ -337,8 +381,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
         return 'RSS';
       case 'newsdata':
         return 'NewsData';
-      case 'mock':
-        return 'Sample';
       default:
         return '';
     }
@@ -487,7 +529,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
 
       {/* News list */}
       {newsItems.map((news) => {
-        const isBookmarked = bookmarkedIds.has(news.id);
+        const isBookmarked = newsBookmarks.has(news.id) || bookmarkedIds.has(news.id);
         const hasExternalLink = news.link && news.link !== '#';
         const displayText = getDisplayText(news);
 
@@ -508,10 +550,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
             {/* Image Section */}
             <div className="relative w-full md:w-[160px] h-[160px] md:h-auto flex-shrink-0">
               <ImageWithFallback
-                src={
-                  news.image ||
-                  'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=400&h=300&fit=crop'
-                }
+                src={news.image || ''}
                 alt={displayText.title}
                 className="w-full h-full object-cover"
               />
@@ -564,7 +603,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
 
                 {/* Bookmark Button */}
                 <button
-                  onClick={(e) => handleBookmarkClick(e, news.id)}
+                  onClick={(e) => handleBookmarkClick(e, news)}
                   className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-[#00C9B7]"
                   aria-label={isBookmarked ? '북마크 제거' : '북마크 추가'}
                   aria-pressed={isBookmarked}

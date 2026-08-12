@@ -6,6 +6,8 @@ import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useIdleTimer } from '../hooks/useIdleTimer';
 import { env } from '../config/env';
+import { getAccessToken } from '../shared/auth/token';
+import { getCSRFToken } from '../utils/security';
 
 interface Message {
   id: string;
@@ -162,7 +164,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
     setIsLoading(true);
 
     // Create placeholder for first bot message (loading state)
-    let currentBotMessageId = (Date.now() + 1).toString();
+    const currentBotMessageId = (Date.now() + 1).toString();
     const initialBotMessage: Message = {
       id: currentBotMessageId,
       role: 'assistant',
@@ -183,10 +185,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-CSRF-Token': getCSRFToken(),
+          ...(getAccessToken()
+            ? { Authorization: `Bearer ${getAccessToken()}` }
+            : {}),
         },
         body: JSON.stringify(payload),
         signal: abortControllerRef.current.signal,
       });
+
+      if (response.ok === false) {
+        let detail = `HTTP error! status: ${response.status}`;
+        try {
+          const errorBody = await response.json();
+          detail = errorBody?.detail || detail;
+        } catch {
+          // Keep the status-based message when the error body is not JSON.
+        }
+        throw new Error(detail);
+      }
 
       if (!response.body) throw new Error('No response body');
 
@@ -228,6 +245,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
 
                 try {
                   const data = JSON.parse(dataStr);
+                  if (data.status === 'error' || data.error) {
+                    throw new Error(data.error || t.common.error);
+                  }
                   console.log('🔍 SSE parsed data:', {
                     hasContent: !!data.content,
                     hasAnswer: !!data.answer,
@@ -252,7 +272,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                   const messageStatus = data.status;
                   console.log('📝 newContent set:', newContent ? newContent.substring(0, 100) : '(empty)', 'status:', messageStatus);
 
-                  if (newContent) {
+                  if (newContent && messageStatus !== 'processing') {
                     messageCount++;
                     console.log('✅ Processing message #', messageCount, 'firstMessageReceived:', firstMessageReceived, 'status:', messageStatus);
 
@@ -285,24 +305,32 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                         )
                       );
                     } else {
-                      // Other statuses (streaming continuation, etc.): create new bubble
-                      // 기타 상태 (스트리밍 연속 등): 새 버블 생성
-                      const newMessageId = `${Date.now()}-${messageCount}`;
+                      // Streaming fragments belong to the same assistant bubble.
                       const capturedContent = newContent;
-                      console.log('📤 Creating new message bubble id:', newMessageId);
-                      setMessages((prev) => [...prev, {
-                        id: newMessageId,
-                        role: 'assistant' as const,
-                        content: capturedContent,
-                        timestamp: new Date(),
-                      }]);
-                      currentBotMessageId = newMessageId;
+                      const capturedId = currentBotMessageId;
+                      setMessages((prev) =>
+                        prev.map(msg =>
+                          msg.id === capturedId
+                            ? { ...msg, content: msg.content + capturedContent }
+                            : msg
+                        )
+                      );
                     }
                   } else {
                     console.log('⚠️ newContent is empty, skipping message update');
                   }
                 } catch (e) {
                   console.error('SSE parse error:', e, 'dataStr:', dataStr?.substring(0, 200));
+                  const errorMessage = e instanceof Error ? e.message : t.common.error;
+                  firstMessageReceived = true;
+                  const capturedId = currentBotMessageId;
+                  setMessages((prev) =>
+                    prev.map(msg =>
+                      msg.id === capturedId
+                        ? { ...msg, content: errorMessage }
+                        : msg
+                    )
+                  );
                 }
               }
             }

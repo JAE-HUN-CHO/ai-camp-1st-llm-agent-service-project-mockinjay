@@ -18,7 +18,6 @@ import httpx
 
 from .embedding import OllamaEmbeddingProvider, expand_vector_losslessly
 
-
 OLLAMA_CHAT_MODEL = "qwen3.6:27b-mlx"
 OLLAMA_EMBEDDING_MODEL = "nomic-embed-text-v2-moe"
 
@@ -102,16 +101,17 @@ def _chunk(payload: Mapping[str, Any]) -> SimpleNamespace:
 
 
 class _AsyncCompletions:
-    def __init__(self, client: "OllamaClient") -> None:
+    def __init__(self, client: OllamaClient) -> None:
         self.client = client
 
     async def create(self, *, model: str | None = None, messages: list[Mapping[str, Any]],
                      temperature: float = 0.2, max_tokens: int | None = None,
-                     stream: bool = False, **_: Any) -> Any:
+                     stream: bool = False, think: bool = False, **_: Any) -> Any:
         payload = {
             "model": model or self.client.model,
             "messages": _normalize_messages(messages),
             "stream": stream,
+            "think": think,
             "options": {"temperature": temperature},
         }
         if max_tokens is not None:
@@ -124,12 +124,12 @@ class _AsyncCompletions:
 
 
 class _AsyncChat:
-    def __init__(self, client: "OllamaClient") -> None:
+    def __init__(self, client: OllamaClient) -> None:
         self.completions = _AsyncCompletions(client)
 
 
 class _AsyncEmbeddings:
-    def __init__(self, client: "OllamaClient") -> None:
+    def __init__(self, client: OllamaClient) -> None:
         self.client = client
 
     async def create(self, *, model: str | None = None, input: str | list[str], **_: Any) -> Any:
@@ -181,11 +181,13 @@ class OllamaSyncClient:
         self.messages = SimpleNamespace(create=self._create_messages)
 
     def _create_chat(self, *, model: str | None = None, messages: list[Mapping[str, Any]],
-                     temperature: float = 0.2, max_tokens: int | None = None, **_: Any) -> Any:
+                     temperature: float = 0.2, max_tokens: int | None = None,
+                     think: bool = False, **_: Any) -> Any:
         payload: dict[str, Any] = {
             "model": model or self.model,
             "messages": _normalize_messages(messages),
             "stream": False,
+            "think": think,
             "options": {"temperature": temperature},
         }
         if max_tokens is not None:

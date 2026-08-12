@@ -3,9 +3,11 @@ Bookmark Service
 Business logic for user bookmarks management
 사용자 북마크 관리를 위한 비즈니스 로직
 """
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 from fastapi import HTTPException, status
+from bson import ObjectId
+from bson.errors import InvalidId
 import logging
 
 from app.db.connection import db
@@ -32,7 +34,8 @@ class BookmarkService:
         self,
         user_id: str,
         limit: int = 20,
-        offset: int = 0
+        offset: int = 0,
+        item_type: Optional[str] = "paper",
     ) -> Dict[str, Any]:
         """
         Get user's bookmarked papers with pagination
@@ -55,10 +58,21 @@ class BookmarkService:
             offset = max(0, offset)
 
             # Get total count
-            total_count = await self.bookmarks_collection.count_documents({"userId": user_id})
+            query = {"userId": user_id}
+            if item_type == "paper":
+                # Include records written by the original paper-only API while
+                # migrating them to the canonical itemType/itemId schema.
+                query["$or"] = [
+                    {"itemType": "paper"},
+                    {"itemType": {"$exists": False}, "paperId": {"$exists": True}},
+                ]
+            elif item_type:
+                query["itemType"] = item_type
+
+            total_count = await self.bookmarks_collection.count_documents(query)
 
             # Fetch bookmarks with pagination
-            cursor = self.bookmarks_collection.find({"userId": user_id}).sort("createdAt", -1).skip(offset).limit(limit)
+            cursor = self.bookmarks_collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
             bookmarks = await cursor.to_list(length=limit)
 
             # Serialize bookmarks
@@ -87,7 +101,8 @@ class BookmarkService:
         self,
         user_id: str,
         paper_id: str,
-        paper_data: Dict[str, Any]
+        paper_data: Dict[str, Any],
+        item_type: str = "paper",
     ) -> Dict[str, Any]:
         """
         Add a paper to user's bookmarks
@@ -106,10 +121,13 @@ class BookmarkService:
         """
         try:
             # Check if already bookmarked
-            existing = await self.bookmarks_collection.find_one({
+            duplicate_query = {
                 "userId": user_id,
-                "paperId": paper_id
-            })
+                "$or": [{"itemType": item_type, "itemId": paper_id}],
+            }
+            if item_type == "paper":
+                duplicate_query["$or"].append({"itemType": {"$exists": False}, "paperId": paper_id})
+            existing = await self.bookmarks_collection.find_one(duplicate_query)
 
             if existing:
                 raise HTTPException(
@@ -120,8 +138,12 @@ class BookmarkService:
             # Create bookmark document
             bookmark_doc = {
                 "userId": user_id,
-                "paperId": paper_id,
-                "paperData": paper_data,
+                "itemType": item_type,
+                "itemId": paper_id,
+                "itemData": paper_data,
+                # Keep the old field names while clients migrate.
+                "paperId": paper_id if item_type == "paper" else None,
+                "paperData": paper_data if item_type == "paper" else None,
                 "createdAt": datetime.utcnow()
             }
 
@@ -168,7 +190,10 @@ class BookmarkService:
             # Delete bookmark
             result = await self.bookmarks_collection.delete_one({
                 "userId": user_id,
-                "paperId": paper_id
+                "$or": [
+                    {"itemType": "paper", "itemId": paper_id},
+                    {"itemType": {"$exists": False}, "paperId": paper_id},
+                ],
             })
 
             if result.deleted_count == 0:
@@ -187,3 +212,40 @@ class BookmarkService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="북마크 삭제 중 오류가 발생했습니다"
             )
+
+    async def remove_bookmark_by_id(self, user_id: str, bookmark_id: str) -> None:
+        """Remove exactly one bookmark owned by the authenticated user."""
+        try:
+            object_id = ObjectId(bookmark_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 북마크 ID입니다")
+
+        result = await self.bookmarks_collection.delete_one({"_id": object_id, "userId": user_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다")
+
+    async def update_bookmark_by_id(
+        self,
+        user_id: str,
+        bookmark_id: str,
+        updates: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Update persisted bookmark metadata and return the stored document."""
+        try:
+            object_id = ObjectId(bookmark_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 북마크 ID입니다")
+
+        allowed = {key: value for key, value in updates.items() if key in {"tags", "notes"}}
+        if not allowed:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="수정할 데이터가 없습니다")
+
+        result = await self.bookmarks_collection.update_one(
+            {"_id": object_id, "userId": user_id},
+            {"$set": {**allowed, "updatedAt": datetime.utcnow()}},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다")
+
+        bookmark = await self.bookmarks_collection.find_one({"_id": object_id, "userId": user_id})
+        return serialize_datetime(serialize_object_id(bookmark), ["createdAt", "updatedAt"])

@@ -17,6 +17,16 @@ class AgentRuntime:
         self._router_agent: Any | None = None
         self._nutrition_agent: Any | None = None
         self._agent_manager: Any | None = None
+        self._chat_service: Any | None = None
+
+    @property
+    def chat_service(self) -> Any:
+        """Return the application-scoped, real Ollama/RAG chat service."""
+        if self._chat_service is None:
+            from app.services.ollama_chat import OllamaChatService
+
+            self._chat_service = OllamaChatService()
+        return self._chat_service
 
     @property
     def router_agent(self) -> Any:
@@ -48,6 +58,10 @@ class AgentRuntime:
             if agent is None:
                 continue
             close = getattr(getattr(agent, "client", None), "close", None)
+            if close is not None:
+                await close()
+        if self._chat_service is not None:
+            close = getattr(self._chat_service, "close", None)
             if close is not None:
                 await close()
 

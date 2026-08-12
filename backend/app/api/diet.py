@@ -97,5 +97,8 @@ async def analyze_nutrition_legacy(
 
 @router.post("/diet-log")
 async def log_diet():
-    """식단 기록 API (Placeholder)"""
-    return {"message": "Diet log endpoint not implemented yet"}
+    """Deprecated endpoint; clients must use the persisted diet-care meals API."""
+    raise HTTPException(
+        status_code=410,
+        detail="이 엔드포인트는 폐기되었습니다. /api/diet-care/meals를 사용하세요.",
+    )
