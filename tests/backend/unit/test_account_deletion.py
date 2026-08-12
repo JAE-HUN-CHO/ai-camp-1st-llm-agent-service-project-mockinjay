@@ -185,21 +185,21 @@ async def test_delete_account_retries_like_counter_cleanup_from_checkpoint(monke
 
     assert sum(event[0] == "distinct" and event[1] == "likes" for event in events) == 1
     post_counter_updates = [
-        event
-        for event in events
+        index
+        for index, event in enumerate(events)
         if event[0] == "update_one"
         and event[1] == "posts"
         and event[3] == {"$set": {"likes": 3}}
     ]
     assert len(post_counter_updates) == 2
-    checkpoint_clear = next(
-        event
-        for event in events
+    checkpoint_clear_index = next(
+        index
+        for index, event in enumerate(events)
         if event[0] == "update_one"
         and event[1] == "users"
         and event[3].get("$unset") == {"deletion_like_post_ids": ""}
     )
-    assert events.index(checkpoint_clear) > events.index(post_counter_updates[-1])
+    assert checkpoint_clear_index > post_counter_updates[-1]
 
 
 @pytest.mark.asyncio
