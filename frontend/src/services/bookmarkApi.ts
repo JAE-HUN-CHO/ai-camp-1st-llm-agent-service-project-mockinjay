@@ -80,9 +80,9 @@ export async function createBookmark(request: CreateBookmarkRequest): Promise<Bo
   return data.bookmark;
 }
 
-export async function getBookmarks(userId: string): Promise<BookmarkedPaper[]> {
+export async function getBookmarks(userId: string, limit = 50, offset = 0): Promise<BookmarkedPaper[]> {
   const { data } = await api.get<BookmarksListResponse>('/api/bookmarks', {
-    params: { user_id: userId },
+    params: { user_id: userId, limit, offset },
   });
   return data.bookmarks;
 }
@@ -111,9 +111,9 @@ export async function deleteBookmarkByPaperId(paperId: string, userId: string): 
   if (bookmark) await deleteBookmark(bookmark.id, userId);
 }
 
-export async function getNewsBookmarks(userId: string): Promise<NewsBookmark[]> {
+export async function getNewsBookmarks(userId: string, limit = 50, offset = 0): Promise<NewsBookmark[]> {
   const { data } = await api.get<NewsBookmarkResponse>('/api/bookmarks/news', {
-    params: { user_id: userId },
+    params: { user_id: userId, limit, offset },
   });
   return data.bookmarks;
 }

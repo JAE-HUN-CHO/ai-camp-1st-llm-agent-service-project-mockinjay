@@ -28,7 +28,7 @@ async def run() -> None:
     smoke_id = f"careguide-smoke-{uuid.uuid4()}"
     collection = Database.db[service.collection_name]
     try:
-        vector = await service._embed("만성콩팥병 혈압 관리")
+        vector = await service.embed_query("만성콩팥병 혈압 관리")
         print("embedded", len(vector), flush=True)
         await collection.insert_one(
             {
@@ -40,8 +40,19 @@ async def run() -> None:
             }
         )
         print("inserted", flush=True)
-        # Atlas Local updates vector search indexes asynchronously.
-        await asyncio.sleep(5)
+        # Atlas Local updates vector search indexes asynchronously. Poll with a
+        # bounded timeout instead of assuming a fixed indexing delay.
+        deadline = asyncio.get_running_loop().time() + 30
+        while True:
+            try:
+                retrieved = await service.retrieve(vector)
+            except Exception:
+                retrieved = []
+            if any(item.get("_id") == smoke_id for item in retrieved):
+                break
+            if asyncio.get_running_loop().time() >= deadline:
+                raise TimeoutError("Timed out waiting for the smoke vector to become searchable")
+            await asyncio.sleep(1)
         result = await service.generate("만성콩팥병 혈압 관리", profile="patient")
         print("generated", bool(result.get("answer")), flush=True)
         events = [
@@ -54,7 +65,7 @@ async def run() -> None:
             for event in events
             if event.get("status") == "streaming"
         )
-        assert len(vector) == 1536
+        assert len(vector) == service.dimensions
         assert result["metadata"]["retrieved_count"] >= 1
         assert result["answer"]
         assert streamed

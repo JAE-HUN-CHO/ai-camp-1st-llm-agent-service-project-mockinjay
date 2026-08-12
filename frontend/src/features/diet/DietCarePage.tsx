@@ -72,7 +72,14 @@ const DietCarePageEnhanced: React.FC = () => {
   const isDietTypeDetail = location.pathname.startsWith('/diet-care/diet-type/');
 
   useEffect(() => {
-    if (!user?.id || !isDietLog) return;
+    setDailyProgress(null);
+    setWeeklyProgress(null);
+    setStreak(null);
+    setProgressError(null);
+    if (!user?.id || !isDietLog) {
+      setProgressLoading(false);
+      return;
+    }
     let cancelled = false;
     setProgressLoading(true);
     Promise.all([getDailyProgress(), getWeeklyProgress(), getStreak()])
@@ -242,7 +249,7 @@ const DietCarePageEnhanced: React.FC = () => {
           <QuickStat
             icon={<BookOpen size={18} className="text-purple-500" />}
             label={language === 'ko' ? '연속 기록' : 'Streak'}
-            value={progressLoading ? '...' : `${streak?.current_streak || 0}일`}
+            value={progressLoading ? '...' : `${streak?.current_streak || 0}${language === 'ko' ? '일' : ' days'}`}
             color="hover:border-purple-300"
           />
         </div>

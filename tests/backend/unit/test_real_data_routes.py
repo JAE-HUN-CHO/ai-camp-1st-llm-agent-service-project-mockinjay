@@ -43,3 +43,43 @@ def test_bookmark_serializer_preserves_real_paper_metadata():
     assert serialized["paperId"] == "pmid-1"
     assert serialized["title"] == "A real paper"
     assert serialized["authors"] == ["Author"]
+
+
+def test_bookmark_serializer_preserves_news_metadata():
+    serialized = _serialize_bookmark({
+        "id": "bookmark-news-1",
+        "userId": "user-1",
+        "itemType": "news",
+        "itemId": "article-1",
+        "itemData": {"title": "A real article", "source": "RSS"},
+        "createdAt": "2026-08-12T00:00:00Z",
+    })
+
+    assert serialized["itemId"] == "article-1"
+    assert serialized["itemData"]["title"] == "A real article"
+
+
+def test_bookmark_serializer_supports_legacy_paper_shape():
+    serialized = _serialize_bookmark({
+        "_id": "legacy-1",
+        "userId": "user-1",
+        "paperId": "pmid-legacy",
+        "paperData": {"title": "Legacy paper", "authors": ["Legacy Author"]},
+    })
+
+    assert serialized["paperId"] == "pmid-legacy"
+    assert serialized["title"] == "Legacy paper"
+
+
+def test_bookmark_serializer_preserves_explicit_empty_updates():
+    serialized = _serialize_bookmark({
+        "id": "bookmark-2",
+        "itemType": "paper",
+        "itemId": "pmid-2",
+        "itemData": {"tags": ["legacy"], "notes": "legacy"},
+        "tags": [],
+        "notes": "",
+    })
+
+    assert serialized["tags"] == []
+    assert serialized["notes"] == ""

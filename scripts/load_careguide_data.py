@@ -20,7 +20,6 @@ from pymongo import ASCENDING, TEXT, MongoClient, UpdateOne
 from pymongo.errors import PyMongoError
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_URI = "mongodb://careguide:careguide_local@127.0.0.1:27017/?authSource=admin&directConnection=true"
 BATCH_SIZE = 500
 
 
@@ -147,10 +146,12 @@ def ensure_indexes(db) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--uri", default=os.getenv("MONGODB_URI", DEFAULT_URI))
+    parser.add_argument("--uri", default=os.getenv("MONGODB_URI"))
     parser.add_argument("--db", default=os.getenv("DB_NAME", "careguide"))
     parser.add_argument("--skip-food", action="store_true")
     args = parser.parse_args()
+    if not args.uri:
+        parser.error("--uri 또는 MONGODB_URI 환경 변수가 필요합니다")
 
     sources = [
         ("papers_kidney", ROOT / "data/kidney_filtered/papers_kidney.jsonl", paper_documents),

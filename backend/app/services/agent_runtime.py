@@ -14,6 +14,7 @@ class AgentRuntime:
     """Lazily owns the agents used by HTTP routes for one app instance."""
 
     def __init__(self) -> None:
+        self.use_ollama = True
         self._router_agent: Any | None = None
         self._nutrition_agent: Any | None = None
         self._agent_manager: Any | None = None
@@ -64,6 +65,7 @@ class AgentRuntime:
             close = getattr(self._chat_service, "close", None)
             if close is not None:
                 await close()
+            self._chat_service = None
 
 
 def get_agent_runtime(request: Any) -> AgentRuntime:

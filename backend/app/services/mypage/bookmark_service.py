@@ -236,7 +236,11 @@ class BookmarkService:
         except (InvalidId, TypeError):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 북마크 ID입니다")
 
-        allowed = {key: value for key, value in updates.items() if key in {"tags", "notes"}}
+        allowed = {
+            key: value
+            for key, value in updates.items()
+            if key in {"tags", "notes"} and value is not None
+        }
         if not allowed:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="수정할 데이터가 없습니다")
 

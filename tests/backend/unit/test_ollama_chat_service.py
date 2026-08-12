@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend"))
 
-from backend.app.services.ollama_chat import EMERGENCY_RESPONSE, OllamaChatService
+from app.services.ollama_chat import EMERGENCY_RESPONSE, OllamaChatService, OllamaProviderError
 
 
 class _Cursor:
@@ -71,11 +71,33 @@ class _Client:
         return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1] * 1536)])
 
 
+@pytest.fixture(autouse=True)
+def _pin_vector_contract(monkeypatch):
+    monkeypatch.setenv("OLLAMA_EMBEDDING_DIMENSIONS", "1536")
+
+
+class _EmptyChoicesCompletions(_Completions):
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs.get("stream"):
+            async def chunks():
+                yield SimpleNamespace(choices=[])
+
+            return chunks()
+        return SimpleNamespace(choices=[])
+
+
+class _EmptyChoicesClient(_Client):
+    def __init__(self):
+        super().__init__()
+        self.chat = SimpleNamespace(completions=_EmptyChoicesCompletions())
+
+
 @pytest.mark.asyncio
 async def test_generate_embeds_retrieves_and_calls_real_chat_model():
     client = _Client()
     database = _Database()
-    service = OllamaChatService(client=client, database=database)
+    service = OllamaChatService(client=client, database=database, collection_name="pubmed_embeddings")
 
     result = await service.generate("신장병 혈압 관리", profile="patient")
 
@@ -90,7 +112,7 @@ async def test_generate_embeds_retrieves_and_calls_real_chat_model():
 @pytest.mark.asyncio
 async def test_emergency_filter_bypasses_embedding_and_model():
     client = _Client()
-    service = OllamaChatService(client=client, database=_Database())
+    service = OllamaChatService(client=client, database=_Database(), collection_name="pubmed_embeddings")
 
     result = await service.generate("갑자기 흉통이 있어요")
 
@@ -102,9 +124,36 @@ async def test_emergency_filter_bypasses_embedding_and_model():
 
 @pytest.mark.asyncio
 async def test_stream_emits_processing_and_model_chunks():
-    service = OllamaChatService(client=_Client(), database=_Database())
+    service = OllamaChatService(client=_Client(), database=_Database(), collection_name="pubmed_embeddings")
 
     events = [event async for event in service.stream("CKD 식단")]
 
     assert events[0]["status"] == "processing"
     assert [event["content"] for event in events[1:]] == ["근거에 ", "따르면 안내합니다."]
+
+
+@pytest.mark.asyncio
+async def test_generate_reports_empty_search_results_in_prompt():
+    client = _Client()
+    service = OllamaChatService(client=client, database=_Database(), collection_name="pubmed_embeddings")
+
+    async def empty_retrieve(_vector):
+        return []
+
+    service.retrieve = empty_retrieve
+    result = await service.generate("CKD 식단")
+
+    assert result["metadata"]["retrieved_count"] == 0
+    assert "검색된 근거가 없습니다" in client.chat.completions.calls[0]["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_empty_chat_choices_raise_and_empty_stream_chunks_are_skipped():
+    service = OllamaChatService(client=_EmptyChoicesClient(), database=_Database(), collection_name="pubmed_embeddings")
+
+    with pytest.raises(OllamaProviderError, match="no chat choices"):
+        await service.generate("CKD 식단")
+
+    events = [event async for event in service.stream("CKD 식단")]
+    assert len(events) == 1
+    assert events[0]["status"] == "processing"

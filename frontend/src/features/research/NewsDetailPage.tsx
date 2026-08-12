@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Star, ChevronRight } from 'lucide-react';
 import { MobileHeader } from '../../components/layout/MobileHeader';
 import { ImageWithFallback } from '../../components/ui/image-with-fallback';
-import { storage } from '../../utils/storage';
+import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { createNewsBookmark, deleteNewsBookmark, getNewsBookmarks, type NewsBookmark } from '../../services/bookmarkApi';
 
@@ -23,12 +23,14 @@ interface NewsArticle {
 export default function NewsDetailPage() {
   const navigate = useNavigate();
   const { id: articleId } = useParams<{ id: string }>();
-  const userId = storage.get<{ id: string }>('careguide_user')?.id;
+  const { user } = useAuth();
+  const userId = user?.id;
   const [article, setArticle] = useState<NewsArticle | null>(null);
   const [related, setRelated] = useState<NewsArticle[]>([]);
   const [bookmark, setBookmark] = useState<NewsBookmark | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!articleId) {
@@ -38,6 +40,8 @@ export default function NewsDetailPage() {
     }
     let cancelled = false;
     setLoading(true);
+    setError(null);
+    setActionError(null);
     api.get<NewsArticle>(`/api/news/detail/${encodeURIComponent(articleId)}`)
       .then(({ data }) => {
         if (cancelled) return;
@@ -48,6 +52,9 @@ export default function NewsDetailPage() {
           page: 1,
           page_size: 6,
           source: 'auto',
+        }).catch((err) => {
+          if (!cancelled) setActionError(err instanceof Error ? err.message : '관련 뉴스를 불러오지 못했습니다.');
+          return null;
         });
       })
       .then((response) => {
@@ -62,12 +69,13 @@ export default function NewsDetailPage() {
     if (!userId || !articleId) return;
     getNewsBookmarks(userId)
       .then((items) => setBookmark(items.find((item) => item.itemId === articleId) || null))
-      .catch((err) => console.error('뉴스 북마크 상태를 불러오지 못했습니다.', err));
+      .catch((err) => setActionError(err instanceof Error ? err.message : '뉴스 북마크 상태를 불러오지 못했습니다.'));
   }, [articleId, userId]);
 
   const toggleBookmark = async () => {
     if (!article || !articleId) return;
-    if (!userId) { setError('뉴스를 저장하려면 로그인해 주세요.'); return; }
+    if (!userId) { setActionError('뉴스를 저장하려면 로그인해 주세요.'); return; }
+    setActionError(null);
     try {
       if (bookmark) {
         await deleteNewsBookmark(bookmark.id);
@@ -86,7 +94,7 @@ export default function NewsDetailPage() {
           language: article.language,
         }));
       }
-    } catch (err) { setError(err instanceof Error ? err.message : '뉴스 북마크를 저장하지 못했습니다.'); }
+    } catch (err) { setActionError(err instanceof Error ? err.message : '뉴스 북마크를 저장하지 못했습니다.'); }
   };
 
   if (loading) return <div className="flex flex-col h-screen bg-white"><MobileHeader title="새소식" /><p className="p-8 text-center text-gray-500">뉴스를 불러오는 중...</p></div>;
@@ -95,6 +103,7 @@ export default function NewsDetailPage() {
   return <div className="flex flex-col h-screen bg-white">
     <MobileHeader title="새소식" rightAction={<button onClick={toggleBookmark} className="p-1" aria-label={bookmark ? '북마크 제거' : '북마크 추가'}><Star size={24} color={bookmark ? '#FFD700' : '#E0E0E0'} fill={bookmark ? '#FFD700' : 'none'} /></button>} />
     <div className="flex-1 overflow-y-auto p-5 pb-10 no-scrollbar"><div className="max-w-4xl mx-auto">
+      {actionError && <div className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{actionError}</div>}
       <div className="w-full aspect-video bg-gray-100 rounded-xl mb-6 overflow-hidden"><ImageWithFallback src={article.image || ''} alt={article.title} className="w-full h-full object-cover" /></div>
       <h1 className="text-[18px] lg:text-2xl font-bold text-[#1F2937] leading-[1.4] mb-3">{article.title}</h1>
       <div className="text-xs lg:text-sm text-[#999999] mb-6 flex items-center gap-2"><span>{article.source}</span><span>-</span><span>{article.pubDate || article.time}</span></div>

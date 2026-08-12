@@ -516,16 +516,17 @@ async def get_news_detail(article_id: str, language: str = "en"):
             if article_id_value == article_id:
                 return article if isinstance(article, NewsArticle) else NewsArticle(**article)
 
-    request = NewsRequest(language=language, page_size=50)
     try:
-        providers = []
+        query = "kidney health" if language == "en" else "신장 건강"
         if GNEWS_API_KEY:
-            providers.append(await fetch_gnews("kidney health" if language == "en" else "신장 건강", language, 50))
-        providers.append(await fetch_all_rss_feeds(language))
+            for article in await fetch_gnews(query, language, 50):
+                if article.id == article_id:
+                    return article
+        for article in await fetch_all_rss_feeds(language):
+            if article.id == article_id:
+                return article
         if NEWSDATA_API_KEY:
-            providers.append(await fetch_newsdata(request.query, language, 50))
-        for articles in providers:
-            for article in articles:
+            for article in await fetch_newsdata(query, language, 50):
                 if article.id == article_id:
                     return article
     except Exception as exc:

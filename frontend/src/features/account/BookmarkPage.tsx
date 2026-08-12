@@ -34,8 +34,12 @@ export default function BookmarkPage() {
 
   const removeNews = async (id: string) => {
     if (!window.confirm('즐겨찾기에서 삭제하시겠습니까?')) return;
-    await deleteNewsBookmark(id);
-    setNewsList((items) => items.filter((item) => item.id !== id));
+    try {
+      await deleteNewsBookmark(id);
+      setNewsList((items) => items.filter((item) => item.id !== id));
+    } catch (error) {
+      setNewsError(error instanceof Error ? error.message : '뉴스 북마크를 삭제하지 못했습니다.');
+    }
   };
 
   const loading = activeTab === 'news' ? newsLoading : papersLoading;

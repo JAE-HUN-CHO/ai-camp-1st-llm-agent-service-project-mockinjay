@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import { ImageWithFallback } from '../ui/image-with-fallback';
 import { translateToKorean } from '../../services/translateApi';
 import api from '../../services/api';
-import { storage } from '../../utils/storage';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   createNewsBookmark,
   deleteNewsBookmark,
@@ -146,6 +146,7 @@ type ViewMode = 'original' | 'translated';
 
 const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = 'en', newsItems: providedNewsItems }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   // State
   const [newsItems, setNewsItems] = useState<NewsItem[]>(providedNewsItems ?? []);
   const [loading, setLoading] = useState(true);
@@ -160,7 +161,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
   const [viewMode, setViewMode] = useState<ViewMode>('original');
   const [translating, setTranslating] = useState(false);
   const [translatedItems, setTranslatedItems] = useState<Map<string, TranslationCacheEntry>>(new Map());
-  const userId = storage.get<{ id: string }>('careguide_user')?.id;
+  const userId = user?.id;
 
   useEffect(() => {
     if (!userId) return;
@@ -310,11 +311,6 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
   const handleBookmarkClick = useCallback(async (e: React.MouseEvent, news: NewsItem) => {
     e.stopPropagation();
     if (!userId) {
-      setBookmarkedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(news.id)) next.delete(news.id); else next.add(news.id);
-        return next;
-      });
       setError('뉴스를 저장하려면 로그인해 주세요.');
       return;
     }
@@ -512,9 +508,7 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
       {error && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-4">
           <p className="text-sm text-yellow-700 dark:text-yellow-400">
-            {newsLanguage === 'ko'
-              ? '뉴스를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
-              : 'Error loading news. Please try again later.'}
+            {error}
           </p>
         </div>
       )}

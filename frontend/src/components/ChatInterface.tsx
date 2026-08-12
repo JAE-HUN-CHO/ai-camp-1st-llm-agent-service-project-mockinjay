@@ -384,10 +384,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
       }
 
       console.error('Failed to send message:', error);
+      const errorMessage = error instanceof Error && error.message ? error.message : t.common.error;
       setMessages((prev) =>
         prev.map(msg =>
           msg.id === currentBotMessageId
-            ? { ...msg, content: t.common.error }
+            ? { ...msg, content: errorMessage }
             : msg
         )
       );

@@ -40,7 +40,10 @@ class OllamaChatService:
         self.vector_index = vector_index or os.getenv(
             "MONGODB_VECTOR_INDEX", "vector_index"
         )
-        self.dimensions = int(os.getenv("OLLAMA_EMBEDDING_DIMENSIONS", "1536"))
+        configured_dimensions = int(os.getenv("OLLAMA_EMBEDDING_DIMENSIONS", "1536"))
+        if configured_dimensions != 1536:
+            raise ValueError("OLLAMA_EMBEDDING_DIMENSIONS must remain 1536 for the MongoDB vector index")
+        self.dimensions = 1536
         self.top_k = max(1, min(top_k, 20))
 
     @staticmethod
@@ -53,7 +56,7 @@ class OllamaChatService:
             for keyword in ("흉통", "가슴 통증", "호흡곤란", "숨이 안", "의식저하", "경련")
         )
 
-    async def _embed(self, query: str) -> list[float]:
+    async def embed_query(self, query: str) -> list[float]:
         response = await self.client.embeddings.create(
             model=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text-v2-moe"),
             input=query,
@@ -71,6 +74,10 @@ class OllamaChatService:
                 f"Query embedding must have {self.dimensions} dimensions"
             )
         return vector
+
+    async def _embed(self, query: str) -> list[float]:
+        """Backward-compatible alias for older callers; prefer embed_query()."""
+        return await self.embed_query(query)
 
     def _get_database(self) -> Any | None:
         if self.database is not None:
@@ -168,7 +175,7 @@ class OllamaChatService:
                 "metadata": {"provider": "emergency_pre_filter", "is_emergency": True},
             }
 
-        vector = await self._embed(query)
+        vector = await self.embed_query(query)
         matches = await self.retrieve(vector)
         response = await self.client.chat.completions.create(
             model=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"),
@@ -176,7 +183,10 @@ class OllamaChatService:
             temperature=0.2,
             max_tokens=int(os.getenv("OLLAMA_MAX_TOKENS", "4096")),
         )
-        answer = response.choices[0].message.content or ""
+        choices = getattr(response, "choices", None) or []
+        if not choices:
+            raise OllamaProviderError("Ollama returned no chat choices")
+        answer = getattr(choices[0].message, "content", "") or ""
         return {
             "answer": answer,
             "sources": matches,
@@ -200,7 +210,7 @@ class OllamaChatService:
             yield {"status": "complete", "content": EMERGENCY_RESPONSE, "agent_type": "ollama_rag", "is_emergency": True}
             return
 
-        vector = await self._embed(query)
+        vector = await self.embed_query(query)
         matches = await self.retrieve(vector)
         yield {
             "status": "processing",
@@ -216,7 +226,10 @@ class OllamaChatService:
             stream=True,
         )
         async for chunk in stream:
-            content = getattr(getattr(chunk, "choices", [None])[0], "delta", None)
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            content = getattr(choices[0], "delta", None)
             content = getattr(content, "content", "") if content else ""
             if content:
                 yield {"status": "streaming", "content": content, "agent_type": "ollama_rag"}

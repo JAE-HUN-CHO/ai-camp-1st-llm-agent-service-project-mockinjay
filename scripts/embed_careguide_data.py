@@ -23,7 +23,6 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app.adapters.ollama.embedding import OllamaEmbeddingProvider
 
-DEFAULT_URI = "mongodb://careguide:careguide_local@127.0.0.1:27017/?authSource=admin&directConnection=true"
 DEFAULT_COLLECTIONS = (
     "papers_kidney",
     "medical_kidney",
@@ -190,7 +189,7 @@ async def run(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--uri", default=os.getenv("MONGODB_URI", DEFAULT_URI))
+    parser.add_argument("--uri", default=os.getenv("MONGODB_URI"))
     parser.add_argument("--db", default=os.getenv("DB_NAME", "careguide"))
     parser.add_argument("--ollama-url", default=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))
     parser.add_argument("--model", default=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text-v2-moe"))
@@ -200,6 +199,8 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Re-embed vectors even when a valid 1536d vector exists")
     parser.add_argument("--collections", nargs="+", default=list(DEFAULT_COLLECTIONS))
     args = parser.parse_args()
+    if not args.uri:
+        parser.error("--uri 또는 MONGODB_URI 환경 변수가 필요합니다")
     if args.batch_size < 1:
         parser.error("--batch-size must be positive")
     asyncio.run(run(args))

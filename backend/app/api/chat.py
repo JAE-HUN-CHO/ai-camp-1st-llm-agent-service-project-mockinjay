@@ -32,6 +32,7 @@ PARLANT_BASE_URL = RESEARCH_BASE_URL
 
 # HTTP client for proxying
 client = httpx.AsyncClient(timeout=30.0)
+_background_tasks: set[asyncio.Task] = set()
 
 # Import Agents to ensure registration
 from Agent.medical_welfare.agent import MedicalWelfareAgent
@@ -68,15 +69,17 @@ async def _persist_chat_response(
     agent_type: str = "ollama_rag",
 ) -> None:
     """Persist a direct Ollama response using the same history contract."""
-    if not answer:
+    if not (answer and user_id and session_id and query):
         return
     try:
         await context_system.context_engineer.db_manager.save_conversation(
             user_id, session_id, agent_type, query, answer, room_id
         )
-        asyncio.create_task(
+        task = asyncio.create_task(
             context_system.context_engineer.analyze_and_update_context(user_id)
         )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except Exception as exc:  # history persistence must not hide a valid answer
         logger.warning("History saving failed for direct Ollama response: %s", exc)
 
@@ -416,7 +419,7 @@ async def chat_message(request: Request):
         # Tests and legacy callers may still inject a router-only runtime, so
         # retain that seam as an explicit fallback.
         runtime = get_agent_runtime(request)
-        chat_service = getattr(runtime, "chat_service", None)
+        chat_service = getattr(runtime, "chat_service", None) if getattr(runtime, "use_ollama", True) else None
         if chat_service is not None:
             user_context = context.get("user_history")
             result = await chat_service.generate(
@@ -432,14 +435,14 @@ async def chat_message(request: Request):
                 answer=answer,
             )
             return JSONResponse(
-                content={
+                content=json.loads(json.dumps({
                     "answer": answer,
                     "content": answer,
                     "status": "success",
                     "agent_type": "ollama_rag",
                     "sources": result.get("sources", []),
                     "metadata": result.get("metadata", {}),
-                }
+                }, default=str))
             )
 
         # Create AgentRequest
@@ -606,7 +609,7 @@ async def chat_stream(request: Request):
         profile = body.get("profile") or body.get("user_profile", "general")
 
         runtime = get_agent_runtime(request)
-        chat_service = getattr(runtime, "chat_service", None)
+        chat_service = getattr(runtime, "chat_service", None) if getattr(runtime, "use_ollama", True) else None
         if chat_service is not None:
             user_context = context.get("user_history")
             return StreamingResponse(

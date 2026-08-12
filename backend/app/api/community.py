@@ -19,6 +19,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+async def _safe_create_notification(payload: NotificationCreate) -> None:
+    """Keep a successful community write successful when notification delivery fails."""
+    try:
+        await create_notification(payload)
+    except Exception as exc:
+        logger.warning("Community notification delivery failed after primary write: %s", exc)
+
 # ============================================================================
 # Authorization Configuration
 # 인증 설정
@@ -862,7 +870,7 @@ async def create_comment(request: Request, comment_data: CommentCreate):
     created_comment = await comments_collection.find_one({"_id": result.inserted_id})
 
     if post_author_id and post_author_id != user_id and is_authenticated:
-        await create_notification(NotificationCreate(
+        await _safe_create_notification(NotificationCreate(
             user_id=post_author_id,
             type="community_reply",
             message=f"게시글에 새 댓글이 달렸습니다: {comment_data.content[:80]}",
@@ -1069,7 +1077,7 @@ async def like_post(request: Request, postId: str):
 
     post_author_id = post.get("userId")
     if post_author_id and post_author_id != current_user_id and is_authenticated:
-        await create_notification(NotificationCreate(
+        await _safe_create_notification(NotificationCreate(
             user_id=post_author_id,
             type="community_like",
             message="게시글에 좋아요가 추가되었습니다.",

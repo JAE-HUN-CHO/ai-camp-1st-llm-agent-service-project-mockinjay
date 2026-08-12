@@ -50,34 +50,86 @@ interface WeeklyData {
   phosphorus: number;
 }
 
+type ChartDataKey = keyof Omit<WeeklyData, 'day' | 'dayEn'>;
+
+const SimpleBarChart: React.FC<{
+  data: WeeklyData[];
+  dataKey: ChartDataKey;
+  goal: number;
+  color: string;
+  isKo: boolean;
+}> = ({ data, dataKey, goal, color, isKo }) => {
+  const maxValue = Math.max(...data.map((d) => d[dataKey]), goal * 1.2, 1);
+
+  return (
+    <div className="relative flex items-end gap-1 h-32">
+      {data.map((item, idx) => {
+        const value = item[dataKey];
+        const height = (value / maxValue) * 100;
+        const isOverGoal = goal > 0 && value > goal;
+
+        return (
+          <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+            <div
+              className={`w-full rounded-t transition-all ${isOverGoal ? 'bg-red-400' : color}`}
+              style={{ height: `${height}%` }}
+              title={`${value}`}
+            />
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {isKo ? item.day : item.dayEn}
+            </span>
+          </div>
+        );
+      })}
+      {goal > 0 && (
+        <div
+          className="absolute left-0 right-0 border-t-2 border-dashed border-gray-400"
+          style={{ bottom: `${(goal / maxValue) * 100}%` }}
+        />
+      )}
+    </div>
+  );
+};
+
 export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> = ({ language }) => {
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month'>('week');
   const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([]);
   const [goals, setGoals] = useState<NutritionGoals | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [totalMealsLogged, setTotalMealsLogged] = useState<number | null>(null);
   const isKo = language === 'ko';
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     Promise.all([getWeeklyProgress(), getGoals()])
       .then(([weekly, goalResponse]) => {
-        const dayLabels = isKo ? ['월', '화', '수', '목', '금', '토', '일'] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        setWeeklyData(weekly.daily_summaries.map((summary, index) => ({
-          day: dayLabels[index] || summary.date,
-          dayEn: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][index] || summary.date,
+        const koreanDays = ['일', '월', '화', '수', '목', '금', '토'];
+        const englishDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        setWeeklyData(weekly.daily_summaries.map((summary) => {
+          const weekday = new Date(`${summary.date}T00:00:00`).getDay();
+          return {
+          day: koreanDays[weekday] || summary.date,
+          dayEn: englishDays[weekday] || summary.date,
           calories: summary.total_calories,
           protein: summary.total_protein_g,
           sodium: summary.total_sodium_mg,
           potassium: summary.total_potassium_mg,
           phosphorus: summary.total_phosphorus_mg,
-        })));
+          };
+        }));
+        setTotalMealsLogged(weekly.total_meals_logged ?? null);
         setGoals(goalResponse.goals);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : '영양 진행도를 불러오지 못했습니다.'));
+      .catch((err) => setError(err instanceof Error ? err.message : '영양 진행도를 불러오지 못했습니다.'))
+      .finally(() => setLoading(false));
   }, [isKo]);
 
   // Calculate averages and current nutrient status
   const nutrientData: NutrientData[] = useMemo(() => {
-    const divisor = weeklyData.length || 1;
+    if (!goals || weeklyData.length === 0) return [];
+    const divisor = weeklyData.length;
     const avgCalories = Math.round(weeklyData.reduce((sum, d) => sum + d.calories, 0) / divisor);
     const avgProtein = Math.round(weeklyData.reduce((sum, d) => sum + d.protein, 0) / divisor);
     const avgSodium = Math.round(weeklyData.reduce((sum, d) => sum + d.sodium, 0) / divisor);
@@ -89,61 +141,61 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
         name: '칼로리',
         nameEn: 'Calories',
         current: avgCalories,
-        goal: goals?.calories_kcal || 0,
+        goal: goals.calories_kcal || 0,
         unit: 'kcal',
         icon: Flame,
         color: 'text-orange-500',
         bgColor: 'bg-orange-50 dark:bg-orange-900/20',
-        trend: avgCalories > 2000 ? 'up' : avgCalories < 1800 ? 'down' : 'stable',
-        trendPercent: Math.round(((avgCalories - 2000) / 2000) * 100),
+        trend: avgCalories > (goals.calories_kcal || 0) * 1.05 ? 'up' : avgCalories < (goals.calories_kcal || 0) * 0.95 ? 'down' : 'stable',
+        trendPercent: goals.calories_kcal > 0 ? Math.round(((avgCalories - goals.calories_kcal) / goals.calories_kcal) * 100) : 0,
       },
       {
         name: '단백질',
         nameEn: 'Protein',
         current: avgProtein,
-        goal: goals?.protein_g || 0,
+        goal: goals.protein_g || 0,
         unit: 'g',
         icon: Beef,
         color: 'text-red-500',
         bgColor: 'bg-red-50 dark:bg-red-900/20',
-        trend: avgProtein > 55 ? 'up' : avgProtein < 45 ? 'down' : 'stable',
-        trendPercent: Math.round(((avgProtein - 50) / 50) * 100),
+        trend: avgProtein > (goals.protein_g || 0) * 1.05 ? 'up' : avgProtein < (goals.protein_g || 0) * 0.95 ? 'down' : 'stable',
+        trendPercent: goals.protein_g > 0 ? Math.round(((avgProtein - goals.protein_g) / goals.protein_g) * 100) : 0,
       },
       {
         name: '나트륨',
         nameEn: 'Sodium',
         current: avgSodium,
-        goal: goals?.sodium_mg || 0,
+        goal: goals.sodium_mg || 0,
         unit: 'mg',
         icon: Droplets,
         color: 'text-blue-500',
         bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-        trend: avgSodium > 2000 ? 'up' : 'stable',
-        trendPercent: Math.round(((avgSodium - 2000) / 2000) * 100),
+        trend: avgSodium > (goals.sodium_mg || 0) * 1.05 ? 'up' : avgSodium < (goals.sodium_mg || 0) * 0.95 ? 'down' : 'stable',
+        trendPercent: goals.sodium_mg > 0 ? Math.round(((avgSodium - goals.sodium_mg) / goals.sodium_mg) * 100) : 0,
       },
       {
         name: '칼륨',
         nameEn: 'Potassium',
         current: avgPotassium,
-        goal: goals?.potassium_mg || 0,
+        goal: goals.potassium_mg || 0,
         unit: 'mg',
         icon: Leaf,
         color: 'text-green-500',
         bgColor: 'bg-green-50 dark:bg-green-900/20',
-        trend: avgPotassium > 2000 ? 'up' : 'stable',
-        trendPercent: Math.round(((avgPotassium - 2000) / 2000) * 100),
+        trend: avgPotassium > (goals.potassium_mg || 0) * 1.05 ? 'up' : avgPotassium < (goals.potassium_mg || 0) * 0.95 ? 'down' : 'stable',
+        trendPercent: goals.potassium_mg > 0 ? Math.round(((avgPotassium - goals.potassium_mg) / goals.potassium_mg) * 100) : 0,
       },
       {
         name: '인',
         nameEn: 'Phosphorus',
         current: avgPhosphorus,
-        goal: goals?.phosphorus_mg || 0,
+        goal: goals.phosphorus_mg || 0,
         unit: 'mg',
         icon: Pill,
         color: 'text-purple-500',
         bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-        trend: avgPhosphorus > 1000 ? 'up' : avgPhosphorus < 800 ? 'down' : 'stable',
-        trendPercent: Math.round(((avgPhosphorus - 1000) / 1000) * 100),
+        trend: avgPhosphorus > (goals.phosphorus_mg || 0) * 1.05 ? 'up' : avgPhosphorus < (goals.phosphorus_mg || 0) * 0.95 ? 'down' : 'stable',
+        trendPercent: goals.phosphorus_mg > 0 ? Math.round(((avgPhosphorus - goals.phosphorus_mg) / goals.phosphorus_mg) * 100) : 0,
       },
     ];
   }, [goals, weeklyData]);
@@ -153,6 +205,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
     const results: { type: 'warning' | 'success' | 'info'; message: string; messageEn: string }[] = [];
 
     nutrientData.forEach(nutrient => {
+      if (nutrient.goal <= 0) return;
       const percentage = (nutrient.current / nutrient.goal) * 100;
 
       if (percentage > 110) {
@@ -173,48 +226,11 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
     return results;
   }, [nutrientData]);
 
-  // Simple bar chart component
-  const SimpleBarChart: React.FC<{ data: WeeklyData[]; dataKey: keyof Omit<WeeklyData, 'day' | 'dayEn'>; goal: number; color: string }> = ({
-    data,
-    dataKey,
-    goal,
-    color,
-  }) => {
-    const maxValue = Math.max(...data.map(d => d[dataKey]), goal * 1.2);
-
-    return (
-      <div className="flex items-end gap-1 h-32">
-        {data.map((item, idx) => {
-          const value = item[dataKey];
-          const height = (value / maxValue) * 100;
-          const isOverGoal = value > goal;
-
-          return (
-            <div key={idx} className="flex-1 flex flex-col items-center gap-1">
-              <div
-                className={`w-full rounded-t transition-all ${isOverGoal ? 'bg-red-400' : color}`}
-                style={{ height: `${height}%` }}
-                title={`${value}`}
-              />
-              <span className="text-xs text-gray-500 dark:text-gray-400">
-                {isKo ? item.day : item.dayEn}
-              </span>
-            </div>
-          );
-        })}
-        {/* Goal line indicator */}
-        <div
-          className="absolute left-0 right-0 border-t-2 border-dashed border-gray-400"
-          style={{ bottom: `${(goal / maxValue) * 100}%` }}
-        />
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6">
       {error && <div className="p-4 rounded-lg bg-red-50 text-red-700">{error}</div>}
-      {!error && weeklyData.length === 0 && <div className="p-4 rounded-lg bg-gray-50 text-gray-500">{isKo ? '기록된 식단 데이터가 없습니다.' : 'No recorded diet data.'}</div>}
+      {loading && <div className="p-4 rounded-lg bg-gray-50 text-gray-500">{isKo ? '영양 데이터를 불러오는 중...' : 'Loading nutrition data...'}</div>}
+      {!loading && !error && totalMealsLogged === 0 && <div className="p-4 rounded-lg bg-gray-50 text-gray-500">{isKo ? '기록된 식단 데이터가 없습니다.' : 'No recorded diet data.'}</div>}
       {/* Period Selector */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
@@ -246,8 +262,8 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
       </div>
 
       {/* Nutrient Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {nutrientData.map(nutrient => {
+      {!loading && !error && weeklyData.length > 0 && goals && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {nutrientData.filter((nutrient) => nutrient.goal > 0).map(nutrient => {
           const NutrientIcon = nutrient.icon;
           const percentage = Math.round((nutrient.current / nutrient.goal) * 100);
           const isOverGoal = percentage > 100;
@@ -297,10 +313,10 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {/* Weekly Trend Charts */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+      {!loading && !error && weeklyData.length > 0 && goals && <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
           <Calendar className="text-blue-500" size={20} />
           {isKo ? '주간 섭취량 추이' : 'Weekly Intake Trends'}
@@ -314,7 +330,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
               {isKo ? '칼로리' : 'Calories'}
             </h4>
             <div className="relative h-36 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-              <SimpleBarChart data={weeklyData} dataKey="calories" goal={goals?.calories_kcal || 0} color="bg-orange-400" />
+              <SimpleBarChart data={weeklyData} dataKey="calories" goal={goals.calories_kcal || 0} color="bg-orange-400" isKo={isKo} />
             </div>
           </div>
 
@@ -325,7 +341,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
               {isKo ? '나트륨' : 'Sodium'}
             </h4>
             <div className="relative h-36 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-              <SimpleBarChart data={weeklyData} dataKey="sodium" goal={goals?.sodium_mg || 0} color="bg-blue-400" />
+              <SimpleBarChart data={weeklyData} dataKey="sodium" goal={goals.sodium_mg || 0} color="bg-blue-400" isKo={isKo} />
             </div>
           </div>
 
@@ -336,14 +352,14 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
               {isKo ? '단백질' : 'Protein'}
             </h4>
             <div className="relative h-36 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-              <SimpleBarChart data={weeklyData} dataKey="protein" goal={goals?.protein_g || 0} color="bg-red-400" />
+              <SimpleBarChart data={weeklyData} dataKey="protein" goal={goals.protein_g || 0} color="bg-red-400" isKo={isKo} />
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Insights Section */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+      {!loading && !error && nutrientData.length > 0 && <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
           <Target className="text-indigo-500" size={20} />
           {isKo ? 'AI 영양 인사이트' : 'AI Nutrition Insights'}
@@ -369,7 +385,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
       {/* Recommendations */}
       <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 rounded-xl text-white">

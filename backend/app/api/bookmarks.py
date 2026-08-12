@@ -103,8 +103,16 @@ def _serialize_bookmark(bookmark: dict) -> dict:
         "pubDate": item_data.get("pub_date", item_data.get("pubDate", "")) or "",
         "abstract": item_data.get("abstract", "") or "",
         "url": item_data.get("url", "") or "",
-        "tags": item_data.get("tags", []) or [],
-        "notes": item_data.get("notes", "") or "",
+        "tags": (
+            bookmark.get("tags")
+            if bookmark.get("tags") is not None
+            else item_data.get("tags", []) or []
+        ),
+        "notes": (
+            bookmark.get("notes")
+            if bookmark.get("notes") is not None
+            else item_data.get("notes", "") or ""
+        ),
         "bookmarkedAt": created_at,
     }
 
