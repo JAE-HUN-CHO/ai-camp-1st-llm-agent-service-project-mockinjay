@@ -263,7 +263,7 @@ async def search_posts(
     if postType:
         query["postType"] = postType
 
-    if cursor:
+    if isinstance(cursor, str) and cursor:
         try:
             decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
             cursor_time = datetime.fromisoformat(decoded["lastActivityAt"])
