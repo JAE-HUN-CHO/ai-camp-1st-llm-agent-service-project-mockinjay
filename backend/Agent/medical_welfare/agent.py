@@ -46,7 +46,8 @@ class MedicalWelfareAgent(LocalAgent):
     # Class variables for singleton pattern
     _parlant_client: Optional[AsyncParlantClient] = None
     _parlant_server_process = None
-    _server_url = "http://localhost:8801"  # Dedicated medical_welfare_server.py
+    _server_port = int(os.getenv("WELFARE_PORT", "8801"))
+    _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}
 
@@ -73,8 +74,8 @@ class MedicalWelfareAgent(LocalAgent):
             ],
             "parlant_server": {
                 "url": self._server_url,
-                "port": 8801,
-                "server": "medical_welfare_server.py (port 8801)",
+                "port": self._server_port,
+                "server": f"medical_welfare_server.py (port {self._server_port})",
                 "tools": [
                     "search_welfare_programs",
                     "search_hospitals",
@@ -698,7 +699,7 @@ class MedicalWelfareAgent(LocalAgent):
                         'parlant_session_id': parlant_session_id,
                         'profile': request.profile,
                         'language': request.language,
-                        'server_port': 8801
+                        'server_port': self._server_port
                     }
                 )
             else:

@@ -42,7 +42,8 @@ class ResearchPaperAgent(LocalAgent):
     # Class variables for singleton pattern
     _parlant_client: Optional[AsyncParlantClient] = None
     _parlant_server_process = None
-    _server_url = "http://localhost:8800"  # Shared healthcare_v2_en.py on port 8800
+    _server_port = int(os.getenv("RESEARCH_PORT", "8800"))
+    _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}  # session_id -> (parlant_session_id, customer_id)
 
@@ -69,8 +70,8 @@ class ResearchPaperAgent(LocalAgent):
             ],
             "parlant_server": {
                 "url": self._server_url,
-                "port": 8800,
-                "server": "healthcare_v2_en.py (shared, port 8800)",
+                "port": self._server_port,
+                "server": f"healthcare_v2_en.py (shared, port {self._server_port})",
                 "tools": [
                     "search_medical_qa",
                     "check_emergency",
@@ -652,7 +653,7 @@ class ResearchPaperAgent(LocalAgent):
                         'parlant_session_id': parlant_session_id,
                         'profile': request.profile,
                         'language': request.language,
-                        'server_port': 8800
+                        'server_port': self._server_port
                     }
                 )
             else:

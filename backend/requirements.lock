@@ -111,8 +111,8 @@ orjson==3.11.4
 ormsgpack==1.12.0
 packaging==24.2
 pandas==2.3.3
-parlant==3.1.0a1
-parlant-client==1.2.0
+parlant==3.3.2
+parlant-client==3.3.1
 parse==1.20.2
 passlib==1.7.4
 pathable==0.4.4
