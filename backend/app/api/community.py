@@ -237,6 +237,33 @@ async def get_posts(
     }
 
 
+@router.get("/search")
+async def search_posts(
+    q: str = Query(..., min_length=1, max_length=100, description="Search text"),
+    limit: int = Query(20, ge=1, le=50, description="Number of posts to fetch"),
+    postType: Optional[PostType] = Query(None, description="Filter by post type"),
+):
+    """Search non-deleted community posts by title, content, or author name."""
+    collection = db["posts"]
+    query = {
+        "isDeleted": False,
+        "$or": [
+            {"title": {"$regex": q, "$options": "i"}},
+            {"content": {"$regex": q, "$options": "i"}},
+            {"authorName": {"$regex": q, "$options": "i"}},
+        ],
+    }
+    if postType:
+        query["postType"] = postType
+
+    posts = await collection.find(query).sort("lastActivityAt", -1).limit(limit).to_list(length=limit)
+    serialized_posts = [serialize_post(post) for post in posts]
+    return {
+        "posts": serialized_posts,
+        "hasMore": len(serialized_posts) == limit,
+    }
+
+
 @router.get("/posts/featured")
 async def get_featured_posts():
     """
