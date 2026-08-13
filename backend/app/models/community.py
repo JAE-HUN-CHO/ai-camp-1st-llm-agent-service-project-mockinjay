@@ -1,7 +1,7 @@
 # Post, Comment 데이터 모델
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Annotated, Optional, List
+from typing import Annotated, Optional
 from datetime import datetime
 
 
@@ -32,7 +32,7 @@ class Post(BaseModel):
     content: str = Field(..., min_length=1, description="Post content/body")
     postType: PostType = Field(..., description="Type of post (BOARD, CHALLENGE, SURVEY)")
 
-    imageUrls: List[str] = Field(default=[], description="List of attached image URLs")
+    imageUrls: list[str] = Field(default=[], description="List of attached image URLs")
     thumbnailUrl: Optional[str] = Field(None, description="Thumbnail image URL (for list display)")
 
     likes: int = Field(default=0, description="Number of likes")
@@ -97,7 +97,7 @@ class PostCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="Post title")
     content: str = Field(..., min_length=1, description="Post content")
     postType: PostType = Field(..., description="Type of post")
-    imageUrls: List[ImageUrl] = Field(default_factory=list, max_length=5, description="List of image URLs to attach (max 5)")
+    imageUrls: list[ImageUrl] = Field(default_factory=list, max_length=5, description="List of image URLs to attach (max 5)")
     isAnonymous: bool = Field(default=False, description="Whether to post anonymously")
     anonymousId: Optional[str] = Field(None, description="Client-side anonymous ID for consistent identification")
 
@@ -106,7 +106,7 @@ class PostUpdate(BaseModel):
     """Request model for updating an existing post"""
     title: Optional[str] = Field(None, min_length=1, max_length=200, description="Updated post title")
     content: Optional[str] = Field(None, min_length=1, description="Updated post content")
-    imageUrls: Optional[List[ImageUrl]] = Field(None, max_length=5, description="Updated list of image URLs (max 5)")
+    imageUrls: Optional[list[ImageUrl]] = Field(None, max_length=5, description="Updated list of image URLs (max 5)")
 
 
 class CommentCreate(BaseModel):
