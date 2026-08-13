@@ -34,6 +34,18 @@ from parlant.client.errors.not_found_error import NotFoundError
 logger = logging.getLogger(__name__)
 
 
+def _configured_port(name: str, default: int) -> int:
+    """Read and validate a local Parlant server port from the environment."""
+    raw_value = os.getenv(name, str(default))
+    try:
+        port = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer port") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError(f"{name} must be between 1 and 65535")
+    return port
+
+
 @AgentRegistry.register("medical_welfare")
 class MedicalWelfareAgent(LocalAgent):
     """
@@ -46,7 +58,7 @@ class MedicalWelfareAgent(LocalAgent):
     # Class variables for singleton pattern
     _parlant_client: Optional[AsyncParlantClient] = None
     _parlant_server_process = None
-    _server_port = int(os.getenv("WELFARE_PORT", "8801"))
+    _server_port = _configured_port("WELFARE_PORT", 8801)
     _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}
