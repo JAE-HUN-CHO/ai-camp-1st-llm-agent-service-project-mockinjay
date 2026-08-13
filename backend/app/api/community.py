@@ -3,8 +3,13 @@ from fastapi import APIRouter, HTTPException, Query, File, UploadFile, Request
 from typing import Optional
 from datetime import datetime
 from bson import ObjectId
+from bson.errors import InvalidId
 from pathlib import Path
 import os
+import re
+import base64
+import binascii
+import json
 import uuid
 import logging
 
@@ -234,6 +239,60 @@ async def get_posts(
         "posts": serialized_posts,
         "nextCursor": next_cursor,
         "hasMore": len(serialized_posts) == limit
+    }
+
+
+@router.get("/search")
+async def search_posts(
+    q: str = Query(..., min_length=1, max_length=100, description="Search text"),
+    limit: int = Query(20, ge=1, le=50, description="Number of posts to fetch"),
+    postType: Optional[PostType] = Query(None, description="Filter by post type"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor for the next page"),
+):
+    """Search non-deleted community posts by title, content, or author name."""
+    collection = db["posts"]
+    search_pattern = re.escape(q)
+    query = {
+        "isDeleted": False,
+        "$or": [
+            {"title": {"$regex": search_pattern, "$options": "i"}},
+            {"content": {"$regex": search_pattern, "$options": "i"}},
+            {"authorName": {"$regex": search_pattern, "$options": "i"}},
+        ],
+    }
+    if postType:
+        query["postType"] = postType
+
+    if cursor:
+        try:
+            decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+            cursor_time = datetime.fromisoformat(decoded["lastActivityAt"])
+            cursor_id = ObjectId(decoded["id"])
+        except (binascii.Error, ValueError, KeyError, TypeError, json.JSONDecodeError, InvalidId) as exc:
+            logger.warning("Invalid community search cursor: %s", exc)
+            raise HTTPException(status_code=400, detail="Invalid cursor")
+        query["$and"] = [{
+            "$or": [
+                {"lastActivityAt": {"$lt": cursor_time}},
+                {"lastActivityAt": cursor_time, "_id": {"$lt": cursor_id}},
+            ]
+        }]
+
+    posts = await collection.find(query).sort([("lastActivityAt", -1), ("_id", -1)]).limit(limit + 1).to_list(length=limit + 1)
+    has_more = len(posts) > limit
+    page_posts = posts[:limit]
+    next_cursor = None
+    if has_more and page_posts:
+        last_post = page_posts[-1]
+        next_cursor = base64.urlsafe_b64encode(json.dumps({
+            "lastActivityAt": last_post["lastActivityAt"].isoformat(),
+            "id": str(last_post["_id"]),
+        }).encode()).decode()
+    serialized_posts = [serialize_post(post) for post in page_posts]
+    return {
+        "posts": serialized_posts,
+        "hasMore": has_more,
+        "nextCursor": next_cursor,
     }
 
 
