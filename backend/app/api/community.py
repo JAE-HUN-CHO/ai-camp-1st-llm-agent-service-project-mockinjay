@@ -5,6 +5,7 @@ from datetime import datetime
 from bson import ObjectId
 from pathlib import Path
 import os
+import re
 import uuid
 import logging
 
@@ -245,12 +246,13 @@ async def search_posts(
 ):
     """Search non-deleted community posts by title, content, or author name."""
     collection = db["posts"]
+    search_pattern = re.escape(q)
     query = {
         "isDeleted": False,
         "$or": [
-            {"title": {"$regex": q, "$options": "i"}},
-            {"content": {"$regex": q, "$options": "i"}},
-            {"authorName": {"$regex": q, "$options": "i"}},
+            {"title": {"$regex": search_pattern, "$options": "i"}},
+            {"content": {"$regex": search_pattern, "$options": "i"}},
+            {"authorName": {"$regex": search_pattern, "$options": "i"}},
         ],
     }
     if postType:
