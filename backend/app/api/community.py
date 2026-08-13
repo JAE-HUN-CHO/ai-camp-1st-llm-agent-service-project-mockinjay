@@ -12,7 +12,11 @@ from app.models.community import PostCreate, PostUpdate, PostType, CommentCreate
 from app.db.connection import db
 from app.utils.upload import validate_upload_filename
 from app.models.notification import NotificationCreate
-from app.services.notification_service import create_notification, record_notification_failure
+from app.services.notification_service import (
+    create_notification,
+    get_notification_settings,
+    record_notification_failure,
+)
 
 # Configure logger for this module (모듈 로거 설정)
 logger = logging.getLogger(__name__)
@@ -20,8 +24,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _safe_create_notification(payload: NotificationCreate) -> None:
+async def _safe_create_notification(payload: NotificationCreate, preference_key: str | None = None) -> None:
     """Keep a successful community write successful when notification delivery fails."""
+    if preference_key:
+        try:
+            settings = await get_notification_settings(payload.user_id)
+            if not settings.get(preference_key, True):
+                return
+        except Exception:
+            logger.exception("Could not read notification preference; preserving legacy opt-in behavior")
     try:
         await create_notification(payload)
     except Exception as exc:
@@ -879,7 +890,7 @@ async def create_comment(request: Request, comment_data: CommentCreate):
             type="community_reply",
             message=f"게시글에 새 댓글이 달렸습니다: {comment_data.content[:80]}",
             link=f"/community/detail/{comment_data.postId}",
-        ))
+        ), preference_key="community_reply_notification")
 
     return serialize_comment(created_comment)
 
@@ -1086,7 +1097,7 @@ async def like_post(request: Request, postId: str):
             type="community_like",
             message="게시글에 좋아요가 추가되었습니다.",
             link=f"/community/detail/{postId}",
-        ))
+        ), preference_key="community_like_notification")
 
     return {"message": "Post liked successfully", "liked": True}
 

@@ -276,7 +276,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                     messageCount++;
                     console.log('✅ Processing message #', messageCount, 'firstMessageReceived:', firstMessageReceived, 'status:', messageStatus);
 
-                    if (!firstMessageReceived) {
+                    if (messageStatus === 'complete') {
+                      // Router fallbacks emit a complete snapshot after partial
+                      // events; replace the bubble to avoid duplicated text.
+                      firstMessageReceived = true;
+                      const capturedContent = newContent;
+                      const capturedId = currentBotMessageId;
+                      setMessages((prev) => prev.map(msg =>
+                        msg.id === capturedId ? { ...msg, content: capturedContent } : msg
+                      ));
+                    } else if (!firstMessageReceived) {
                       // First message: update the placeholder
                       // 첫 번째 메시지: 플레이스홀더 업데이트
                       firstMessageReceived = true;

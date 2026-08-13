@@ -18,6 +18,14 @@ if str(BACKEND) not in sys.path:
 
 from app.db.connection import Database
 from app.services.ollama_chat import OllamaChatService
+from pymongo.errors import OperationFailure
+
+
+def _is_transient_index_error(error: OperationFailure) -> bool:
+    message = str(error).lower()
+    if any(token in message for token in ("authentication", "not authorized", "unauthorized", "connection")):
+        return False
+    return any(token in message for token in ("index", "vectorsearch", "vector search", "not ready"))
 
 
 async def run() -> None:
@@ -46,7 +54,9 @@ async def run() -> None:
         while True:
             try:
                 retrieved = await service.retrieve(vector)
-            except Exception:
+            except OperationFailure as exc:
+                if not _is_transient_index_error(exc):
+                    raise
                 retrieved = []
             if any(item.get("_id") == smoke_id for item in retrieved):
                 break

@@ -164,10 +164,18 @@ const NewsFeed: React.FC<NewsFeedProps> = ({ className = '', defaultLanguage = '
   const userId = user?.id;
 
   useEffect(() => {
+    setNewsBookmarks(new Map());
+    setBookmarkedIds(new Set());
     if (!userId) return;
+    let cancelled = false;
     getNewsBookmarks(userId)
-      .then((items) => setNewsBookmarks(new Map(items.map((item) => [item.itemId, item]))))
+      .then((items) => {
+        if (cancelled) return;
+        setNewsBookmarks(new Map(items.map((item) => [item.itemId, item])));
+        setBookmarkedIds(new Set(items.map((item) => item.itemId)));
+      })
       .catch((err) => console.error('[NewsFeed] Failed to load bookmarks:', err));
+    return () => { cancelled = true; };
   }, [userId]);
 
   /**

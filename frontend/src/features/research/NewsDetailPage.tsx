@@ -66,10 +66,17 @@ export default function NewsDetailPage() {
   }, [articleId]);
 
   useEffect(() => {
-    if (!userId || !articleId) return;
+    let cancelled = false;
+    setBookmark(null);
+    if (!userId || !articleId) return () => { cancelled = true; };
     getNewsBookmarks(userId)
-      .then((items) => setBookmark(items.find((item) => item.itemId === articleId) || null))
-      .catch((err) => setActionError(err instanceof Error ? err.message : '뉴스 북마크 상태를 불러오지 못했습니다.'));
+      .then((items) => {
+        if (!cancelled) setBookmark(items.find((item) => item.itemId === articleId) || null);
+      })
+      .catch((err) => {
+        if (!cancelled) setActionError(err instanceof Error ? err.message : '뉴스 북마크 상태를 불러오지 못했습니다.');
+      });
+    return () => { cancelled = true; };
   }, [articleId, userId]);
 
   const toggleBookmark = async () => {

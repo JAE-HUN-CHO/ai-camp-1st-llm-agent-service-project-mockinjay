@@ -23,6 +23,9 @@ export interface BookmarkResponse {
 export interface BookmarksListResponse {
   bookmarks: BookmarkedPaper[];
   total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
   status: string;
 }
 
@@ -48,6 +51,9 @@ export interface NewsBookmark {
 export interface NewsBookmarkResponse {
   bookmarks: NewsBookmark[];
   total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
   status: string;
 }
 
@@ -80,11 +86,24 @@ export async function createBookmark(request: CreateBookmarkRequest): Promise<Bo
   return data.bookmark;
 }
 
-export async function getBookmarks(userId: string, limit = 50, offset = 0): Promise<BookmarkedPaper[]> {
+export async function getBookmarksPage(userId: string, limit = 50, offset = 0): Promise<BookmarksListResponse> {
   const { data } = await api.get<BookmarksListResponse>('/api/bookmarks', {
     params: { user_id: userId, limit, offset },
   });
-  return data.bookmarks;
+  return data;
+}
+
+export async function getBookmarks(userId: string, limit = 50, offset = 0): Promise<BookmarkedPaper[]> {
+  const firstPage = await getBookmarksPage(userId, limit, offset);
+  const bookmarks = [...firstPage.bookmarks];
+  let nextOffset = firstPage.offset + firstPage.bookmarks.length;
+  while (firstPage.hasMore && nextOffset < firstPage.total) {
+    const page = await getBookmarksPage(userId, limit, nextOffset);
+    bookmarks.push(...page.bookmarks);
+    nextOffset = page.offset + page.bookmarks.length;
+    if (page.bookmarks.length === 0) break;
+  }
+  return bookmarks;
 }
 
 export async function isBookmarked(userId: string, paperId: string): Promise<boolean> {
@@ -111,11 +130,24 @@ export async function deleteBookmarkByPaperId(paperId: string, userId: string): 
   if (bookmark) await deleteBookmark(bookmark.id, userId);
 }
 
-export async function getNewsBookmarks(userId: string, limit = 50, offset = 0): Promise<NewsBookmark[]> {
+export async function getNewsBookmarksPage(userId: string, limit = 50, offset = 0): Promise<NewsBookmarkResponse> {
   const { data } = await api.get<NewsBookmarkResponse>('/api/bookmarks/news', {
     params: { user_id: userId, limit, offset },
   });
-  return data.bookmarks;
+  return data;
+}
+
+export async function getNewsBookmarks(userId: string, limit = 50, offset = 0): Promise<NewsBookmark[]> {
+  const firstPage = await getNewsBookmarksPage(userId, limit, offset);
+  const bookmarks = [...firstPage.bookmarks];
+  let nextOffset = firstPage.offset + firstPage.bookmarks.length;
+  while (firstPage.hasMore && nextOffset < firstPage.total) {
+    const page = await getNewsBookmarksPage(userId, limit, nextOffset);
+    bookmarks.push(...page.bookmarks);
+    nextOffset = page.offset + page.bookmarks.length;
+    if (page.bookmarks.length === 0) break;
+  }
+  return bookmarks;
 }
 
 export async function createNewsBookmark(request: CreateNewsBookmarkRequest): Promise<NewsBookmark> {

@@ -58,16 +58,23 @@ class BookmarkService:
             offset = max(0, offset)
 
             # Get total count
-            query = {"userId": user_id}
+            query = {
+                "$and": [
+                    {"$or": [{"userId": user_id}, {"user_id": user_id}]},
+                ]
+            }
             if item_type == "paper":
                 # Include records written by the original paper-only API while
                 # migrating them to the canonical itemType/itemId schema.
-                query["$or"] = [
-                    {"itemType": "paper"},
-                    {"itemType": {"$exists": False}, "paperId": {"$exists": True}},
-                ]
+                query["$and"].append({
+                    "$or": [
+                        {"itemType": "paper"},
+                        {"itemType": {"$exists": False}, "paperId": {"$exists": True}},
+                        {"itemType": {"$exists": False}, "pmid": {"$exists": True}},
+                    ]
+                })
             elif item_type:
-                query["itemType"] = item_type
+                query["$and"].append({"itemType": item_type})
 
             total_count = await self.bookmarks_collection.count_documents(query)
 
@@ -122,11 +129,16 @@ class BookmarkService:
         try:
             # Check if already bookmarked
             duplicate_query = {
-                "userId": user_id,
-                "$or": [{"itemType": item_type, "itemId": paper_id}],
+                "$and": [
+                    {"$or": [{"userId": user_id}, {"user_id": user_id}]},
+                    {"$or": [{"itemType": item_type, "itemId": paper_id}]},
+                ]
             }
             if item_type == "paper":
-                duplicate_query["$or"].append({"itemType": {"$exists": False}, "paperId": paper_id})
+                duplicate_query["$and"][1]["$or"].extend([
+                    {"itemType": {"$exists": False}, "paperId": paper_id},
+                    {"itemType": {"$exists": False}, "pmid": paper_id},
+                ])
             existing = await self.bookmarks_collection.find_one(duplicate_query)
 
             if existing:
@@ -190,11 +202,14 @@ class BookmarkService:
         try:
             # Delete bookmark
             result = await self.bookmarks_collection.delete_one({
-                "userId": user_id,
-                "$or": [
-                    {"itemType": "paper", "itemId": paper_id},
-                    {"itemType": {"$exists": False}, "paperId": paper_id},
-                ],
+                "$and": [
+                    {"$or": [{"userId": user_id}, {"user_id": user_id}]},
+                    {"$or": [
+                        {"itemType": "paper", "itemId": paper_id},
+                        {"itemType": {"$exists": False}, "paperId": paper_id},
+                        {"itemType": {"$exists": False}, "pmid": paper_id},
+                    ]},
+                ]
             })
 
             if result.deleted_count == 0:
@@ -221,7 +236,10 @@ class BookmarkService:
         except (InvalidId, TypeError):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="잘못된 북마크 ID입니다")
 
-        result = await self.bookmarks_collection.delete_one({"_id": object_id, "userId": user_id})
+        result = await self.bookmarks_collection.delete_one({
+            "_id": object_id,
+            "$or": [{"userId": user_id}, {"user_id": user_id}],
+        })
         if result.deleted_count == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다")
 
@@ -246,11 +264,14 @@ class BookmarkService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="수정할 데이터가 없습니다")
 
         result = await self.bookmarks_collection.update_one(
-            {"_id": object_id, "userId": user_id},
+            {"_id": object_id, "$or": [{"userId": user_id}, {"user_id": user_id}]},
             {"$set": {**allowed, "updatedAt": datetime.utcnow()}},
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="북마크를 찾을 수 없습니다")
 
-        bookmark = await self.bookmarks_collection.find_one({"_id": object_id, "userId": user_id})
+        bookmark = await self.bookmarks_collection.find_one({
+            "_id": object_id,
+            "$or": [{"userId": user_id}, {"user_id": user_id}],
+        })
         return serialize_datetime(serialize_object_id(bookmark), ["createdAt", "updatedAt"])

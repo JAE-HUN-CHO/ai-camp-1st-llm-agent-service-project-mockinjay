@@ -5,7 +5,7 @@ Handles kidney/health-related news from multiple sources:
 2. RSS Feeds (unlimited, no API key required)
 3. NewsData.io (fallback, 200 requests/day)
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import logging
@@ -17,6 +17,9 @@ import hashlib
 import asyncio
 import xml.etree.ElementTree as ET
 from app.api.dependencies import require_admin
+from app.db.connection import db
+from app.config import settings
+from jose import JWTError, jwt
 
 # Load environment variables
 load_dotenv()
@@ -90,6 +93,23 @@ def set_cached_news(source: str, language: str, page: int, data: Dict[str, Any])
         "timestamp": datetime.now().timestamp()
     }
     logger.info(f"Cached news: {cache_key}")
+
+
+def _optional_request_user_id(request: Request) -> str | None:
+    """Read an optional bearer subject on this intentionally public route."""
+    state_user_id = getattr(getattr(request, "state", None), "user_id", None)
+    if state_user_id:
+        return str(state_user_id)
+    authorization = request.headers.get("Authorization", "")
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            return None
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        user_id = payload.get("user_id")
+        return str(user_id) if user_id else None
+    except (ValueError, JWTError, TypeError):
+        return None
 
 
 # ==================== Request/Response Models ====================
@@ -506,7 +526,7 @@ async def get_news_list(request: NewsRequest):
 
 
 @router.get("/detail/{article_id}", response_model=NewsArticle)
-async def get_news_detail(article_id: str, language: str = "en"):
+async def get_news_detail(article_id: str, request: Request, language: str = "en"):
     """Return an article from the live provider/cache by its stable article id."""
     for cached in _news_cache.values():
         if not is_cache_valid(cached["timestamp"]):
@@ -515,6 +535,43 @@ async def get_news_detail(article_id: str, language: str = "en"):
             article_id_value = article.id if isinstance(article, NewsArticle) else article.get("id")
             if article_id_value == article_id:
                 return article if isinstance(article, NewsArticle) else NewsArticle(**article)
+
+    # A saved article must remain viewable even after the provider rotates it
+    # out of the live feed. Only consult the bookmark owned by the request user.
+    user_id = _optional_request_user_id(request)
+    if user_id:
+        try:
+            saved = await db["bookmarks"].find_one({
+                "$and": [
+                    {"$or": [{"userId": user_id}, {"user_id": user_id}]},
+                    {"$or": [
+                        {"itemType": "news", "itemId": article_id},
+                        {"itemType": {"$exists": False}, "articleId": article_id},
+                    ]},
+                ]
+            })
+            if saved:
+                data = saved.get("itemData") or saved.get("articleData") or {}
+                if data:
+                    pub_date = data.get("pubDate") or data.get("pub_date") or saved.get("createdAt") or ""
+                    return NewsArticle(
+                        id=article_id,
+                        title=data.get("title", ""),
+                        titleOriginal=data.get("titleOriginal"),
+                        description=data.get("description"),
+                        descriptionOriginal=data.get("descriptionOriginal"),
+                        content=data.get("content"),
+                        source=data.get("source", ""),
+                        sourceIcon=data.get("sourceIcon"),
+                        pubDate=str(pub_date),
+                        time=data.get("time") or str(pub_date),
+                        image=data.get("image"),
+                        link=data.get("link", ""),
+                        category=data.get("category"),
+                        language=data.get("language") or language,
+                    )
+        except Exception as exc:
+            logger.warning("Saved news fallback failed for %s: %s", article_id, exc)
 
     try:
         query = "kidney health" if language == "en" else "신장 건강"

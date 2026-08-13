@@ -33,6 +33,11 @@ PARLANT_BASE_URL = RESEARCH_BASE_URL
 # HTTP client for proxying
 client = httpx.AsyncClient(timeout=30.0)
 _background_tasks: set[asyncio.Task] = set()
+_ALLOWED_PROFILES = {"general", "patient", "researcher"}
+
+
+def _normalize_profile(value: object) -> str:
+    return value if isinstance(value, str) and value in _ALLOWED_PROFILES else "general"
 
 # Import Agents to ensure registration
 from Agent.medical_welfare.agent import MedicalWelfareAgent
@@ -413,7 +418,7 @@ async def chat_message(request: Request):
 
         # Get user profile for Parlant customer tag
         # 사용자 프로필 추출 (Parlant 고객 태그용)
-        profile = body.get("profile") or body.get("user_profile", "general")
+        profile = _normalize_profile(body.get("profile") or body.get("user_profile", "general"))
 
         # The canonical runtime uses the local Ollama/RAG service directly.
         # Tests and legacy callers may still inject a router-only runtime, so
@@ -606,7 +611,7 @@ async def chat_stream(request: Request):
 
         # Get user profile for Parlant customer tag
         # 사용자 프로필 추출 (Parlant 고객 태그용)
-        profile = body.get("profile") or body.get("user_profile", "general")
+        profile = _normalize_profile(body.get("profile") or body.get("user_profile", "general"))
 
         runtime = get_agent_runtime(request)
         chat_service = getattr(runtime, "chat_service", None) if getattr(runtime, "use_ollama", True) else None

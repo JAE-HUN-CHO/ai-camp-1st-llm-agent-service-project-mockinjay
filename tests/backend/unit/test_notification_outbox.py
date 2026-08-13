@@ -41,7 +41,7 @@ class _OutboxCollection:
 
     async def update_one(self, query, update):
         self.updates.append((query, update))
-        return SimpleNamespace(modified_count=1)
+        return SimpleNamespace(modified_count=1, matched_count=1)
 
 
 @pytest.mark.asyncio
@@ -74,11 +74,13 @@ async def test_pending_notification_is_retried_and_marked_delivered(monkeypatch)
         "payload": notification.model_dump(),
         "status": "pending",
         "attempts": 0,
+        "next_attempt_at": notification_service.datetime.utcnow(),
+        "event_id": "event-1",
     }])
     delivered = []
     monkeypatch.setattr(notification_service, "get_notification_outbox_collection", lambda: outbox)
 
-    async def fake_create(payload):
+    async def fake_create(payload, idempotency_key=None):
         delivered.append(payload)
         return "notification-1"
 
@@ -87,3 +89,28 @@ async def test_pending_notification_is_retried_and_marked_delivered(monkeypatch)
     assert await notification_service.retry_pending_notifications() == 1
     assert delivered[0].user_id == "user-1"
     assert outbox.updates[-1][1]["$set"]["status"] == "delivered"
+
+
+@pytest.mark.asyncio
+async def test_retry_limit_moves_event_to_terminal_failed(monkeypatch):
+    notification = NotificationCreate(user_id="user-1", type="community_reply", message="댓글")
+    outbox = _OutboxCollection([{
+        "_id": "outbox-2",
+        "payload": notification.model_dump(),
+        "status": "pending",
+        "attempts": notification_service.OUTBOX_RETRY_LIMIT - 1,
+        "next_attempt_at": notification_service.datetime.utcnow(),
+        "event_id": "event-2",
+    }])
+    monkeypatch.setattr(notification_service, "get_notification_outbox_collection", lambda: outbox)
+
+    async def fail_create(_payload, idempotency_key=None):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(notification_service, "create_notification", fail_create)
+
+    assert await notification_service.retry_pending_notifications() == 0
+    failed = outbox.updates[-1][1]["$set"]
+    assert failed["status"] == "failed"
+    assert failed["attempts"] == notification_service.OUTBOX_RETRY_LIMIT
+    assert "failed_at" in failed

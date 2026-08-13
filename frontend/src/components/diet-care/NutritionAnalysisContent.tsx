@@ -92,7 +92,6 @@ const SimpleBarChart: React.FC<{
 };
 
 export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> = ({ language }) => {
-  const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month'>('week');
   const [weeklyData, setWeeklyData] = useState<WeeklyData[]>([]);
   const [goals, setGoals] = useState<NutritionGoals | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -238,26 +237,9 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
           {isKo ? '영양 분석' : 'Nutrition Analysis'}
         </h2>
         <div className="flex gap-2">
-          <button
-            onClick={() => setSelectedPeriod('week')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              selectedPeriod === 'week'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
-          >
+          <span className="px-4 py-2 rounded-lg font-medium bg-blue-600 text-white">
             {isKo ? '주간' : 'Weekly'}
-          </button>
-          <button
-            onClick={() => setSelectedPeriod('month')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              selectedPeriod === 'month'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-            }`}
-          >
-            {isKo ? '월간' : 'Monthly'}
-          </button>
+          </span>
         </div>
       </div>
 

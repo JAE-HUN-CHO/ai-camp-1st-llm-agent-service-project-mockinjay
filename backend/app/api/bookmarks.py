@@ -74,15 +74,22 @@ class BookmarkedPaper(BaseModel):
 def _serialize_bookmark(bookmark: dict) -> dict:
     """Expose one stable response shape for canonical and legacy documents."""
     item_type = bookmark.get("itemType", "paper")
-    item_id = bookmark.get("itemId") or bookmark.get("paperId") or ""
+    item_id = bookmark.get("itemId") or bookmark.get("paperId") or bookmark.get("pmid") or ""
     item_data = bookmark.get("itemData") or bookmark.get("paperData") or {}
-    created_at = bookmark.get("createdAt") or datetime.utcnow().isoformat()
+    if not item_data and item_type == "paper":
+        # Legacy /api/bookmarks documents stored paper metadata at the top level.
+        item_data = {
+            key: bookmark.get(key)
+            for key in ("title", "authors", "journal", "pub_date", "pubDate", "abstract", "url", "tags", "notes")
+            if bookmark.get(key) is not None
+        }
+    created_at = bookmark.get("createdAt") or bookmark.get("created_at") or datetime.utcnow().isoformat()
     if isinstance(created_at, datetime):
         created_at = created_at.isoformat()
     if item_type == "news":
         return {
             "id": bookmark.get("id") or str(bookmark.get("_id", "")),
-            "userId": bookmark.get("userId", ""),
+            "userId": bookmark.get("userId") or bookmark.get("user_id", ""),
             "itemType": item_type,
             "itemId": item_id,
             "itemData": item_data,
@@ -91,7 +98,7 @@ def _serialize_bookmark(bookmark: dict) -> dict:
         }
     return {
         "id": bookmark.get("id") or str(bookmark.get("_id", "")),
-        "userId": bookmark.get("userId", ""),
+        "userId": bookmark.get("userId") or bookmark.get("user_id", ""),
         "itemType": "paper",
         "itemId": item_id,
         "paperId": item_id,
@@ -138,6 +145,9 @@ async def get_bookmarks(
         return {
             "bookmarks": bookmarks,
             "total": result["total"],
+            "limit": result["limit"],
+            "offset": result["offset"],
+            "hasMore": result["hasMore"],
             "status": "success"
         }
 
@@ -206,6 +216,9 @@ async def get_news_bookmarks(
     return {
         "bookmarks": [_serialize_bookmark(bookmark) for bookmark in result["bookmarks"]],
         "total": result["total"],
+        "limit": result["limit"],
+        "offset": result["offset"],
+        "hasMore": result["hasMore"],
         "status": "success",
     }
 

@@ -13,14 +13,21 @@ import {
 export default function BookmarkPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { bookmarks: paperList, loading: papersLoading, error: papersError } = useBookmarks(user?.id);
+  const { bookmarks: paperList, loading: papersLoading, error: papersError, removeBookmark } = useBookmarks(user?.id);
   const [activeTab, setActiveTab] = useState<'news' | 'papers'>('news');
   const [newsList, setNewsList] = useState<NewsBookmark[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const [newsActionError, setNewsActionError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user?.id) return;
+    setNewsList([]);
+    setNewsError(null);
+    setNewsActionError(null);
+    if (!user?.id) {
+      setNewsLoading(false);
+      return;
+    }
     let cancelled = false;
     setNewsLoading(true);
     getNewsBookmarks(user.id)
@@ -38,7 +45,16 @@ export default function BookmarkPage() {
       await deleteNewsBookmark(id);
       setNewsList((items) => items.filter((item) => item.id !== id));
     } catch (error) {
-      setNewsError(error instanceof Error ? error.message : '뉴스 북마크를 삭제하지 못했습니다.');
+      setNewsActionError(error instanceof Error ? error.message : '뉴스 북마크를 삭제하지 못했습니다.');
+    }
+  };
+
+  const removePaper = async (id: string) => {
+    if (!window.confirm('즐겨찾기에서 삭제하시겠습니까?')) return;
+    try {
+      await removeBookmark(id);
+    } catch {
+      // useBookmarks exposes the operation error alongside the list.
     }
   };
 
@@ -61,6 +77,7 @@ export default function BookmarkPage() {
       <div className="flex-1 overflow-y-auto p-5 pb-24 lg:pb-10">
         {loading && <p className="py-12 text-center text-gray-500">불러오는 중...</p>}
         {error && <p className="py-12 text-center text-red-600">{error}</p>}
+        {activeTab === 'news' && newsActionError && <p className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{newsActionError}</p>}
         {!loading && !error && activeTab === 'news' && (
           newsList.length ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -86,7 +103,7 @@ export default function BookmarkPage() {
           paperList.length ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {paperList.map((paper) => <div key={paper.id} className="p-5 rounded-xl border border-[#E0E0E0] bg-white h-full flex flex-col">
-                <div className="flex justify-between items-start gap-2 mb-2"><h3 className="text-[16px] font-bold text-[#1F2937] leading-[1.4]">{paper.title || paper.paperData?.title}</h3><span className="text-[#FFD700]"><Star size={20} fill="#FFD700" /></span></div>
+                <div className="flex justify-between items-start gap-2 mb-2"><h3 className="text-[16px] font-bold text-[#1F2937] leading-[1.4]">{paper.title || paper.paperData?.title}</h3><button onClick={() => removePaper(paper.id)} className="text-[#FFD700]" aria-label="논문 북마크 삭제"><Star size={20} fill="#FFD700" /></button></div>
                 <div className="text-sm text-[#666666] mb-1">{(paper.authors || paper.paperData?.authors || []).join(', ')}</div>
                 <div className="flex items-center gap-3 text-xs text-[#999999] mb-4"><span>{paper.pubDate || paper.paperData?.pub_date}</span><span>PMID: {paper.paperId}</span></div>
                 <a href={paper.url || paper.paperData?.url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full h-[44px] rounded-lg border border-[#E0E0E0] bg-white text-[#1F2937] font-medium hover:bg-gray-50 mt-auto"><span>논문 보기</span><ExternalLink size={16} /></a>
