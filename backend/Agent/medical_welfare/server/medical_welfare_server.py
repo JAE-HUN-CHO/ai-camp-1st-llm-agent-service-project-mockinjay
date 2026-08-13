@@ -11,6 +11,7 @@ Medical Welfare Agent를 위한 독립 Parlant 서버
 """
 
 import parlant.sdk as p
+import os
 from parlant.sdk import ToolContext, ToolResult
 import asyncio
 from dotenv import load_dotenv
@@ -25,6 +26,9 @@ import uuid
 # 프로젝트 루트를 Python 경로에 추가
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
+research_server_dir = project_root / "Agent" / "research_paper" / "server"
+sys.path.insert(0, str(research_server_dir))
+from parlant_nlp_adapter import create_healthcare_nlp_service
 
 # 서비스 imports
 from app.db.welfare_manager import WelfareManager
@@ -558,7 +562,13 @@ async def cleanup_managers():
 if __name__ == "__main__":
     async def run_standalone():
         try:
-            async with p.Server(host="127.0.0.1", port=8801) as server:
+            async with p.Server(
+                host="127.0.0.1",
+                port=int(os.getenv("WELFARE_PORT", "8801")),
+                nlp_service=create_healthcare_nlp_service,
+                session_store="local",
+                customer_store="local",
+            ) as server:
                 await register_agent(server)
         except KeyboardInterrupt:
             logger.info("\n🛑 Received shutdown signal")

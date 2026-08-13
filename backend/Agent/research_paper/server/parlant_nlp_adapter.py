@@ -2,8 +2,8 @@
 Parlant NLP Service Adapter for HealthcareNLPService
 
 This adapter wraps the custom HealthcareNLPService to make it compatible with
-Parlant's NLPService interface, allowing you to use your custom, cost-effective
-NLP service instead of the built-in providers.
+Parlant's NLPService interface while keeping all generation and embedding on
+the local Ollama instance.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from parlant.core.nlp.tokenization import EstimatingTokenizer
 from parlant.core.engines.alpha.prompt_builder import PromptBuilder
 from parlant.core.loggers import Logger
 from parlant.core.meter import Meter
+from parlant.core.tracer import Tracer
 from typing_extensions import override
 
 # Local imports
@@ -62,9 +63,10 @@ class HealthcareSchematicGenerator(BaseSchematicGenerator[T]):
         self,
         healthcare_service: HealthcareNLPService,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ):
-        super().__init__(logger=logger, meter=meter, model_name=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"))
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"))
         self._service = healthcare_service
         self._tokenizer = HealthcareTokenizer(healthcare_service)
 
@@ -124,8 +126,14 @@ Respond ONLY with valid JSON, no additional text or explanations."""
             import re
             content = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]', '', content)
 
-            # Parse JSON with strict=False to handle special characters
-            parsed_json = json.loads(content, strict=False)
+            # Small local models occasionally append an explanation after an
+            # otherwise valid JSON object. Decode the first JSON value instead
+            # of sending that trailing prose to the strict parser.
+            decoder = json.JSONDecoder(strict=False)
+            starts = [index for index in (content.find("{"), content.find("[")) if index >= 0]
+            if not starts:
+                raise json.JSONDecodeError("No JSON object or array found", content, 0)
+            parsed_json, _ = decoder.raw_decode(content[min(starts):])
             pydantic_obj = self.schema.model_validate(parsed_json)
 
         except (json.JSONDecodeError, Exception) as e:
@@ -186,9 +194,10 @@ class HealthcareEmbedder(BaseEmbedder):
         self,
         healthcare_service: HealthcareNLPService,
         logger: Logger,
+        tracer: Tracer,
         meter: Meter,
     ):
-        super().__init__(logger=logger, meter=meter, model_name=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text-v2-moe"))
+        super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text-v2-moe"))
         self._service = healthcare_service
         self._tokenizer = HealthcareTokenizer(healthcare_service)
 
@@ -254,11 +263,13 @@ class ParlantHealthcareNLPService(NLPService):
     def __init__(
         self,
         parlant_logger: Logger,
+        parlant_tracer: Tracer,
         parlant_meter: Meter,
         use_cache: bool = True,
         cache_dir: str = "./nlp_cache",
     ):
         self._logger = parlant_logger
+        self._tracer = parlant_tracer
         self._meter = parlant_meter
 
         # Use singleton pattern to prevent multiple initializations
@@ -289,6 +300,7 @@ class ParlantHealthcareNLPService(NLPService):
         generator = HealthcareSchematicGenerator(
             healthcare_service=self._healthcare_service,
             logger=self._logger,
+            tracer=self._tracer,
             meter=self._meter,
         )
         # Set the __orig_class__ attribute for the schema property to work
@@ -300,8 +312,20 @@ class ParlantHealthcareNLPService(NLPService):
         return HealthcareEmbedder(
             healthcare_service=self._healthcare_service,
             logger=self._logger,
+            tracer=self._tracer,
             meter=self._meter,
         )
+
+    @property
+    @override
+    def supports_streaming(self) -> bool:
+        """Parlant uses the structured generator; streaming is not exposed yet."""
+        return False
+
+    @override
+    async def get_streaming_text_generator(self, hints: Mapping[str, Any] = {}):
+        """Fail explicitly when a caller requests an unsupported stream."""
+        raise NotImplementedError("Ollama Parlant adapter does not expose text streaming")
 
     async def get_moderation_service(self) -> NoModeration:
         """
@@ -338,6 +362,7 @@ def create_healthcare_nlp_service(container) -> ParlantHealthcareNLPService:
 
     # Get logger and meter from container
     logger = container[Logger]
+    tracer = container[Tracer]
     meter = container[Meter]
 
     # Determine cache directory from environment variable or use default
@@ -348,6 +373,7 @@ def create_healthcare_nlp_service(container) -> ParlantHealthcareNLPService:
     # Create and return the service
     return ParlantHealthcareNLPService(
         parlant_logger=logger,
+        parlant_tracer=tracer,
         parlant_meter=meter,
         use_cache=True,  # Enable caching for cost savings
         cache_dir=cache_dir,  # Use centralized cache directory
