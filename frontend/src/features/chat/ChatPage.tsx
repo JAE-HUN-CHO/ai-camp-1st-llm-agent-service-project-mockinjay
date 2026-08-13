@@ -30,8 +30,13 @@ import { useChatRooms } from '../../hooks/useChatRooms';
 import type { ChatMessage } from '../../types/chat';
 import type { IntentCategory } from '../../types/intent';
 import { routeQueryStream, type AgentType, type StreamCallOptions } from '../../services/intentRouter';
-import { getChatHistoryBySession } from '../../services/api';
+import { getChatHistoryBySession, getUserProfile } from '../../services/api';
 import { createSession, analyzeNutrition } from '../../services/dietCareApi';
+import {
+  isUserProfile,
+  USER_PROFILE_STORAGE_KEY,
+  type UserProfile,
+} from '../../utils/profileSync';
 
 /**
  * Location state interface for navigation
@@ -48,6 +53,8 @@ const ChatPageEnhanced: React.FC = () => {
   const { t } = useApp();
   const { user } = useAuth();
   const location = useLocation();
+  const [chatProfile, setChatProfile] = useState<UserProfile>(user?.profile || 'general');
+  const profileRevision = useRef(0);
 
   // Sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -92,6 +99,49 @@ const ChatPageEnhanced: React.FC = () => {
 
   // Page visibility animation
   const [pageVisible, setPageVisible] = useState(false);
+
+  useEffect(() => {
+    profileRevision.current += 1;
+    setChatProfile(user?.profile || 'general');
+  }, [user?.profile]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const applyProfile = (value: string | null) => {
+      if (!cancelled && isUserProfile(value)) {
+        profileRevision.current += 1;
+        setChatProfile(value);
+      }
+    };
+
+    const loadProfile = async () => {
+      const requestRevision = profileRevision.current;
+      const profile = await getUserProfile();
+      if (profileRevision.current !== requestRevision) return;
+      if (profile?.profile) {
+        localStorage.setItem(USER_PROFILE_STORAGE_KEY, profile.profile);
+        applyProfile(profile.profile);
+      } else {
+        applyProfile(localStorage.getItem(USER_PROFILE_STORAGE_KEY));
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === USER_PROFILE_STORAGE_KEY) applyProfile(event.newValue);
+    };
+    const handleProfileChanged = (event: Event) => {
+      applyProfile((event as CustomEvent<string>).detail);
+    };
+
+    void loadProfile();
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('careguide:profile-changed', handleProfileChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('careguide:profile-changed', handleProfileChanged);
+    };
+  }, [user?.id]);
 
   // Current agent type based on route
   const isMedicalWelfare = location.pathname === ROUTES.CHAT_MEDICAL_WELFARE;
@@ -200,9 +250,9 @@ const ChatPageEnhanced: React.FC = () => {
     await createRoom(
       { agentType: getCurrentAgentType() },
       user?.id,
-      (user?.profile as 'general' | 'patient' | 'researcher') || 'general'
+      chatProfile
     );
-  }, [createRoom, getCurrentAgentType, user?.id, user?.profile]);
+  }, [createRoom, getCurrentAgentType, user?.id, chatProfile]);
 
   /**
    * Handle delete room
@@ -380,7 +430,7 @@ const ChatPageEnhanced: React.FC = () => {
       const newRoom = await createRoom(
         { agentType: getCurrentAgentType() },
         user?.id,
-        (user?.profile as 'general' | 'patient' | 'researcher') || 'general'
+        chatProfile
       );
       roomId = newRoom.id;
     }
@@ -463,7 +513,7 @@ const ChatPageEnhanced: React.FC = () => {
           sessionId: roomId,  // Use roomId as sessionId for Parlant session separation
           roomId: roomId,
           userId: user?.id,
-          userProfile: (user?.profile as 'general' | 'patient' | 'researcher') || 'general',
+          userProfile: chatProfile,
         };
 
         const response = await routeQueryStream(
@@ -534,7 +584,7 @@ const ChatPageEnhanced: React.FC = () => {
     selectedImage,
     currentRoomId,
     isNutrition,
-    user?.profile,
+    chatProfile,
     createRoom,
     getCurrentAgentType,
     updateRoomLastMessage,

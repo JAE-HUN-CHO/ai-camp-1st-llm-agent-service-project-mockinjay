@@ -37,6 +37,7 @@ import {
   type HealthProfileUpdateData,
   type UserPreferencesUpdateData,
 } from '../../services/api';
+import { USER_PROFILE_STORAGE_KEY } from '../../utils/profileSync';
 
 // Import modal components
 import {
@@ -194,13 +195,10 @@ const MyPageEnhanced: React.FC = () => {
 
       // Save profile to localStorage for real-time sync with ChatPage
       if (data.profile) {
-        const profileMap: Record<string, string> = {
-          'patient': '신장병 환우',
-          'researcher': '연구자',
-          'general': '일반인'
-        };
-        const userType = profileMap[data.profile] || '일반인';
-        localStorage.setItem('userProfile', userType);
+        localStorage.setItem(USER_PROFILE_STORAGE_KEY, data.profile);
+        window.dispatchEvent(new CustomEvent('careguide:profile-changed', {
+          detail: data.profile,
+        }));
       }
 
       setSubmitSuccess('프로필이 성공적으로 업데이트되었습니다.');
