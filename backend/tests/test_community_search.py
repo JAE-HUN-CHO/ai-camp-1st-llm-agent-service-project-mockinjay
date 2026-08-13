@@ -54,6 +54,19 @@ class FakeCollection:
                 for field in ("title", "content", "authorName")
             )
         ]
+        if "$and" in query:
+            cursor_or = query["$and"][0]["$or"]
+            cursor_time = cursor_or[0]["lastActivityAt"]["$lt"]
+            cursor_id = cursor_or[1]["_id"]["$lt"]
+            filtered = [
+                document
+                for document in filtered
+                if document["lastActivityAt"] < cursor_time
+                or (
+                    document["lastActivityAt"] == cursor_time
+                    and document["_id"] < cursor_id
+                )
+            ]
         self.cursor = FakeCursor([document.copy() for document in filtered])
         return self.cursor
 
@@ -138,6 +151,20 @@ def test_community_search_filters_and_paginates(monkeypatch):
     assert collection.query["isDeleted"] is False
     assert collection.query["postType"] == PostType.BOARD
     assert collection.query["$or"][0]["title"]["$regex"] == r"kidney\+care"
+
+    next_page = asyncio.run(
+        community.search_posts(
+            q="kidney+care",
+            limit=2,
+            postType=PostType.BOARD,
+            cursor=result["nextCursor"],
+        )
+    )
+    assert [post["id"] for post in next_page["posts"]] == [
+        "507f1f77bcf86cd799439013"
+    ]
+    assert next_page["hasMore"] is False
+    assert next_page["nextCursor"] is None
 
     exact_result = asyncio.run(
         community.search_posts(q="KIDNEY+CARE", limit=3, postType=PostType.BOARD)
