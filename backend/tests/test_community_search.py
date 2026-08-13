@@ -54,7 +54,7 @@ class FakeCollection:
                 for field in ("title", "content", "authorName")
             )
         ]
-        self.cursor = FakeCursor(filtered)
+        self.cursor = FakeCursor([document.copy() for document in filtered])
         return self.cursor
 
 
