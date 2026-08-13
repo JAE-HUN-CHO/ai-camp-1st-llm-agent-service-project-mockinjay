@@ -25,6 +25,7 @@ from Agent.core.local_agent import LocalAgent
 from Agent.core.agent_registry import AgentRegistry
 from Agent.core.contracts import AgentRequest, AgentResponse
 from Agent.core.execution_type import ExecutionType
+from app.config import PortConfigurationError, validate_parlant_ports, validate_port
 
 # Parlant client
 from parlant.client.client import AsyncParlantClient
@@ -32,17 +33,31 @@ from parlant.client.client import AsyncParlantClient
 logger = logging.getLogger(__name__)
 
 
+def _configured_port(name: str, default: int) -> int:
+    """Read and validate a local Parlant server port from the environment."""
+    raw_value = os.getenv(name, str(default))
+    try:
+        port = int(raw_value)
+    except ValueError as exc:
+        raise PortConfigurationError(f"{name} must be an integer port") from exc
+    return validate_port(port, name)
+
+
 @AgentRegistry.register("research_paper")
 class ResearchPaperAgent(LocalAgent):
     """
-    Research Paper Agent - Parlant Remote Agent with Session-Based Continuous Polling
+    Research Paper Agent - Parlant Remote Agent with Session-Based Continuous Polling.
+    The server port is configured by RESEARCH_PORT and defaults to 8800.
     세션 기반 연속 폴링을 사용하는 Research Paper 에이전트
     """
 
     # Class variables for singleton pattern
     _parlant_client: Optional[AsyncParlantClient] = None
     _parlant_server_process = None
-    _server_url = "http://localhost:8800"  # Shared healthcare_v2_en.py on port 8800
+    _server_port = _configured_port("RESEARCH_PORT", 8800)
+    _welfare_port = _configured_port("WELFARE_PORT", 8801)
+    validate_parlant_ports(_server_port, _welfare_port)
+    _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}  # session_id -> (parlant_session_id, customer_id)
 
@@ -69,8 +84,8 @@ class ResearchPaperAgent(LocalAgent):
             ],
             "parlant_server": {
                 "url": self._server_url,
-                "port": 8800,
-                "server": "healthcare_v2_en.py (shared, port 8800)",
+                "port": self._server_port,
+                "server": f"healthcare_v2_en.py (shared, port {self._server_port})",
                 "tools": [
                     "search_medical_qa",
                     "check_emergency",
@@ -652,7 +667,7 @@ class ResearchPaperAgent(LocalAgent):
                         'parlant_session_id': parlant_session_id,
                         'profile': request.profile,
                         'language': request.language,
-                        'server_port': 8800
+                        'server_port': self._server_port
                     }
                 )
             else:

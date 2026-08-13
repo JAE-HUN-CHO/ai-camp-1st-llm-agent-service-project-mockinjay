@@ -10,6 +10,7 @@ CareGuide Healthcare Chatbot v2 - OPTIMIZED
 """
 
 import parlant.sdk as p
+import os
 from parlant.sdk import ToolContext, ToolResult
 import asyncio
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ from Agent.parlant_common import (
 )
 # ==================== Optimized Imports ====================
 from app.services.hybrid_search import OptimizedHybridSearchEngine
+from parlant_nlp_adapter import create_healthcare_nlp_service
 
 # Optional: Cache Manager (requires Redis)
 try:
@@ -1187,7 +1189,13 @@ async def register_agent(server: p.Server) -> None:
 
 if __name__ == "__main__":
     async def run_standalone():
-        async with p.Server() as server:
+        async with p.Server(
+            host="127.0.0.1",
+            port=int(os.getenv("RESEARCH_PORT", "8800")),
+            nlp_service=create_healthcare_nlp_service,
+            session_store="local",
+            customer_store="local",
+        ) as server:
             await register_agent(server)
             print("Server running standalone. Press Ctrl+C to exit.")
 
