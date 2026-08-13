@@ -1,6 +1,9 @@
 import asyncio
 from copy import deepcopy
+from datetime import datetime, timezone
 import re
+
+from bson import ObjectId
 
 from app.api import community
 from app.models.community import PostType
@@ -60,7 +63,8 @@ def test_community_search_route_is_registered():
 def test_community_search_filters_and_paginates(monkeypatch):
     collection = FakeCollection([
         {
-            "_id": "first",
+            "_id": ObjectId("507f1f77bcf86cd799439011"),
+            "lastActivityAt": datetime(2026, 1, 2, tzinfo=timezone.utc),
             "title": "Kidney+Care",
             "content": "A helpful post",
             "authorName": "Patient",
@@ -68,7 +72,8 @@ def test_community_search_filters_and_paginates(monkeypatch):
             "isDeleted": False,
         },
         {
-            "_id": "second",
+            "_id": ObjectId("507f1f77bcf86cd799439012"),
+            "lastActivityAt": datetime(2026, 1, 1, tzinfo=timezone.utc),
             "title": "A follow-up",
             "content": "KIDNEY+CARE follow-up",
             "authorName": "Patient",
@@ -76,7 +81,8 @@ def test_community_search_filters_and_paginates(monkeypatch):
             "isDeleted": False,
         },
         {
-            "_id": "third",
+            "_id": ObjectId("507f1f77bcf86cd799439013"),
+            "lastActivityAt": datetime(2025, 12, 31, tzinfo=timezone.utc),
             "title": "A different post",
             "content": "No keyword here",
             "authorName": "Kidney+Caregiver",
@@ -84,7 +90,8 @@ def test_community_search_filters_and_paginates(monkeypatch):
             "isDeleted": False,
         },
         {
-            "_id": "deleted",
+            "_id": ObjectId("507f1f77bcf86cd799439014"),
+            "lastActivityAt": datetime(2025, 12, 30, tzinfo=timezone.utc),
             "title": "Kidney+Care deleted",
             "content": "Should be excluded",
             "authorName": "Patient",
@@ -92,7 +99,8 @@ def test_community_search_filters_and_paginates(monkeypatch):
             "isDeleted": True,
         },
         {
-            "_id": "other-type",
+            "_id": ObjectId("507f1f77bcf86cd799439015"),
+            "lastActivityAt": datetime(2025, 12, 29, tzinfo=timezone.utc),
             "title": "Kidney+Care survey",
             "content": "Should be filtered by type",
             "authorName": "Patient",
@@ -113,9 +121,10 @@ def test_community_search_filters_and_paginates(monkeypatch):
     )
 
     assert len(result["posts"]) == 2
-    assert result["posts"][0]["id"] == "first"
+    assert result["posts"][0]["id"] == "507f1f77bcf86cd799439011"
     assert result["hasMore"] is True
-    assert result["posts"][1]["id"] == "second"
+    assert result["posts"][1]["id"] == "507f1f77bcf86cd799439012"
+    assert result["nextCursor"]
     assert collection.cursor.requested_limit == 3
     assert collection.query["isDeleted"] is False
     assert collection.query["postType"] == PostType.BOARD
@@ -126,3 +135,4 @@ def test_community_search_filters_and_paginates(monkeypatch):
     )
     assert [post["id"] for post in exact_result["posts"]] == ["first", "second"]
     assert exact_result["hasMore"] is False
+    assert exact_result["nextCursor"] is None
