@@ -51,6 +51,7 @@ interface WeeklyData {
 }
 
 type ChartDataKey = keyof Omit<WeeklyData, 'day' | 'dayEn'>;
+const NUTRITION_PROGRESS_ERROR = 'nutrition_progress_load_error';
 
 const SimpleBarChart: React.FC<{
   data: WeeklyData[];
@@ -98,12 +99,15 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
   const [loading, setLoading] = useState(true);
   const [totalMealsLogged, setTotalMealsLogged] = useState<number | null>(null);
   const isKo = language === 'ko';
+  const hasRecordedMeals = (totalMealsLogged ?? 0) > 0;
 
   useEffect(() => {
+    let active = true;
     setLoading(true);
     setError(null);
     Promise.all([getWeeklyProgress(), getGoals()])
       .then(([weekly, goalResponse]) => {
+        if (!active) return;
         const koreanDays = ['일', '월', '화', '수', '목', '금', '토'];
         const englishDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         setWeeklyData(weekly.daily_summaries.map((summary) => {
@@ -121,9 +125,13 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
         setTotalMealsLogged(weekly.total_meals_logged ?? null);
         setGoals(goalResponse.goals);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : '영양 진행도를 불러오지 못했습니다.'))
-      .finally(() => setLoading(false));
-  }, [isKo]);
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : NUTRITION_PROGRESS_ERROR);
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   // Calculate averages and current nutrient status
   const nutrientData: NutrientData[] = useMemo(() => {
@@ -227,7 +235,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
 
   return (
     <div className="space-y-6">
-      {error && <div className="p-4 rounded-lg bg-red-50 text-red-700">{error}</div>}
+      {error && <div className="p-4 rounded-lg bg-red-50 text-red-700">{error === NUTRITION_PROGRESS_ERROR ? (isKo ? '영양 진행도를 불러오지 못했습니다.' : 'Failed to load nutrition progress.') : error}</div>}
       {loading && <div className="p-4 rounded-lg bg-gray-50 text-gray-500">{isKo ? '영양 데이터를 불러오는 중...' : 'Loading nutrition data...'}</div>}
       {!loading && !error && totalMealsLogged === 0 && <div className="p-4 rounded-lg bg-gray-50 text-gray-500">{isKo ? '기록된 식단 데이터가 없습니다.' : 'No recorded diet data.'}</div>}
       {/* Period Selector */}
@@ -244,7 +252,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
       </div>
 
       {/* Nutrient Summary Cards */}
-      {!loading && !error && weeklyData.length > 0 && goals && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {!loading && !error && hasRecordedMeals && weeklyData.length > 0 && goals && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {nutrientData.filter((nutrient) => nutrient.goal > 0).map(nutrient => {
           const NutrientIcon = nutrient.icon;
           const percentage = Math.round((nutrient.current / nutrient.goal) * 100);
@@ -298,7 +306,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
       </div>}
 
       {/* Weekly Trend Charts */}
-      {!loading && !error && weeklyData.length > 0 && goals && <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+      {!loading && !error && hasRecordedMeals && weeklyData.length > 0 && goals && <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
           <Calendar className="text-blue-500" size={20} />
           {isKo ? '주간 섭취량 추이' : 'Weekly Intake Trends'}
@@ -341,7 +349,7 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
       </div>}
 
       {/* Insights Section */}
-      {!loading && !error && nutrientData.length > 0 && <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
+      {!loading && !error && hasRecordedMeals && insights.length > 0 && <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg">
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
           <Target className="text-indigo-500" size={20} />
           {isKo ? 'AI 영양 인사이트' : 'AI Nutrition Insights'}

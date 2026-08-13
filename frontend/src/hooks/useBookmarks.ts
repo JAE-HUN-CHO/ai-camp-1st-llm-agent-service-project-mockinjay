@@ -29,6 +29,9 @@ export interface UseBookmarksReturn {
   /** Error message if any operation failed */
   error: string | null;
 
+  /** Error from a bookmark mutation, separate from list loading errors. */
+  actionError: string | null;
+
   /** Check if a paper is bookmarked */
   checkIsBookmarked: (paperId: string) => boolean;
 
@@ -82,6 +85,7 @@ export function useBookmarks(
   const [bookmarks, setBookmarks] = useState<BookmarkedPaper[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   /**
    * Load bookmarks from API/storage
@@ -137,7 +141,7 @@ export function useBookmarks(
 
       try {
         setLoading(true);
-        setError(null);
+        setActionError(null);
 
         const request: CreateBookmarkRequest = {
           userId,
@@ -152,7 +156,7 @@ export function useBookmarks(
         setBookmarks((prev) => [newBookmark, ...prev]);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '북마크 추가에 실패했습니다';
-        setError(errorMessage);
+        setActionError(errorMessage);
         console.error('Failed to add bookmark:', err);
         throw err;
       } finally {
@@ -173,7 +177,7 @@ export function useBookmarks(
 
       try {
         setLoading(true);
-        setError(null);
+        setActionError(null);
 
         await deleteBookmark(bookmarkId, userId);
 
@@ -181,7 +185,7 @@ export function useBookmarks(
         setBookmarks((prev) => prev.filter((b) => b.id !== bookmarkId));
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '북마크 삭제에 실패했습니다';
-        setError(errorMessage);
+        setActionError(errorMessage);
         console.error('Failed to remove bookmark:', err);
         throw err;
       } finally {
@@ -202,7 +206,7 @@ export function useBookmarks(
 
       try {
         setLoading(true);
-        setError(null);
+        setActionError(null);
 
         await deleteBookmarkByPaperId(paperId, userId);
 
@@ -210,7 +214,7 @@ export function useBookmarks(
         setBookmarks((prev) => prev.filter((b) => b.paperId !== paperId));
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '북마크 삭제에 실패했습니다';
-        setError(errorMessage);
+        setActionError(errorMessage);
         console.error('Failed to remove bookmark by paper ID:', err);
         throw err;
       } finally {
@@ -231,7 +235,7 @@ export function useBookmarks(
 
       try {
         setLoading(true);
-        setError(null);
+        setActionError(null);
 
         const updatedBookmark = await updateBookmark(bookmarkId, userId, updates);
 
@@ -241,7 +245,7 @@ export function useBookmarks(
         );
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : '북마크 업데이트에 실패했습니다';
-        setError(errorMessage);
+        setActionError(errorMessage);
         console.error('Failed to update bookmark:', err);
         throw err;
       } finally {
@@ -256,12 +260,14 @@ export function useBookmarks(
    */
   const clearError = useCallback(() => {
     setError(null);
+    setActionError(null);
   }, []);
 
   return {
     bookmarks,
     loading,
     error,
+    actionError,
     checkIsBookmarked,
     addBookmark,
     removeBookmark,

@@ -33,12 +33,13 @@ async def _safe_create_notification(payload: NotificationCreate, preference_key:
                 return
         except Exception:
             logger.exception("Could not read notification preference; preserving legacy opt-in behavior")
+    event_id = uuid.uuid4().hex
     try:
-        await create_notification(payload)
+        await create_notification(payload, idempotency_key=event_id)
     except Exception as exc:
         logger.warning("Community notification delivery failed after primary write: %s", exc)
         try:
-            await record_notification_failure(payload, str(exc))
+            await record_notification_failure(payload, str(exc), event_id=event_id)
         except Exception:
             logger.exception("Could not record community notification failure for retry")
 

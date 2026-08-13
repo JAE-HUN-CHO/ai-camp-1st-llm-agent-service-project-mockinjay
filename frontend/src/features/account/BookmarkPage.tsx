@@ -13,7 +13,13 @@ import {
 export default function BookmarkPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { bookmarks: paperList, loading: papersLoading, error: papersError, removeBookmark } = useBookmarks(user?.id);
+  const {
+    bookmarks: paperList,
+    loading: papersLoading,
+    error: papersError,
+    actionError: papersActionError,
+    removeBookmark,
+  } = useBookmarks(user?.id);
   const [activeTab, setActiveTab] = useState<'news' | 'papers'>('news');
   const [newsList, setNewsList] = useState<NewsBookmark[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -41,6 +47,7 @@ export default function BookmarkPage() {
 
   const removeNews = async (id: string) => {
     if (!window.confirm('즐겨찾기에서 삭제하시겠습니까?')) return;
+    setNewsActionError(null);
     try {
       await deleteNewsBookmark(id);
       setNewsList((items) => items.filter((item) => item.id !== id));
@@ -78,6 +85,7 @@ export default function BookmarkPage() {
         {loading && <p className="py-12 text-center text-gray-500">불러오는 중...</p>}
         {error && <p className="py-12 text-center text-red-600">{error}</p>}
         {activeTab === 'news' && newsActionError && <p className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{newsActionError}</p>}
+        {activeTab === 'papers' && papersActionError && <p className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{papersActionError}</p>}
         {!loading && !error && activeTab === 'news' && (
           newsList.length ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

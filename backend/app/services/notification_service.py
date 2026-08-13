@@ -57,11 +57,15 @@ async def create_notification(notification: NotificationCreate, idempotency_key:
     return str(result.inserted_id)
 
 
-async def record_notification_failure(notification: NotificationCreate, error: str) -> None:
+async def record_notification_failure(
+    notification: NotificationCreate,
+    error: str,
+    event_id: str | None = None,
+) -> None:
     """Persist a failed delivery so a later worker can retry it."""
     now = datetime.utcnow()
     await get_notification_outbox_collection().insert_one({
-        "event_id": uuid.uuid4().hex,
+        "event_id": event_id or uuid.uuid4().hex,
         "payload": notification.model_dump(),
         "status": "pending",
         "attempts": 0,
@@ -120,13 +124,13 @@ async def retry_pending_notifications(limit: int = 20) -> int:
                 update["next_attempt_at"] = datetime.utcnow() + timedelta(seconds=backoff)
                 update["backoff_seconds"] = backoff
             await collection.update_one(
-                {"_id": event["_id"]},
+                {"_id": event["_id"], "status": "processing", "worker_id": worker_id},
                 {"$set": update},
             )
             logger.warning("Notification outbox retry %s: %s", "exhausted" if exhausted else "failed", exc)
             continue
-        await collection.update_one(
-            {"_id": event["_id"]},
+        delivered_update = await collection.update_one(
+            {"_id": event["_id"], "status": "processing", "worker_id": worker_id},
             {"$set": {
                 "status": "delivered",
                 "attempts": attempts,
@@ -135,7 +139,8 @@ async def retry_pending_notifications(limit: int = 20) -> int:
                 "worker_id": None,
             }},
         )
-        delivered += 1
+        if getattr(delivered_update, "matched_count", getattr(delivered_update, "modified_count", 0)):
+            delivered += 1
     return delivered
 
 

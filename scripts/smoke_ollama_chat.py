@@ -29,68 +29,80 @@ def _is_transient_index_error(error: OperationFailure) -> bool:
 
 
 async def run() -> None:
-    print("connecting", flush=True)
-    await Database.connect()
-    print("connected", flush=True)
-    service = OllamaChatService(database=Database.db, top_k=1)
     smoke_id = f"careguide-smoke-{uuid.uuid4()}"
-    collection = Database.db[service.collection_name]
+    service = None
+    collection = None
     try:
-        vector = await service.embed_query("만성콩팥병 혈압 관리")
-        print("embedded", len(vector), flush=True)
-        await collection.insert_one(
-            {
-                "_id": smoke_id,
-                "embedding": vector,
-                "title": "CareGuide smoke evidence",
-                "text": "만성콩팥병 환자는 혈압과 단백뇨를 정기적으로 확인해야 합니다.",
-                "source": "temporary-smoke-fixture",
-            }
-        )
-        print("inserted", flush=True)
-        # Atlas Local updates vector search indexes asynchronously. Poll with a
-        # bounded timeout instead of assuming a fixed indexing delay.
-        deadline = asyncio.get_running_loop().time() + 30
-        while True:
+        print("connecting", flush=True)
+        await Database.connect()
+        print("connected", flush=True)
+        service = OllamaChatService(database=Database.db, top_k=1)
+        collection = Database.db[service.collection_name]
+        try:
+            vector = await service.embed_query("만성콩팥병 혈압 관리")
+            print("embedded", len(vector), flush=True)
+            await collection.insert_one(
+                {
+                    "_id": smoke_id,
+                    "embedding": vector,
+                    "title": "CareGuide smoke evidence",
+                    "text": "만성콩팥병 환자는 혈압과 단백뇨를 정기적으로 확인해야 합니다.",
+                    "source": "temporary-smoke-fixture",
+                }
+            )
+            print("inserted", flush=True)
+            # Atlas Local updates vector search indexes asynchronously. Poll with
+            # a bounded timeout instead of assuming a fixed indexing delay.
+            deadline = asyncio.get_running_loop().time() + 30
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("Timed out waiting for the smoke vector to become searchable")
+                try:
+                    retrieved = await asyncio.wait_for(service.retrieve(vector), timeout=remaining)
+                except OperationFailure as exc:
+                    if not _is_transient_index_error(exc):
+                        raise
+                    retrieved = []
+                if any(item.get("_id") == smoke_id for item in retrieved):
+                    break
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("Timed out waiting for the smoke vector to become searchable")
+                await asyncio.sleep(min(1, remaining))
+            result = await service.generate("만성콩팥병 혈압 관리", profile="patient")
+            print("generated", bool(result.get("answer")), flush=True)
+            events = [
+                event
+                async for event in service.stream("만성콩팥병 혈압 관리", profile="patient")
+            ]
+            print("streamed", len(events), flush=True)
+            streamed = "".join(
+                event.get("content", "")
+                for event in events
+                if event.get("status") == "streaming"
+            )
+            assert len(vector) == service.dimensions
+            assert result["metadata"]["retrieved_count"] >= 1
+            assert result["answer"]
+            assert streamed
+            print(
+                {
+                    "embedding_dimensions": len(vector),
+                    "retrieved_count": result["metadata"]["retrieved_count"],
+                    "generated": bool(result["answer"]),
+                    "streamed": bool(streamed),
+                    "status": "PASS",
+                }
+            )
+        finally:
             try:
-                retrieved = await service.retrieve(vector)
-            except OperationFailure as exc:
-                if not _is_transient_index_error(exc):
-                    raise
-                retrieved = []
-            if any(item.get("_id") == smoke_id for item in retrieved):
-                break
-            if asyncio.get_running_loop().time() >= deadline:
-                raise TimeoutError("Timed out waiting for the smoke vector to become searchable")
-            await asyncio.sleep(1)
-        result = await service.generate("만성콩팥병 혈압 관리", profile="patient")
-        print("generated", bool(result.get("answer")), flush=True)
-        events = [
-            event
-            async for event in service.stream("만성콩팥병 혈압 관리", profile="patient")
-        ]
-        print("streamed", len(events), flush=True)
-        streamed = "".join(
-            event.get("content", "")
-            for event in events
-            if event.get("status") == "streaming"
-        )
-        assert len(vector) == service.dimensions
-        assert result["metadata"]["retrieved_count"] >= 1
-        assert result["answer"]
-        assert streamed
-        print(
-            {
-                "embedding_dimensions": len(vector),
-                "retrieved_count": result["metadata"]["retrieved_count"],
-                "generated": bool(result["answer"]),
-                "streamed": bool(streamed),
-                "status": "PASS",
-            }
-        )
+                if collection is not None:
+                    await collection.delete_one({"_id": smoke_id})
+            finally:
+                if service is not None:
+                    await service.close()
     finally:
-        await collection.delete_one({"_id": smoke_id})
-        await service.close()
         await Database.disconnect()
 
 

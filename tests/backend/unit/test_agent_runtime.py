@@ -44,12 +44,12 @@ def test_runtime_uses_explicit_ollama_service_contract(monkeypatch):
 
 def test_chat_service_is_lazy_and_cached(monkeypatch):
     monkeypatch.setenv("OLLAMA_ENABLED", "true")
-    import app.services.ollama_chat as ollama_chat
+    from app.services import ollama_chat
 
     constructed = []
 
     class FakeChatService:
-        def __init__(self):
+        def __init__(self) -> None:
             constructed.append(self)
 
     monkeypatch.setattr(ollama_chat, "OllamaChatService", FakeChatService)
@@ -63,7 +63,7 @@ def test_chat_service_is_lazy_and_cached(monkeypatch):
 
 def test_disabled_runtime_never_constructs_chat_service(monkeypatch):
     monkeypatch.setenv("OLLAMA_ENABLED", "false")
-    import app.services.ollama_chat as ollama_chat
+    from app.services import ollama_chat
 
     monkeypatch.setattr(ollama_chat, "OllamaChatService", lambda: (_ for _ in ()).throw(AssertionError("constructed")))
     assert AgentRuntime().chat_service is None
