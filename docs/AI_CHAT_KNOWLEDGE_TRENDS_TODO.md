@@ -1,6 +1,6 @@
 # AI Chat, Knowledge Search, Trends 영역 상세 To-Do
 
-> **상태 안내 (2026-08-14)**: 이 문서는 2025년 hosted-model/Pinecone
+> **상태 안내 (2026-08-13)**: 이 문서는 2025년 hosted-model/Pinecone
 > 구성을 기준으로 작성된 historical 계획서입니다. 현재 제품 계약은
 > [ADR-011](adr/ADR-011-current-runtime-contract.md)에 따르며 Ollama-only,
 > local MongoDB, `frontend/`를 기준으로 합니다. 아래의 API 키·Pinecone

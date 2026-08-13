@@ -146,9 +146,13 @@ Respond ONLY with valid JSON, no additional text or explanations."""
             pydantic_obj = self.schema.model_validate(parsed_json)
 
         except Exception as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.error(f"Raw response: {result.content}")
-            raise ParlantGenerationError(f"Failed to generate valid {schema_name}") from e
+            logger.error(
+                "Failed to parse Ollama response: schema=%s error_type=%s response_length=%d",
+                schema_name,
+                type(e).__name__,
+                len(result.content),
+            )
+            raise ParlantGenerationError(f"Failed to generate valid {schema_name}") from None
 
         # Build generation info - convert healthcare UsageInfo to Parlant UsageInfo
         healthcare_usage = result.info.usage

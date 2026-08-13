@@ -1,6 +1,6 @@
 # 커스텀 NLP 서비스 구현 (비용 절감)
 
-> **현재 런타임 기준 (2026-08-14)**: 이 문서는 과거 hosted-model 설계를
+> **현재 런타임 기준 (2026-08-13)**: 이 문서는 과거 hosted-model 설계를
 > 보존한 참고 문서입니다. 현재 구현은 유료 API 키를 사용하지 않으며,
 > `ParlantHealthcareNLPService`가 `OLLAMA_MODEL`과
 > `OLLAMA_EMBEDDING_MODEL`을 통해 로컬 Ollama로 생성·임베딩을 수행합니다.

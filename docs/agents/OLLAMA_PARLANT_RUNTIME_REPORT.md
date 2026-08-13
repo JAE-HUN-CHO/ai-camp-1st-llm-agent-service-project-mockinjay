@@ -1,13 +1,14 @@
 # Ollama-only Parlant 런타임 보고서
 
-**업데이트:** 2026-08-14
+**업데이트:** 2026-08-13
 
 ## 현재 계약
 
 - Parlant 연구 서버: `RESEARCH_PORT` (기본 `8800`)
 - Parlant 복지 서버: `WELFARE_PORT` (기본 `8801`)
 - 생성: `OLLAMA_MODEL` (기본 `qwen3.6:27b-mlx`)
-- 임베딩: `OLLAMA_EMBEDDING_MODEL` (기본 `nomic-embed-text-v2-moe`)
+- 임베딩: `OLLAMA_EMBEDDING_MODEL` (기본 `nomic-embed-text-v2-moe`, 1536차원 필수)
+- 대체 임베딩 모델도 MongoDB 벡터 저장 및 cosine 검색 호환을 위해 1536차원을 유지해야 합니다.
 - Ollama endpoint: `http://localhost:11434`
 - 세션·고객 저장소: Parlant local store
 - 유료 API 키: 필요 없음
