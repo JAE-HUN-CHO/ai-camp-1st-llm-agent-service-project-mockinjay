@@ -1,5 +1,6 @@
 import asyncio
 from copy import deepcopy
+import re
 
 from app.api import community
 from app.models.community import PostType
@@ -30,7 +31,19 @@ class FakeCollection:
 
     def find(self, query):
         self.query = query
-        self.cursor = FakeCursor(self.documents)
+        pattern = query["$or"][0]["title"]["$regex"]
+        post_type = query.get("postType")
+        filtered = [
+            document
+            for document in self.documents
+            if not document["isDeleted"]
+            and (post_type is None or document["postType"] == post_type)
+            and any(
+                re.search(pattern, document[field], re.IGNORECASE)
+                for field in ("title", "content", "authorName")
+            )
+        ]
+        self.cursor = FakeCursor(filtered)
         return self.cursor
 
 
@@ -48,7 +61,7 @@ def test_community_search_filters_and_paginates(monkeypatch):
     collection = FakeCollection([
         {
             "_id": "first",
-            "title": "Kidney care",
+            "title": "Kidney+Care",
             "content": "A helpful post",
             "authorName": "Patient",
             "postType": PostType.BOARD,
@@ -56,10 +69,34 @@ def test_community_search_filters_and_paginates(monkeypatch):
         },
         {
             "_id": "second",
-            "title": "Kidney care follow-up",
-            "content": "Another helpful post",
+            "title": "A follow-up",
+            "content": "KIDNEY+CARE follow-up",
             "authorName": "Patient",
             "postType": PostType.BOARD,
+            "isDeleted": False,
+        },
+        {
+            "_id": "third",
+            "title": "A different post",
+            "content": "No keyword here",
+            "authorName": "Kidney+Caregiver",
+            "postType": PostType.BOARD,
+            "isDeleted": False,
+        },
+        {
+            "_id": "deleted",
+            "title": "Kidney+Care deleted",
+            "content": "Should be excluded",
+            "authorName": "Patient",
+            "postType": PostType.BOARD,
+            "isDeleted": True,
+        },
+        {
+            "_id": "other-type",
+            "title": "Kidney+Care survey",
+            "content": "Should be filtered by type",
+            "authorName": "Patient",
+            "postType": PostType.SURVEY,
             "isDeleted": False,
         },
     ])
@@ -72,13 +109,20 @@ def test_community_search_filters_and_paginates(monkeypatch):
     monkeypatch.setattr(community, "db", FakeDatabase())
 
     result = asyncio.run(
-        community.search_posts(q="kidney+care", limit=1, postType=PostType.BOARD)
+        community.search_posts(q="kidney+care", limit=2, postType=PostType.BOARD)
     )
 
-    assert len(result["posts"]) == 1
+    assert len(result["posts"]) == 2
     assert result["posts"][0]["id"] == "first"
     assert result["hasMore"] is True
-    assert collection.cursor.requested_limit == 2
+    assert result["posts"][1]["id"] == "second"
+    assert collection.cursor.requested_limit == 3
     assert collection.query["isDeleted"] is False
     assert collection.query["postType"] == PostType.BOARD
     assert collection.query["$or"][0]["title"]["$regex"] == r"kidney\+care"
+
+    exact_result = asyncio.run(
+        community.search_posts(q="KIDNEY+CARE", limit=3, postType=PostType.BOARD)
+    )
+    assert [post["id"] for post in exact_result["posts"]] == ["first", "second"]
+    assert exact_result["hasMore"] is False
