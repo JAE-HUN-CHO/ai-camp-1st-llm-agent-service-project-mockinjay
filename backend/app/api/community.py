@@ -258,11 +258,12 @@ async def search_posts(
     if postType:
         query["postType"] = postType
 
-    posts = await collection.find(query).sort("lastActivityAt", -1).limit(limit).to_list(length=limit)
-    serialized_posts = [serialize_post(post) for post in posts]
+    posts = await collection.find(query).sort("lastActivityAt", -1).limit(limit + 1).to_list(length=limit + 1)
+    has_more = len(posts) > limit
+    serialized_posts = [serialize_post(post) for post in posts[:limit]]
     return {
         "posts": serialized_posts,
-        "hasMore": len(serialized_posts) == limit,
+        "hasMore": has_more,
     }
 
 
