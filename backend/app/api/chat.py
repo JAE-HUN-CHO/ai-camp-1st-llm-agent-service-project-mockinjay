@@ -32,6 +32,12 @@ PARLANT_BASE_URL = RESEARCH_BASE_URL
 
 # HTTP client for proxying
 client = httpx.AsyncClient(timeout=30.0)
+_background_tasks: set[asyncio.Task] = set()
+_ALLOWED_PROFILES = {"general", "patient", "researcher"}
+
+
+def _normalize_profile(value: object) -> str:
+    return value if isinstance(value, str) and value in _ALLOWED_PROFILES else "general"
 
 # Import Agents to ensure registration
 from Agent.medical_welfare.agent import MedicalWelfareAgent
@@ -55,6 +61,72 @@ def _authorize_session(request: Request, context_system, session_id: str) -> str
     if session and session.get("user_id") != current_user_id:
         raise HTTPException(status_code=403, detail="Access denied: session ownership mismatch")
     return current_user_id
+
+
+async def _persist_chat_response(
+    context_system,
+    *,
+    user_id: str,
+    session_id: str,
+    room_id: str | None,
+    query: str,
+    answer: str,
+    agent_type: str = "ollama_rag",
+) -> None:
+    """Persist a direct Ollama response using the same history contract."""
+    if not (answer and user_id and session_id and query):
+        return
+    try:
+        await context_system.context_engineer.db_manager.save_conversation(
+            user_id, session_id, agent_type, query, answer, room_id
+        )
+        task = asyncio.create_task(
+            context_system.context_engineer.analyze_and_update_context(user_id)
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+    except Exception as exc:  # history persistence must not hide a valid answer
+        logger.warning("History saving failed for direct Ollama response: %s", exc)
+
+
+async def _direct_ollama_stream(
+    service,
+    context_system,
+    *,
+    query: str,
+    profile: str,
+    user_context,
+    user_id: str,
+    session_id: str,
+    room_id: str | None,
+):
+    accumulated = ""
+    try:
+        async for chunk in service.stream(
+            query, profile=profile, user_context=user_context
+        ):
+            if isinstance(chunk, dict):
+                content = chunk.get("content", "")
+                status = chunk.get("status")
+            else:
+                content = str(chunk)
+                status = "streaming"
+            if status in {"streaming", "complete"}:
+                accumulated = content if status == "complete" else accumulated + content
+            yield f"data: {json.dumps(chunk, ensure_ascii=False, default=str)}\n\n"
+    except Exception as exc:
+        logger.error("Direct Ollama stream failed: %s", exc, exc_info=True)
+        yield f"data: {json.dumps({'status': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
+    finally:
+        await _persist_chat_response(
+            context_system,
+            user_id=user_id,
+            session_id=session_id,
+            room_id=room_id,
+            query=query,
+            answer=accumulated,
+        )
+    yield "data: [DONE]\n\n"
 
 
 async def close_parlant_server(agent_runtime: AgentRuntime | None = None):
@@ -346,7 +418,37 @@ async def chat_message(request: Request):
 
         # Get user profile for Parlant customer tag
         # 사용자 프로필 추출 (Parlant 고객 태그용)
-        profile = body.get("profile") or body.get("user_profile", "general")
+        profile = _normalize_profile(body.get("profile") or body.get("user_profile", "general"))
+
+        # The canonical runtime uses the local Ollama/RAG service directly.
+        # Tests and legacy callers may still inject a router-only runtime, so
+        # retain that seam as an explicit fallback.
+        runtime = get_agent_runtime(request)
+        chat_service = getattr(runtime, "chat_service", None) if getattr(runtime, "use_ollama", True) else None
+        if chat_service is not None:
+            user_context = context.get("user_history")
+            result = await chat_service.generate(
+                query, profile=profile, user_context=user_context
+            )
+            answer = result.get("answer", "")
+            await _persist_chat_response(
+                context_system,
+                user_id=user_id,
+                session_id=session_id,
+                room_id=room_id,
+                query=query,
+                answer=answer,
+            )
+            return JSONResponse(
+                content=json.loads(json.dumps({
+                    "answer": answer,
+                    "content": answer,
+                    "status": "success",
+                    "agent_type": "ollama_rag",
+                    "sources": result.get("sources", []),
+                    "metadata": result.get("metadata", {}),
+                }, default=str))
+            )
 
         # Create AgentRequest
         agent_request = AgentRequest(
@@ -357,7 +459,7 @@ async def chat_message(request: Request):
             profile=profile  # Pass profile for Parlant integration
         )
 
-        router_agent = get_agent_runtime(request).router_agent
+        router_agent = runtime.router_agent
 
         async def event_generator():
             accumulated_response = ""
@@ -509,7 +611,30 @@ async def chat_stream(request: Request):
 
         # Get user profile for Parlant customer tag
         # 사용자 프로필 추출 (Parlant 고객 태그용)
-        profile = body.get("profile") or body.get("user_profile", "general")
+        profile = _normalize_profile(body.get("profile") or body.get("user_profile", "general"))
+
+        runtime = get_agent_runtime(request)
+        chat_service = getattr(runtime, "chat_service", None) if getattr(runtime, "use_ollama", True) else None
+        if chat_service is not None:
+            user_context = context.get("user_history")
+            return StreamingResponse(
+                _direct_ollama_stream(
+                    chat_service,
+                    context_system,
+                    query=query,
+                    profile=profile,
+                    user_context=user_context,
+                    user_id=user_id,
+                    session_id=session_id,
+                    room_id=room_id,
+                ),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
 
         # Create AgentRequest
         agent_request = AgentRequest(
@@ -520,7 +645,7 @@ async def chat_stream(request: Request):
             profile=profile  # Pass profile for Parlant integration
         )
 
-        router_agent = get_agent_runtime(request).router_agent
+        router_agent = runtime.router_agent
 
         async def event_generator():
             accumulated_response = ""

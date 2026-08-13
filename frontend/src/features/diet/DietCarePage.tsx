@@ -9,6 +9,9 @@ import { NutriCoachContent } from '../../components/diet-care/NutriCoachContent'
 import { DietLogContent } from '../../components/diet-care/DietLogContent';
 import { DietTypeDetailContent } from '../../components/diet-care/DietTypeDetailContent';
 import { MobileHeader } from '../../components/layout/MobileHeader';
+import { useAuth } from '../../contexts/AuthContext';
+import { getDailyProgress, getStreak, getWeeklyProgress } from '../../services/dietCareApi';
+import type { DailyProgressResponse, StreakResponse, WeeklyProgressResponse } from '../../types/diet-care';
 
 // Quick stats component for diet overview
 interface QuickStatProps {
@@ -50,6 +53,12 @@ const DietCarePageEnhanced: React.FC = () => {
   const { dietType } = useParams<{ dietType: string }>();
   const [showTips, setShowTips] = useState(true);
   const [pageVisible, setPageVisible] = useState(false);
+  const { user } = useAuth();
+  const [dailyProgress, setDailyProgress] = useState<DailyProgressResponse | null>(null);
+  const [weeklyProgress, setWeeklyProgress] = useState<WeeklyProgressResponse | null>(null);
+  const [streak, setStreak] = useState<StreakResponse | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [progressError, setProgressError] = useState<string | null>(null);
 
   // Page enter animation
   useEffect(() => {
@@ -61,6 +70,32 @@ const DietCarePageEnhanced: React.FC = () => {
   const isNutriCoach = location.pathname === ROUTES.NUTRI_COACH || location.pathname === ROUTES.DIET_CARE;
   const isDietLog = location.pathname === ROUTES.DIET_LOG;
   const isDietTypeDetail = location.pathname.startsWith('/diet-care/diet-type/');
+
+  useEffect(() => {
+    setDailyProgress(null);
+    setWeeklyProgress(null);
+    setStreak(null);
+    setProgressError(null);
+    if (!user?.id || !isDietLog) {
+      setProgressLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setProgressLoading(true);
+    Promise.all([getDailyProgress(), getWeeklyProgress(), getStreak()])
+      .then(([daily, weekly, currentStreak]) => {
+        if (cancelled) return;
+        setDailyProgress(daily);
+        setWeeklyProgress(weekly);
+        setStreak(currentStreak);
+        setProgressError(null);
+      })
+      .catch((error) => {
+        if (!cancelled) setProgressError(error instanceof Error ? error.message : '식단 진행도를 불러오지 못했습니다.');
+      })
+      .finally(() => { if (!cancelled) setProgressLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.id, isDietLog]);
 
   // Tab configuration
   const tabs = [
@@ -190,30 +225,31 @@ const DietCarePageEnhanced: React.FC = () => {
       {/* Quick Stats Overview (only for Diet Log) */}
       {isDietLog && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6 animate-fade-in">
+          {progressError && <p className="col-span-full text-sm text-red-600">{progressError}</p>}
           <QuickStat
             icon={<Target size={18} className="text-primary" />}
             label={language === 'ko' ? '오늘 칼로리' : 'Today Calories'}
-            value="1,250 kcal"
+            value={progressLoading ? '...' : `${Math.round(dailyProgress?.calories.current || 0).toLocaleString()} kcal`}
             trend="stable"
             color="hover:border-primary/30"
           />
           <QuickStat
             icon={<ChefHat size={18} className="text-green-500" />}
             label={language === 'ko' ? '식사 기록' : 'Meals Logged'}
-            value="2/3"
+            value={progressLoading ? '...' : `${dailyProgress?.meals_logged || 0}/${dailyProgress?.total_meals || 3}`}
             color="hover:border-green-300"
           />
           <QuickStat
             icon={<TrendingUp size={18} className="text-blue-500" />}
             label={language === 'ko' ? '주간 목표' : 'Weekly Goal'}
-            value="85%"
+            value={progressLoading ? '...' : `${Math.round(weeklyProgress?.average_compliance || 0)}%`}
             trend="up"
             color="hover:border-blue-300"
           />
           <QuickStat
             icon={<BookOpen size={18} className="text-purple-500" />}
             label={language === 'ko' ? '연속 기록' : 'Streak'}
-            value="7일"
+            value={progressLoading ? '...' : `${streak?.current_streak || 0}${language === 'ko' ? '일' : ' days'}`}
             color="hover:border-purple-300"
           />
         </div>

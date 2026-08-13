@@ -494,12 +494,17 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
             status=request.status
         )
 
-        # Parse studies with Korean translation
+        # Keep the list path provider-backed and latency-bounded. Translating
+        # every field of every study here makes a page of ten trials fan out
+        # into dozens of sequential 27B-model calls, leaving the UI spinner
+        # visible for minutes. The list card can render the authoritative
+        # ClinicalTrials.gov text directly; the detail endpoint performs the
+        # AI translation/summary after the user selects a trial.
         studies = data.get("studies", [])
         trials = []
 
         for study in studies:
-            trial = await parse_trial_data(study, translate=True)
+            trial = await parse_trial_data(study, translate=False)
             if trial:
                 trials.append(trial)
 

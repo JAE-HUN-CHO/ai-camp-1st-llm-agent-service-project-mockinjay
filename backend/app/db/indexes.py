@@ -27,6 +27,9 @@ async def create_indexes(db: AsyncIOMotorDatabase):
         # Notifications Collection Indexes
         await create_notifications_indexes(db)
 
+        # Notification outbox indexes
+        await create_notification_outbox_indexes(db)
+
         # Notification Settings Collection Indexes
         await create_notification_settings_indexes(db)
 
@@ -175,6 +178,12 @@ async def create_notifications_indexes(db: AsyncIOMotorDatabase):
             [("created_at", DESCENDING)],
             name="idx_notifications_created_at"
         ),
+        IndexModel(
+            [("outbox_event_id", ASCENDING)],
+            unique=True,
+            sparse=True,
+            name="idx_notifications_outbox_event_id",
+        ),
         # Compound index for category-based queries
         IndexModel(
             [("user_id", ASCENDING), ("category", ASCENDING), ("created_at", DESCENDING)],
@@ -184,6 +193,22 @@ async def create_notifications_indexes(db: AsyncIOMotorDatabase):
 
     await notifications_collection.create_indexes(indexes)
     logger.info(f"Created {len(indexes)} indexes for notifications collection")
+
+
+async def create_notification_outbox_indexes(db: AsyncIOMotorDatabase):
+    """Create indexes for retryable notification delivery events."""
+    collection = db["notification_outbox"]
+    await collection.create_indexes([
+        IndexModel(
+            [("status", ASCENDING), ("next_attempt_at", ASCENDING), ("created_at", ASCENDING)],
+            name="idx_notification_outbox_due",
+        ),
+        IndexModel(
+            [("event_id", ASCENDING)],
+            unique=True,
+            name="idx_notification_outbox_event_id",
+        ),
+    ])
 
 
 async def create_notification_settings_indexes(db: AsyncIOMotorDatabase):

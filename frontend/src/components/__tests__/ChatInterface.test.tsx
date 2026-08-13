@@ -94,6 +94,29 @@ describe('ChatInterface', () => {
         );
       });
     });
+
+    it('forwards auth and CSRF headers to the real stream endpoint', async () => {
+      localStorage.setItem('careguide_token', 'test-token');
+      const mockFetch = vi.fn().mockResolvedValue({
+        body: {
+          getReader: () => ({
+            read: vi.fn().mockResolvedValue({ done: true }),
+          }),
+        },
+      });
+      global.fetch = mockFetch;
+
+      renderWithProviders(<ChatInterface />);
+      const input = screen.getByPlaceholderText(/만성콩팥병에 대해 무엇이든/i);
+      fireEvent.change(input, { target: { value: 'Test message' } });
+      fireEvent.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        const request = mockFetch.mock.calls[0][1];
+        expect(request.headers.Authorization).toBe('Bearer test-token');
+        expect(request.headers['X-CSRF-Token']).toBeTruthy();
+      });
+    });
   });
 
   describe('Accessibility', () => {

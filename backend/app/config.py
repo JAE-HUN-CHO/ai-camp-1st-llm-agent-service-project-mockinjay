@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # CORS Settings (stored as string, parsed to list)
     cors_origins_raw: str = Field(
-        default="http://localhost:3333,http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5180",
+        default="http://localhost:3333,http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5180,http://127.0.0.1:3333,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5180",
         description="Comma-separated list of allowed CORS origins",
         alias="CORS_ORIGINS"
     )

@@ -182,11 +182,16 @@ class OptimizedHybridSearchEngine:
 
         # Log source selection with per-source limits
         enabled_sources = []
-        if use_guidelines: enabled_sources.append(f"Guidelines({actual_max_guidelines})")
-        if use_qa: enabled_sources.append(f"QA({actual_max_qa})")
-        if use_papers: enabled_sources.append(f"Papers({actual_max_papers})")
-        if use_medical: enabled_sources.append(f"Medical({actual_max_medical})")
-        if use_pubmed: enabled_sources.append(f"PubMed({actual_max_pubmed})")
+        if use_guidelines:
+            enabled_sources.append(f"Guidelines({actual_max_guidelines})")
+        if use_qa:
+            enabled_sources.append(f"QA({actual_max_qa})")
+        if use_papers:
+            enabled_sources.append(f"Papers({actual_max_papers})")
+        if use_medical:
+            enabled_sources.append(f"Medical({actual_max_medical})")
+        if use_pubmed:
+            enabled_sources.append(f"PubMed({actual_max_pubmed})")
         logger.info(f"🔍 Searching sources: {', '.join(enabled_sources)}")
 
         # Pre-generate query embedding once (shared across all semantic searches)

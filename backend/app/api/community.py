@@ -11,11 +11,37 @@ import logging
 from app.models.community import PostCreate, PostUpdate, PostType, CommentCreate, CommentUpdate
 from app.db.connection import db
 from app.utils.upload import validate_upload_filename
+from app.models.notification import NotificationCreate
+from app.services.notification_service import (
+    create_notification,
+    get_notification_settings,
+    record_notification_failure,
+)
 
 # Configure logger for this module (모듈 로거 설정)
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _safe_create_notification(payload: NotificationCreate, preference_key: str | None = None) -> None:
+    """Keep a successful community write successful when notification delivery fails."""
+    if preference_key:
+        try:
+            settings = await get_notification_settings(payload.user_id)
+            if not settings.get(preference_key, True):
+                return
+        except Exception:
+            logger.exception("Could not read notification preference; preserving legacy opt-in behavior")
+    event_id = uuid.uuid4().hex
+    try:
+        await create_notification(payload, idempotency_key=event_id)
+    except Exception as exc:
+        logger.warning("Community notification delivery failed after primary write: %s", exc)
+        try:
+            await record_notification_failure(payload, str(exc), event_id=event_id)
+        except Exception:
+            logger.exception("Could not record community notification failure for retry")
 
 # ============================================================================
 # Authorization Configuration
@@ -490,8 +516,7 @@ async def create_post(request: Request, post_data: PostCreate):
     """
     collection = db["posts"]
 
-    # TODO: 3개 이상 이미지 업로드 시 프론트엔드에서 404 에러 발생 중 - 임시로 최대 2개로 제한
-    image_urls = post_data.imageUrls[:2] if post_data.imageUrls else []
+    image_urls = post_data.imageUrls or []
 
     # Get current UTC timestamp
     now = datetime.utcnow()
@@ -860,6 +885,14 @@ async def create_comment(request: Request, comment_data: CommentCreate):
     # Fetch and return created comment
     created_comment = await comments_collection.find_one({"_id": result.inserted_id})
 
+    if post_author_id and post_author_id != user_id and is_authenticated:
+        await _safe_create_notification(NotificationCreate(
+            user_id=post_author_id,
+            type="community_reply",
+            message=f"게시글에 새 댓글이 달렸습니다: {comment_data.content[:80]}",
+            link=f"/community/detail/{comment_data.postId}",
+        ), preference_key="community_reply_notification")
+
     return serialize_comment(created_comment)
 
 
@@ -1057,6 +1090,15 @@ async def like_post(request: Request, postId: str):
         {"_id": ObjectId(postId)},
         {"$inc": {"likes": 1}}
     )
+
+    post_author_id = post.get("userId")
+    if post_author_id and post_author_id != current_user_id and is_authenticated:
+        await _safe_create_notification(NotificationCreate(
+            user_id=post_author_id,
+            type="community_like",
+            message="게시글에 좋아요가 추가되었습니다.",
+            link=f"/community/detail/{postId}",
+        ), preference_key="community_like_notification")
 
     return {"message": "Post liked successfully", "liked": True}
 

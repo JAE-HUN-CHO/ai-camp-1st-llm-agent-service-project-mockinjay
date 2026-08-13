@@ -1,188 +1,129 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Star, ExternalLink } from 'lucide-react';
 import { MobileHeader } from '../../components/layout/MobileHeader';
-
-// Mock Data
-const mockNews = [
-  {
-    id: '1',
-    title: '2025 미국신장학회 신장주간서 FINE-ONE 3상 연구 결과 발표',
-    source: '메디컬헤럴드',
-    date: '2025.02.23',
-    thumbnail: null
-  },
-  {
-    id: '2',
-    title: '전 세계 CKD 성인환자 8억 명',
-    source: '메디컬트리뷴',
-    date: '2025.02.20',
-    thumbnail: null
-  }
-];
-
-const mockPapers = [
-  {
-    id: 'p1',
-    title: 'Effects of SGLT2 Inhibitors on Kidney Failure',
-    authors: 'The EMPA-KIDNEY Collaborative Group',
-    date: '2023 Jan',
-    pmid: '36331190',
-    url: 'https://pubmed.ncbi.nlm.nih.gov/36331190/'
-  },
-  {
-    id: 'p2',
-    title: 'Finerenone in Patients with Chronic Kidney Disease',
-    authors: 'Bakris GL et al.',
-    date: '2020 Dec',
-    pmid: '33104276',
-    url: 'https://pubmed.ncbi.nlm.nih.gov/33104276/'
-  }
-];
+import { useAuth } from '../../contexts/AuthContext';
+import { useBookmarks } from '../../hooks/useBookmarks';
+import {
+  deleteNewsBookmark,
+  getNewsBookmarks,
+  type NewsBookmark,
+} from '../../services/bookmarkApi';
 
 export default function BookmarkPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const {
+    bookmarks: paperList,
+    loading: papersLoading,
+    error: papersError,
+    actionError: papersActionError,
+    removeBookmark,
+  } = useBookmarks(user?.id);
   const [activeTab, setActiveTab] = useState<'news' | 'papers'>('news');
-  const [newsList, setNewsList] = useState(mockNews);
-  const [paperList, setPaperList] = useState(mockPapers);
+  const [newsList, setNewsList] = useState<NewsBookmark[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState<string | null>(null);
+  const [newsActionError, setNewsActionError] = useState<string | null>(null);
 
-  const iconStyle = { strokeWidth: 2 };
+  useEffect(() => {
+    setNewsList([]);
+    setNewsError(null);
+    setNewsActionError(null);
+    if (!user?.id) {
+      setNewsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setNewsLoading(true);
+    getNewsBookmarks(user.id)
+      .then((items) => { if (!cancelled) setNewsList(items); })
+      .catch((error) => {
+        if (!cancelled) setNewsError(error instanceof Error ? error.message : '뉴스 북마크를 불러오지 못했습니다.');
+      })
+      .finally(() => { if (!cancelled) setNewsLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
-  const removeNews = (id: string) => {
-    if(window.confirm('즐겨찾기에서 삭제하시겠습니까?')) {
-      setNewsList(newsList.filter(n => n.id !== id));
+  const removeNews = async (id: string) => {
+    if (!window.confirm('즐겨찾기에서 삭제하시겠습니까?')) return;
+    setNewsActionError(null);
+    try {
+      await deleteNewsBookmark(id);
+      setNewsList((items) => items.filter((item) => item.id !== id));
+    } catch (error) {
+      setNewsActionError(error instanceof Error ? error.message : '뉴스 북마크를 삭제하지 못했습니다.');
     }
   };
 
-  const removePaper = (id: string) => {
-    if(window.confirm('즐겨찾기에서 삭제하시겠습니까?')) {
-      setPaperList(paperList.filter(p => p.id !== id));
+  const removePaper = async (id: string) => {
+    if (!window.confirm('즐겨찾기에서 삭제하시겠습니까?')) return;
+    try {
+      await removeBookmark(id);
+    } catch {
+      // useBookmarks exposes the operation error alongside the list.
     }
   };
+
+  const loading = activeTab === 'news' ? newsLoading : papersLoading;
+  const error = activeTab === 'news' ? newsError : papersError;
 
   return (
     <div className="flex flex-col h-screen bg-white">
       <MobileHeader title="즐겨찾기" />
-
-      {/* Tabs - Below Header */}
       <div className="px-5 border-b border-[#E0E0E0] bg-white sticky top-[52px] z-40">
         <div className="flex gap-6">
-          <button
-            onClick={() => setActiveTab('news')}
-            className={`pb-3 text-base font-medium transition-colors relative ${
-              activeTab === 'news' ? 'text-[#00C9B7]' : 'text-[#999999]'
-            }`}
-          >
-            뉴스
-            {activeTab === 'news' && (
-              <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#00C9B7]" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('papers')}
-            className={`pb-3 text-base font-medium transition-colors relative ${
-              activeTab === 'papers' ? 'text-[#00C9B7]' : 'text-[#999999]'
-            }`}
-          >
-            논문
-            {activeTab === 'papers' && (
-              <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#00C9B7]" />
-            )}
-          </button>
+          {(['news', 'papers'] as const).map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-3 text-base font-medium transition-colors relative ${activeTab === tab ? 'text-[#00C9B7]' : 'text-[#999999]'}`}>
+              {tab === 'news' ? '뉴스' : '논문'}
+              {activeTab === tab && <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#00C9B7]" />}
+            </button>
+          ))}
         </div>
       </div>
-
       <div className="flex-1 overflow-y-auto p-5 pb-24 lg:pb-10">
-        {activeTab === 'news' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {newsList.length > 0 ? (
-              newsList.map((news) => (
-                <div
-                  key={news.id}
-                  className="flex gap-4 p-4 rounded-xl border border-[#E0E0E0] bg-white h-full"
-                >
-                  <div
-                    className="w-[80px] h-[80px] bg-gray-100 rounded-lg flex-shrink-0 cursor-pointer"
-                    onClick={() => navigate(`/news/detail/${news.id}`)}
-                  />
+        {loading && <p className="py-12 text-center text-gray-500">불러오는 중...</p>}
+        {error && <p className="py-12 text-center text-red-600">{error}</p>}
+        {activeTab === 'news' && newsActionError && <p className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{newsActionError}</p>}
+        {activeTab === 'papers' && papersActionError && <p className="mb-4 rounded-lg bg-yellow-50 p-3 text-sm text-yellow-700">{papersActionError}</p>}
+        {!loading && !error && activeTab === 'news' && (
+          newsList.length ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {newsList.map((bookmark) => {
+                const article = bookmark.itemData;
+                return <div key={bookmark.id} className="flex gap-4 p-4 rounded-xl border border-[#E0E0E0] bg-white">
+                  <button className="w-[80px] h-[80px] bg-gray-100 rounded-lg flex-shrink-0" onClick={() => navigate(`/news/detail/${bookmark.itemId}`)} aria-label={`${article.title} 상세 보기`}>
+                    {article.image && <img src={article.image} alt="" className="w-full h-full object-cover rounded-lg" />}
+                  </button>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start gap-2 mb-1">
-                      <h3
-                        className="text-[15px] font-bold text-[#1F2937] leading-[1.4] line-clamp-2 cursor-pointer hover:text-[#00C9B7]"
-                        onClick={() => navigate(`/news/detail/${news.id}`)}
-                      >
-                        {news.title}
-                      </h3>
-                      <button
-                        onClick={() => removeNews(news.id)}
-                        className="text-[#FFD700] flex-shrink-0"
-                      >
-                        <Star size={20} fill="#FFD700" style={iconStyle} />
-                      </button>
+                      <button className="text-left text-[15px] font-bold text-[#1F2937] leading-[1.4] line-clamp-2 hover:text-[#00C9B7]" onClick={() => navigate(`/news/detail/${bookmark.itemId}`)}>{article.title}</button>
+                      <button onClick={() => removeNews(bookmark.id)} className="text-[#FFD700] flex-shrink-0" aria-label="뉴스 북마크 삭제"><Star size={20} fill="#FFD700" /></button>
                     </div>
-                    <div className="text-xs text-[#999999] flex gap-2">
-                      <span>{news.source}</span>
-                      <span>-</span>
-                      <span>{news.date}</span>
-                    </div>
+                    <div className="text-xs text-[#999999] flex gap-2"><span>{article.source}</span><span>-</span><span>{article.pubDate}</span></div>
                   </div>
-                </div>
-              ))
-            ) : (
-               <div className="flex flex-col items-center justify-center py-20 text-[#999999]">
-                 <Star size={40} className="mb-3 opacity-30" />
-                 <p>즐겨찾기한 뉴스가 없습니다.</p>
-               </div>
-            )}
-          </div>
+                </div>;
+              })}
+            </div>
+          ) : <EmptyState label="즐겨찾기한 뉴스가 없습니다." />
         )}
-
-        {activeTab === 'papers' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {paperList.length > 0 ? (
-              paperList.map((paper) => (
-                <div
-                  key={paper.id}
-                  className="p-5 rounded-xl border border-[#E0E0E0] bg-white h-full flex flex-col"
-                >
-                   <div className="flex justify-between items-start gap-2 mb-2">
-                      <h3 className="text-[16px] font-bold text-[#1F2937] leading-[1.4]">
-                        {paper.title}
-                      </h3>
-                      <button
-                        onClick={() => removePaper(paper.id)}
-                        className="text-[#FFD700] flex-shrink-0"
-                      >
-                        <Star size={20} fill="#FFD700" style={iconStyle} />
-                      </button>
-                   </div>
-
-                   <div className="text-sm text-[#666666] mb-1">{paper.authors}</div>
-                   <div className="flex items-center gap-3 text-xs text-[#999999] mb-4">
-                     <span>{paper.date}</span>
-                     <span>PMID: {paper.pmid}</span>
-                   </div>
-
-                   <a
-                     href={paper.url}
-                     target="_blank"
-                     rel="noreferrer"
-                     className="flex items-center justify-center gap-2 w-full h-[44px] rounded-lg border border-[#E0E0E0] bg-white text-[#1F2937] font-medium hover:bg-gray-50 transition-colors mt-auto"
-                   >
-                     <span>논문 보기</span>
-                     <ExternalLink size={16} style={iconStyle} />
-                   </a>
-                </div>
-              ))
-            ) : (
-               <div className="flex flex-col items-center justify-center py-20 text-[#999999]">
-                 <Star size={40} className="mb-3 opacity-30" />
-                 <p>즐겨찾기한 논문이 없습니다.</p>
-               </div>
-            )}
-          </div>
+        {!loading && !error && activeTab === 'papers' && (
+          paperList.length ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {paperList.map((paper) => <div key={paper.id} className="p-5 rounded-xl border border-[#E0E0E0] bg-white h-full flex flex-col">
+                <div className="flex justify-between items-start gap-2 mb-2"><h3 className="text-[16px] font-bold text-[#1F2937] leading-[1.4]">{paper.title || paper.paperData?.title}</h3><button onClick={() => removePaper(paper.id)} className="text-[#FFD700]" aria-label="논문 북마크 삭제"><Star size={20} fill="#FFD700" /></button></div>
+                <div className="text-sm text-[#666666] mb-1">{(paper.authors || paper.paperData?.authors || []).join(', ')}</div>
+                <div className="flex items-center gap-3 text-xs text-[#999999] mb-4"><span>{paper.pubDate || paper.paperData?.pub_date}</span><span>PMID: {paper.paperId}</span></div>
+                <a href={paper.url || paper.paperData?.url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full h-[44px] rounded-lg border border-[#E0E0E0] bg-white text-[#1F2937] font-medium hover:bg-gray-50 mt-auto"><span>논문 보기</span><ExternalLink size={16} /></a>
+              </div>)}
+            </div>
+          ) : <EmptyState label="즐겨찾기한 논문이 없습니다." />
         )}
       </div>
     </div>
   );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return <div className="flex flex-col items-center justify-center py-20 text-[#999999]"><Star size={40} className="mb-3 opacity-30" /><p>{label}</p></div>;
 }

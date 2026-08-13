@@ -195,13 +195,7 @@ const ResearchDashboardContent: React.FC<ResearchDashboardContentProps> = ({
       console.error('Failed to load trend data:', err);
       setError(err instanceof Error ? err.message : '트렌드 데이터를 불러오는데 실패했습니다.');
 
-      // Fallback mock data on error
-      setKeywords([
-        { text: 'chronic kidney disease', change: 12, trending: 'up' },
-        { text: 'dialysis', change: 8, trending: 'up' },
-        { text: 'kidney transplant', change: 15, trending: 'up' },
-        { text: 'renal diet', change: 5, trending: 'up' },
-      ]);
+      setKeywords([]);
     } finally {
       setLoading(false);
     }
@@ -283,8 +277,9 @@ const ResearchDashboardContent: React.FC<ResearchDashboardContentProps> = ({
               </div>
             ))}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        ) : keywords.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t.noData}</p>
+          ) : <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {keywords.map((keyword, index) => (
               <div
                 key={index}
@@ -328,8 +323,7 @@ const ResearchDashboardContent: React.FC<ResearchDashboardContentProps> = ({
                 </div>
               </div>
             ))}
-          </div>
-        )}
+          </div>}
       </section>
 
       {/* Research Trends Chart */}

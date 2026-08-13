@@ -26,7 +26,7 @@ async def get_notifications(
     Returns:
         dict: 알림 목록과 페이지 정보
     """
-    notifications = notification_service.get_user_notifications(user_id, page, page_size)
+    notifications = await notification_service.get_user_notifications(user_id, page, page_size)
     
     return {
         "success": True,
@@ -47,7 +47,7 @@ async def get_unread_count(user_id: str = Depends(get_current_user)):
     Returns:
         dict: 읽지 않은 알림 개수
     """
-    count = notification_service.get_unread_count(user_id)
+    count = await notification_service.get_unread_count(user_id)
     
     return {
         "success": True,
@@ -70,7 +70,7 @@ async def create_notification(
     Returns:
         dict: 생성된 알림 ID
     """
-    notification_id = notification_service.create_notification(notification)
+    notification_id = await notification_service.create_notification(notification)
     
     return {
         "success": True,
@@ -94,7 +94,7 @@ async def mark_notification_as_read(
     Returns:
         dict: 성공 메시지
     """
-    success = notification_service.mark_as_read(notification_id, user_id)
+    success = await notification_service.mark_as_read(notification_id, user_id)
     
     if not success:
         raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
@@ -116,7 +116,7 @@ async def delete_all_notifications(user_id: str = Depends(get_current_user)):
     Returns:
         dict: 삭제된 알림 개수
     """
-    deleted_count = notification_service.delete_all_notifications(user_id)
+    deleted_count = await notification_service.delete_all_notifications(user_id)
     
     return {
         "success": True,
@@ -136,7 +136,7 @@ async def get_notification_settings(user_id: str = Depends(get_current_user)):
     Returns:
         dict: 알림 설정
     """
-    settings = notification_service.get_notification_settings(user_id)
+    settings = await notification_service.get_notification_settings(user_id)
     
     return {
         "success": True,
@@ -162,7 +162,7 @@ async def update_notification_settings(
     # Pydantic 모델을 딕셔너리로 변환 (None 제외)
     update_dict = settings_update.model_dump(exclude_none=True)
     
-    success = notification_service.update_notification_settings(user_id, update_dict)
+    success = await notification_service.update_notification_settings(user_id, update_dict)
 
     return {
         "success": success,

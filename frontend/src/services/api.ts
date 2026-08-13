@@ -804,30 +804,20 @@ export async function getUserBookmarks(limit: number = 20, offset: number = 0): 
   total: number;
   hasMore: boolean;
 }> {
-  try {
-    const params = new URLSearchParams({
-      limit: String(limit),
-      offset: String(offset),
-    });
-    const response = await api.get(`/api/mypage/bookmarks?${params.toString()}`);
-    return response.data;
-  } catch (error) {
-    console.error('Failed to fetch bookmarks:', error);
-    return { bookmarks: [], total: 0, hasMore: false };
-  }
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await api.get(`/api/mypage/bookmarks?${params.toString()}`);
+  return response.data;
 }
 
 /**
  * Remove a bookmarked paper
  */
 export async function removeBookmark(paperId: string): Promise<boolean> {
-  try {
-    await api.delete(`/api/mypage/bookmarks/${paperId}`);
-    return true;
-  } catch (error) {
-    console.error('Failed to remove bookmark:', error);
-    return false;
-  }
+  await api.delete(`/api/mypage/bookmarks/${paperId}`);
+  return true;
 }
 
 /**
@@ -838,30 +828,20 @@ export async function getUserPosts(limit: number = 20, offset: number = 0): Prom
   total: number;
   hasMore: boolean;
 }> {
-  try {
-    const params = new URLSearchParams({
-      limit: String(limit),
-      offset: String(offset),
-    });
-    const response = await api.get(`/api/mypage/posts?${params.toString()}`);
-    return response.data;
-  } catch (error) {
-    console.error('Failed to fetch user posts:', error);
-    return { posts: [], total: 0, hasMore: false };
-  }
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const response = await api.get(`/api/mypage/posts?${params.toString()}`);
+  return response.data;
 }
 
 /**
  * Delete a user's post
  */
 export async function deleteUserPost(postId: string): Promise<boolean> {
-  try {
-    await api.delete(`/api/community/posts/${postId}`);
-    return true;
-  } catch (error) {
-    console.error('Failed to delete post:', error);
-    return false;
-  }
+  await api.delete(`/api/community/posts/${postId}`);
+  return true;
 }
 
 // ============================================================================

@@ -53,6 +53,11 @@ def get_notifications_collection() -> AsyncIOMotorCollection:
     return Database.get_collection("notifications")
 
 
+def get_notification_outbox_collection() -> AsyncIOMotorCollection:
+    """재시도 가능한 알림 전달 이벤트 컬렉션 반환"""
+    return Database.get_collection("notification_outbox")
+
+
 def get_notification_settings_collection() -> AsyncIOMotorCollection:
     """알림 설정 컬렉션 반환"""
     return Database.get_collection("notification_settings")

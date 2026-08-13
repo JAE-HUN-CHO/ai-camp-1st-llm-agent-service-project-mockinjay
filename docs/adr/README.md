@@ -36,6 +36,7 @@
 | [ADR-009](./ADR-009-local-first-runtime.md) | Local-First Runtime and Package Policy | 🟡 Proposed | 최신 호환 패키지를 lock하고 로컬 모델·로컬 MongoDB를 기본 실행 경로로 삼는 제안 |
 | [ADR-010](./ADR-010-local-embedding-dimension-policy.md) | Local Embedding Dimension Compatibility | 🟡 Proposed | ADR-005의 1536d 계약을 local provider와 cache에서 fail-closed로 보호 |
 | [ADR-011](./ADR-011-current-runtime-contract.md) | Current Runtime and Product Contract | ✅ Accepted | `frontend/`, Ollama-only, local MongoDB, 5개 runtime agent의 현재 계약 |
+| [ADR-012](./ADR-012-notification-outbox-and-runtime-toggle.md) | Notification Outbox and Explicit Ollama Toggle | 🟡 Proposed | 커뮤니티 알림 실패 재시도와 명시적 Ollama 가용성 계약 |
 
 ## Hard constraints (binding for all agents)
 

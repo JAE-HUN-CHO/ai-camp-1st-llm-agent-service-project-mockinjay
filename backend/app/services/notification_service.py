@@ -1,14 +1,24 @@
-"""
-알림 서비스 비즈니스 로직
-"""
+"""알림 서비스 비즈니스 로직과 실패 알림 outbox 처리."""
+import asyncio
+import logging
+import uuid
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
-from app.db.connection import get_notifications_collection, get_notification_settings_collection
+from app.db.connection import (
+    get_notification_outbox_collection,
+    get_notifications_collection,
+    get_notification_settings_collection,
+)
 from app.models.notification import NotificationCreate
 
+logger = logging.getLogger(__name__)
 
-async def create_notification(notification: NotificationCreate) -> str:
+OUTBOX_RETRY_LIMIT = 8
+OUTBOX_MAX_BACKOFF_SECONDS = 3600
+
+
+async def create_notification(notification: NotificationCreate, idempotency_key: str | None = None) -> str:
     """
     새 알림 생성
 
@@ -26,9 +36,128 @@ async def create_notification(notification: NotificationCreate) -> str:
         "read_status": notification.read_status,
         "created_at": datetime.utcnow()
     }
+    if idempotency_key:
+        notification_doc["outbox_event_id"] = idempotency_key
 
-    result = await get_notifications_collection().insert_one(notification_doc)
+    notifications = get_notifications_collection()
+    if idempotency_key:
+        existing = await notifications.find_one({"outbox_event_id": idempotency_key})
+        if existing:
+            return str(existing["_id"])
+
+    try:
+        result = await notifications.insert_one(notification_doc)
+    except Exception:
+        # A unique outbox_event_id race means another worker delivered it.
+        if idempotency_key:
+            existing = await notifications.find_one({"outbox_event_id": idempotency_key})
+            if existing:
+                return str(existing["_id"])
+        raise
     return str(result.inserted_id)
+
+
+async def record_notification_failure(
+    notification: NotificationCreate,
+    error: str,
+    event_id: str | None = None,
+) -> None:
+    """Persist a failed delivery so a later worker can retry it."""
+    now = datetime.utcnow()
+    await get_notification_outbox_collection().insert_one({
+        "event_id": event_id or uuid.uuid4().hex,
+        "payload": notification.model_dump(),
+        "status": "pending",
+        "attempts": 0,
+        "last_error": error[:1000],
+        "created_at": now,
+        "next_attempt_at": now,
+    })
+
+
+async def retry_pending_notifications(limit: int = 20) -> int:
+    """Atomically lease and retry due outbox events once."""
+    now = datetime.utcnow()
+    collection = get_notification_outbox_collection()
+    cursor = collection.find({
+        "$or": [
+            {"status": "pending", "next_attempt_at": {"$lte": now}, "attempts": {"$lt": OUTBOX_RETRY_LIMIT}},
+            {"status": "processing", "lease_until": {"$lte": now}, "attempts": {"$lt": OUTBOX_RETRY_LIMIT}},
+        ],
+    }).sort("created_at", 1).limit(limit)
+    events = await cursor.to_list(length=limit)
+    delivered = 0
+    worker_id = uuid.uuid4().hex
+    lease_until = now + timedelta(seconds=60)
+    for event in events:
+        claim = await collection.update_one(
+            {
+                "_id": event["_id"],
+                "$or": [
+                    {"status": "pending", "next_attempt_at": {"$lte": now}},
+                    {"status": "processing", "lease_until": {"$lte": now}},
+                ],
+            },
+            {"$set": {"status": "processing", "lease_until": lease_until, "worker_id": worker_id}},
+        )
+        if getattr(claim, "matched_count", getattr(claim, "modified_count", 0)) == 0:
+            continue
+        payload = NotificationCreate.model_validate(event["payload"])
+        attempts = int(event.get("attempts", 0)) + 1
+        event_id = event.get("event_id") or str(event["_id"])
+        try:
+            await create_notification(payload, idempotency_key=event_id)
+        except Exception as exc:
+            exhausted = attempts >= OUTBOX_RETRY_LIMIT
+            backoff = min(2 ** attempts, OUTBOX_MAX_BACKOFF_SECONDS)
+            update = {
+                "status": "failed" if exhausted else "pending",
+                "attempts": attempts,
+                "last_error": str(exc)[:1000],
+                "lease_until": None,
+                "worker_id": None,
+            }
+            if exhausted:
+                update["failed_at"] = datetime.utcnow()
+                update["next_attempt_at"] = None
+            else:
+                update["next_attempt_at"] = datetime.utcnow() + timedelta(seconds=backoff)
+                update["backoff_seconds"] = backoff
+            await collection.update_one(
+                {"_id": event["_id"], "status": "processing", "worker_id": worker_id},
+                {"$set": update},
+            )
+            logger.warning("Notification outbox retry %s: %s", "exhausted" if exhausted else "failed", exc)
+            continue
+        delivered_update = await collection.update_one(
+            {"_id": event["_id"], "status": "processing", "worker_id": worker_id},
+            {"$set": {
+                "status": "delivered",
+                "attempts": attempts,
+                "delivered_at": datetime.utcnow(),
+                "lease_until": None,
+                "worker_id": None,
+            }},
+        )
+        if getattr(delivered_update, "matched_count", getattr(delivered_update, "modified_count", 0)):
+            delivered += 1
+    return delivered
+
+
+async def run_notification_outbox_worker(
+    stop_event: asyncio.Event,
+    interval_seconds: float = 30.0,
+) -> None:
+    """Run bounded periodic retries until application shutdown."""
+    while not stop_event.is_set():
+        try:
+            await retry_pending_notifications()
+        except Exception:
+            logger.exception("Notification outbox worker iteration failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            continue
 
 
 async def get_user_notifications(user_id: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:
