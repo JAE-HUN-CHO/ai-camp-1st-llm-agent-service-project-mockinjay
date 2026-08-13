@@ -1,11 +1,20 @@
-"""
-알림 서비스 비즈니스 로직
-"""
+"""알림 서비스 비즈니스 로직과 실패 알림 outbox 처리."""
+import asyncio
+import logging
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
-from app.db.connection import get_notifications_collection, get_notification_settings_collection
+from app.db.connection import (
+    get_notification_outbox_collection,
+    get_notifications_collection,
+    get_notification_settings_collection,
+)
 from app.models.notification import NotificationCreate
+
+logger = logging.getLogger(__name__)
+
+OUTBOX_RETRY_LIMIT = 8
+OUTBOX_MAX_BACKOFF_SECONDS = 3600
 
 
 async def create_notification(notification: NotificationCreate) -> str:
@@ -29,6 +38,77 @@ async def create_notification(notification: NotificationCreate) -> str:
 
     result = await get_notifications_collection().insert_one(notification_doc)
     return str(result.inserted_id)
+
+
+async def record_notification_failure(notification: NotificationCreate, error: str) -> None:
+    """Persist a failed delivery so a later worker can retry it."""
+    now = datetime.utcnow()
+    await get_notification_outbox_collection().insert_one({
+        "payload": notification.model_dump(),
+        "status": "pending",
+        "attempts": 0,
+        "last_error": error[:1000],
+        "created_at": now,
+        "next_attempt_at": now,
+    })
+
+
+async def retry_pending_notifications(limit: int = 20) -> int:
+    """Retry due outbox events once and return the number delivered."""
+    now = datetime.utcnow()
+    collection = get_notification_outbox_collection()
+    cursor = collection.find({
+        "status": "pending",
+        "next_attempt_at": {"$lte": now},
+        "attempts": {"$lt": OUTBOX_RETRY_LIMIT},
+    }).sort("created_at", 1).limit(limit)
+    events = await cursor.to_list(length=limit)
+    delivered = 0
+    for event in events:
+        payload = NotificationCreate.model_validate(event["payload"])
+        attempts = int(event.get("attempts", 0)) + 1
+        try:
+            await create_notification(payload)
+        except Exception as exc:
+            backoff = min(2 ** attempts, OUTBOX_MAX_BACKOFF_SECONDS)
+            await collection.update_one(
+                {"_id": event["_id"]},
+                {"$set": {
+                    "status": "pending",
+                    "attempts": attempts,
+                    "last_error": str(exc)[:1000],
+                    "next_attempt_at": datetime.utcnow() + timedelta(seconds=backoff),
+                    "backoff_seconds": backoff,
+                }},
+            )
+            logger.warning("Notification outbox retry failed: %s", exc)
+            continue
+        await collection.update_one(
+            {"_id": event["_id"]},
+            {"$set": {
+                "status": "delivered",
+                "attempts": attempts,
+                "delivered_at": datetime.utcnow(),
+            }},
+        )
+        delivered += 1
+    return delivered
+
+
+async def run_notification_outbox_worker(
+    stop_event: asyncio.Event,
+    interval_seconds: float = 30.0,
+) -> None:
+    """Run bounded periodic retries until application shutdown."""
+    while not stop_event.is_set():
+        try:
+            await retry_pending_notifications()
+        except Exception:
+            logger.exception("Notification outbox worker iteration failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except TimeoutError:
+            continue
 
 
 async def get_user_notifications(user_id: str, page: int = 1, page_size: int = 20) -> List[Dict[str, Any]]:

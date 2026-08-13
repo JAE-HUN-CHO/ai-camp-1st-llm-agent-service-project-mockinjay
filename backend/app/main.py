@@ -1,4 +1,5 @@
 import sys
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from app.features.chat.runtime import StreamRegistry
 from app.services.agent_runtime import AgentRuntime
 from app.core.context_system import ContextSystem
 from app.features.research.runtime import ResearchRuntime
+from app.services.notification_service import run_notification_outbox_worker
 from app.api.chat import close_parlant_server
 from app.api.careguide import router as careguide_router
 from app.api.auth_enhanced import router as auth_enhanced_router
@@ -56,9 +58,17 @@ async def lifespan(app: FastAPI):
     await create_indexes(Database.db)
     logger.info("Database initialized with indexes")
 
+    notification_stop = asyncio.Event()
+    app.state.notification_outbox_stop = notification_stop
+    app.state.notification_outbox_task = asyncio.create_task(
+        run_notification_outbox_worker(notification_stop)
+    )
+
     yield
 
     # Cleanup on shutdown
+    notification_stop.set()
+    await app.state.notification_outbox_task
     await close_parlant_server(app.state.agent_runtime)
     await app.state.research_runtime.close()
     await Database.disconnect()

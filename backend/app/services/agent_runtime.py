@@ -7,6 +7,7 @@ instances and gives tests an isolated runtime per application.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -14,15 +15,22 @@ class AgentRuntime:
     """Lazily owns the agents used by HTTP routes for one app instance."""
 
     def __init__(self) -> None:
-        self.use_ollama = True
+        self.use_ollama = os.getenv("OLLAMA_ENABLED", "true").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self._router_agent: Any | None = None
         self._nutrition_agent: Any | None = None
         self._agent_manager: Any | None = None
         self._chat_service: Any | None = None
 
     @property
-    def chat_service(self) -> Any:
-        """Return the application-scoped, real Ollama/RAG chat service."""
+    def chat_service(self) -> Any | None:
+        """Return the Ollama service when explicitly enabled, otherwise ``None``."""
+        if not self.use_ollama:
+            return None
         if self._chat_service is None:
             from app.services.ollama_chat import OllamaChatService
 

@@ -130,9 +130,10 @@ class BookmarkService:
             existing = await self.bookmarks_collection.find_one(duplicate_query)
 
             if existing:
+                label = "뉴스" if item_type == "news" else "논문"
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="이미 북마크된 논문입니다"
+                    detail=f"이미 북마크된 {label}입니다"
                 )
 
             # Create bookmark document

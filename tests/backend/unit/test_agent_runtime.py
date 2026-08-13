@@ -25,6 +25,23 @@ def test_runtime_can_be_injected_without_constructing_provider_agent():
     assert isinstance(runtime, AgentRuntime)
 
 
+def test_runtime_returns_no_ollama_service_when_disabled(monkeypatch):
+    monkeypatch.setenv("OLLAMA_ENABLED", "false")
+
+    runtime = AgentRuntime()
+
+    assert runtime.use_ollama is False
+    assert runtime.chat_service is None
+
+
+def test_runtime_uses_explicit_ollama_service_contract(monkeypatch):
+    monkeypatch.setenv("OLLAMA_ENABLED", "true")
+
+    runtime = AgentRuntime()
+
+    assert runtime.use_ollama is True
+
+
 def test_context_runtime_isolated_per_application_state():
     first = SimpleNamespace(state=SimpleNamespace())
     second = SimpleNamespace(state=SimpleNamespace())

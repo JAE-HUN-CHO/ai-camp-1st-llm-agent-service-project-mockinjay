@@ -12,7 +12,7 @@ from app.models.community import PostCreate, PostUpdate, PostType, CommentCreate
 from app.db.connection import db
 from app.utils.upload import validate_upload_filename
 from app.models.notification import NotificationCreate
-from app.services.notification_service import create_notification
+from app.services.notification_service import create_notification, record_notification_failure
 
 # Configure logger for this module (모듈 로거 설정)
 logger = logging.getLogger(__name__)
@@ -26,6 +26,10 @@ async def _safe_create_notification(payload: NotificationCreate) -> None:
         await create_notification(payload)
     except Exception as exc:
         logger.warning("Community notification delivery failed after primary write: %s", exc)
+        try:
+            await record_notification_failure(payload, str(exc))
+        except Exception:
+            logger.exception("Could not record community notification failure for retry")
 
 # ============================================================================
 # Authorization Configuration
