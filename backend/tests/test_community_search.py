@@ -13,8 +13,16 @@ class FakeCursor:
     def __init__(self, documents):
         self.documents = documents
         self.requested_limit = None
+        self.sort_spec = None
 
-    def sort(self, *_args):
+    def sort(self, sort_spec):
+        self.sort_spec = sort_spec
+        assert sort_spec == [("lastActivityAt", -1), ("_id", -1)]
+        self.documents = sorted(
+            self.documents,
+            key=lambda document: (document["lastActivityAt"], document["_id"]),
+            reverse=True,
+        )
         return self
 
     def limit(self, value):
@@ -63,8 +71,8 @@ def test_community_search_route_is_registered():
 def test_community_search_filters_and_paginates(monkeypatch):
     collection = FakeCollection([
         {
-            "_id": ObjectId("507f1f77bcf86cd799439011"),
-            "lastActivityAt": datetime(2026, 1, 2, tzinfo=timezone.utc),
+            "_id": ObjectId("507f1f77bcf86cd799439012"),
+            "lastActivityAt": datetime(2026, 1, 1, tzinfo=timezone.utc),
             "title": "Kidney+Care",
             "content": "A helpful post",
             "authorName": "Patient",
@@ -72,8 +80,8 @@ def test_community_search_filters_and_paginates(monkeypatch):
             "isDeleted": False,
         },
         {
-            "_id": ObjectId("507f1f77bcf86cd799439012"),
-            "lastActivityAt": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "_id": ObjectId("507f1f77bcf86cd799439011"),
+            "lastActivityAt": datetime(2026, 1, 2, tzinfo=timezone.utc),
             "title": "A follow-up",
             "content": "KIDNEY+CARE follow-up",
             "authorName": "Patient",
@@ -125,6 +133,7 @@ def test_community_search_filters_and_paginates(monkeypatch):
     assert result["hasMore"] is True
     assert result["posts"][1]["id"] == "507f1f77bcf86cd799439012"
     assert result["nextCursor"]
+    assert collection.cursor.sort_spec == [("lastActivityAt", -1), ("_id", -1)]
     assert collection.cursor.requested_limit == 3
     assert collection.query["isDeleted"] is False
     assert collection.query["postType"] == PostType.BOARD
@@ -133,6 +142,10 @@ def test_community_search_filters_and_paginates(monkeypatch):
     exact_result = asyncio.run(
         community.search_posts(q="KIDNEY+CARE", limit=3, postType=PostType.BOARD)
     )
-    assert [post["id"] for post in exact_result["posts"]] == ["first", "second"]
+    assert [post["id"] for post in exact_result["posts"]] == [
+        "507f1f77bcf86cd799439011",
+        "507f1f77bcf86cd799439012",
+        "507f1f77bcf86cd799439013",
+    ]
     assert exact_result["hasMore"] is False
     assert exact_result["nextCursor"] is None
