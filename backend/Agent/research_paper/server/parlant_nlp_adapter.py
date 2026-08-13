@@ -27,12 +27,44 @@ from parlant.core.meter import Meter
 from parlant.core.tracer import Tracer
 from typing_extensions import override
 
-# Local imports
-from nlp_service import HealthcareNLPService
+# Local imports (support both standalone scripts and package imports in tests)
+try:
+    from nlp_service import HealthcareNLPService
+except ModuleNotFoundError:
+    from .nlp_service import HealthcareNLPService
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+class ParlantGenerationError(ValueError):
+    """Raised when Ollama output cannot satisfy a requested Parlant schema."""
+
+
+def extract_json_payload(content: str) -> Any:
+    """Extract the first JSON value from a model response."""
+    content = content.strip()
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+
+    import re
+
+    content = re.sub(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]", "", content)
+    starts = [index for index in (content.find("{"), content.find("[")) if index >= 0]
+    if not starts:
+        raise ParlantGenerationError("Ollama response did not contain a JSON object or array")
+
+    try:
+        parsed_json, _ = json.JSONDecoder(strict=False).raw_decode(content[min(starts):])
+    except json.JSONDecodeError as exc:
+        raise ParlantGenerationError("Ollama response contained invalid JSON") from exc
+    return parsed_json
 
 
 # ==================== Tokenizer ====================
@@ -110,36 +142,13 @@ Respond ONLY with valid JSON, no additional text or explanations."""
 
         # Parse JSON response
         try:
-            # Clean the response (remove markdown code blocks if present)
-            content = result.content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-
-            # Remove control characters that can break JSON parsing
-            # Keep newline (\n), carriage return (\r), and tab (\t)
-            # This fixes "Invalid control character" errors
-            import re
-            content = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]', '', content)
-
-            # Small local models occasionally append an explanation after an
-            # otherwise valid JSON object. Decode the first JSON value instead
-            # of sending that trailing prose to the strict parser.
-            decoder = json.JSONDecoder(strict=False)
-            starts = [index for index in (content.find("{"), content.find("[")) if index >= 0]
-            if not starts:
-                raise json.JSONDecodeError("No JSON object or array found", content, 0)
-            parsed_json, _ = decoder.raw_decode(content[min(starts):])
+            parsed_json = extract_json_payload(result.content)
             pydantic_obj = self.schema.model_validate(parsed_json)
 
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             logger.error(f"Failed to parse JSON response: {e}")
             logger.error(f"Raw response: {result.content}")
-            raise ValueError(f"Failed to generate valid {schema_name}: {e}")
+            raise ParlantGenerationError(f"Failed to generate valid {schema_name}") from e
 
         # Build generation info - convert healthcare UsageInfo to Parlant UsageInfo
         healthcare_usage = result.info.usage
@@ -249,7 +258,7 @@ class ParlantHealthcareNLPService(NLPService):
     Parlant-compatible NLP service using HealthcareNLPService.
 
     This service uses:
-    - GPT-4o-mini for text generation (cost-effective)
+    - OLLAMA_MODEL for local text generation
     - nomic-embed-text-v2-moe for embeddings
     - Caching for performance optimization
     - Medical-specific capabilities
@@ -289,7 +298,9 @@ class ParlantHealthcareNLPService(NLPService):
         self._logger.info(f"   - Embedder: {self._healthcare_service.embedder.model_name}")
         self._logger.info(f"   - Cache: {'enabled' if use_cache else 'disabled'}")
 
-    async def get_schematic_generator(self, t: type[T]) -> BaseSchematicGenerator[T]:
+    async def get_schematic_generator(
+        self, t: type[T], hints: Mapping[str, Any] = {}
+    ) -> BaseSchematicGenerator[T]:
         """
         Return a schematic generator for the given Pydantic type.
 
@@ -307,7 +318,7 @@ class ParlantHealthcareNLPService(NLPService):
         generator.__orig_class__ = HealthcareSchematicGenerator[t]  # type: ignore
         return generator  # type: ignore
 
-    async def get_embedder(self) -> BaseEmbedder:
+    async def get_embedder(self, hints: Mapping[str, Any] = {}) -> BaseEmbedder:
         """Return the embedder"""
         return HealthcareEmbedder(
             healthcare_service=self._healthcare_service,

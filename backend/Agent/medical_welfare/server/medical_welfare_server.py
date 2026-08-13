@@ -475,8 +475,9 @@ async def add_guidelines(agent: p.Agent):
 
 # ==================== Parlant Server Main ====================
 
-async def register_agent(server: p.Server):
+async def register_agent(server: p.Server, welfare_port: int | None = None):
     """Main function - Server initialization and execution"""
+    welfare_port = welfare_port or int(os.getenv("WELFARE_PORT", "8801"))
     
     print("\n" + "="*70)
     print("🚀 Medical Welfare Parlant Server Initializing...")
@@ -513,7 +514,7 @@ async def register_agent(server: p.Server):
 
         
         print("\n" + "="*70)
-        print("🟢 Medical Welfare Server is running on port 8801")
+        print(f"🟢 Medical Welfare Server is running on port {welfare_port}")
         print(f"   Agent ID: {agent.id}")
         print(f"   Journey ID: {welfare_journey.id}")
         print("   Press Ctrl+C to exit.")
@@ -562,14 +563,15 @@ async def cleanup_managers():
 if __name__ == "__main__":
     async def run_standalone():
         try:
+            welfare_port = int(os.getenv("WELFARE_PORT", "8801"))
             async with p.Server(
                 host="127.0.0.1",
-                port=int(os.getenv("WELFARE_PORT", "8801")),
+                port=welfare_port,
                 nlp_service=create_healthcare_nlp_service,
                 session_store="local",
                 customer_store="local",
             ) as server:
-                await register_agent(server)
+                await register_agent(server, welfare_port)
         except KeyboardInterrupt:
             logger.info("\n🛑 Received shutdown signal")
         finally:
