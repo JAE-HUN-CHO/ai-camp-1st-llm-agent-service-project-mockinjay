@@ -11,6 +11,26 @@ import secrets
 DEFAULT_MONGODB_URI = "mongodb://careguide:careguide_local@localhost:27017/?authSource=admin&directConnection=true"
 
 
+class PortConfigurationError(ValueError):
+    """Raised when local Parlant ports are invalid or collide."""
+
+
+def validate_port(value: int, name: str) -> int:
+    """Validate a TCP port and return it unchanged."""
+    if not 1 <= value <= 65535:
+        raise PortConfigurationError(f"{name} must be between 1 and 65535")
+    return value
+
+
+def validate_parlant_ports(research_port: int, welfare_port: int) -> tuple[int, int]:
+    """Validate both Parlant ports and reject a collision."""
+    research_port = validate_port(research_port, "RESEARCH_PORT")
+    welfare_port = validate_port(welfare_port, "WELFARE_PORT")
+    if research_port == welfare_port:
+        raise PortConfigurationError("RESEARCH_PORT and WELFARE_PORT must be different")
+    return research_port, welfare_port
+
+
 class Settings(BaseSettings):
     """Application settings with validation"""
 
