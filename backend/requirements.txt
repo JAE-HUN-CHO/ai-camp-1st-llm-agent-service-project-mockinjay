@@ -17,4 +17,5 @@ langgraph>=0.2.0
 langchain>=0.3.0
 Pillow>=10.0.0
 feedparser>=6.0.0
+deep-translator>=1.11.4,<2.0.0
 toon-format==0.9.0b1
