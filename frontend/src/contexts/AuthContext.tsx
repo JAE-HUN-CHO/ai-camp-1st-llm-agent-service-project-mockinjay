@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, type Re
 import api from '../services/api';
 import { storage } from '../utils/storage';
 import { secureTokenStorage, resetCSRFToken } from '../utils/security';
+import { publishUserProfile } from '../utils/profileSync';
 
 interface User {
   id: string;
@@ -295,6 +296,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const updatedUser = { ...user, profile };
         setUser(updatedUser);
         storage.set('careguide_user', updatedUser);
+        publishUserProfile(profile);
 
         // 세션 초기화하여 새 Parlant 고객 태그로 세션 생성 유도
         // Clear session to force new Parlant session with updated profile tag
@@ -308,6 +310,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const updatedUser = { ...user, profile };
         setUser(updatedUser);
         storage.set('careguide_user', updatedUser);
+        publishUserProfile(profile);
       }
     }
   };

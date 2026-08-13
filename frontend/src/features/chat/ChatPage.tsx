@@ -54,6 +54,7 @@ const ChatPageEnhanced: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
   const [chatProfile, setChatProfile] = useState<UserProfile>(user?.profile || 'general');
+  const profileRevision = useRef(0);
 
   // Sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -100,6 +101,7 @@ const ChatPageEnhanced: React.FC = () => {
   const [pageVisible, setPageVisible] = useState(false);
 
   useEffect(() => {
+    profileRevision.current += 1;
     setChatProfile(user?.profile || 'general');
   }, [user?.profile]);
 
@@ -107,12 +109,15 @@ const ChatPageEnhanced: React.FC = () => {
     let cancelled = false;
     const applyProfile = (value: string | null) => {
       if (!cancelled && isUserProfile(value)) {
+        profileRevision.current += 1;
         setChatProfile(value);
       }
     };
 
     const loadProfile = async () => {
+      const requestRevision = profileRevision.current;
       const profile = await getUserProfile();
+      if (profileRevision.current !== requestRevision) return;
       if (profile?.profile) {
         localStorage.setItem(USER_PROFILE_STORAGE_KEY, profile.profile);
         applyProfile(profile.profile);
