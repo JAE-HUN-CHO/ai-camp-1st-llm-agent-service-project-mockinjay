@@ -1,7 +1,7 @@
 # Post, Comment 데이터 모델
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Annotated, Optional, List
 from datetime import datetime
 
 
@@ -14,6 +14,9 @@ class PostType(str, Enum):
     BOARD = "BOARD"  # General board post
     CHALLENGE = "CHALLENGE"  # Challenge/challenge type post
     SURVEY = "SURVEY"  # Survey/poll type post
+
+
+ImageUrl = Annotated[str, Field(max_length=2048)]
 
 
 # ============================================================================
@@ -94,7 +97,7 @@ class PostCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="Post title")
     content: str = Field(..., min_length=1, description="Post content")
     postType: PostType = Field(..., description="Type of post")
-    imageUrls: List[str] = Field(default=[], description="List of image URLs to attach (max 5)")
+    imageUrls: List[ImageUrl] = Field(default_factory=list, max_length=5, description="List of image URLs to attach (max 5)")
     isAnonymous: bool = Field(default=False, description="Whether to post anonymously")
     anonymousId: Optional[str] = Field(None, description="Client-side anonymous ID for consistent identification")
 
@@ -103,7 +106,7 @@ class PostUpdate(BaseModel):
     """Request model for updating an existing post"""
     title: Optional[str] = Field(None, min_length=1, max_length=200, description="Updated post title")
     content: Optional[str] = Field(None, min_length=1, description="Updated post content")
-    imageUrls: Optional[List[str]] = Field(None, description="Updated list of image URLs")
+    imageUrls: Optional[List[ImageUrl]] = Field(None, max_length=5, description="Updated list of image URLs (max 5)")
 
 
 class CommentCreate(BaseModel):

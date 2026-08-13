@@ -125,9 +125,9 @@ export const NutritionAnalysisContent: React.FC<NutritionAnalysisContentProps> =
         setTotalMealsLogged(weekly.total_meals_logged ?? null);
         setGoals(goalResponse.goals);
       })
-      .catch((err) => {
+      .catch(() => {
         if (!active) return;
-        setError(err instanceof Error ? err.message : NUTRITION_PROGRESS_ERROR);
+        setError(NUTRITION_PROGRESS_ERROR);
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

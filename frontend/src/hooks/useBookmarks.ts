@@ -3,7 +3,7 @@
  * 논문 북마크 관리를 위한 커스텀 훅
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { BookmarkedPaper } from '../types/mypage';
 import type { PaperResult } from '../services/trendsApi';
 import {
@@ -86,13 +86,23 @@ export function useBookmarks(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
+
+  useEffect(() => {
+    requestVersion.current += 1;
+    setBookmarks([]);
+    setLoading(false);
+    setError(null);
+    setActionError(null);
+  }, [userId]);
 
   /**
    * Load bookmarks from API/storage
    */
   const loadBookmarks = useCallback(async () => {
+    const version = requestVersion.current;
+    const requestedUserId = userId;
     if (!userId) {
-      setBookmarks([]);
       return;
     }
 
@@ -101,13 +111,15 @@ export function useBookmarks(
       setError(null);
 
       const data = await getBookmarks(userId);
+      if (requestVersion.current !== version || requestedUserId !== userId) return;
       setBookmarks(data);
     } catch (err) {
+      if (requestVersion.current !== version || requestedUserId !== userId) return;
       const errorMessage = err instanceof Error ? err.message : '북마크를 불러오는데 실패했습니다';
       setError(errorMessage);
       console.error('Failed to load bookmarks:', err);
     } finally {
-      setLoading(false);
+      if (requestVersion.current === version && requestedUserId === userId) setLoading(false);
     }
   }, [userId]);
 
@@ -138,6 +150,8 @@ export function useBookmarks(
       if (!userId) {
         throw new Error('로그인이 필요합니다');
       }
+      const version = requestVersion.current;
+      const requestedUserId = userId;
 
       try {
         setLoading(true);
@@ -151,16 +165,18 @@ export function useBookmarks(
         };
 
         const newBookmark = await createBookmark(request);
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
 
         // Optimistically update local state
         setBookmarks((prev) => [newBookmark, ...prev]);
       } catch (err) {
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
         const errorMessage = err instanceof Error ? err.message : '북마크 추가에 실패했습니다';
         setActionError(errorMessage);
         console.error('Failed to add bookmark:', err);
         throw err;
       } finally {
-        setLoading(false);
+        if (requestVersion.current === version && requestedUserId === userId) setLoading(false);
       }
     },
     [userId]
@@ -174,22 +190,26 @@ export function useBookmarks(
       if (!userId) {
         throw new Error('로그인이 필요합니다');
       }
+      const version = requestVersion.current;
+      const requestedUserId = userId;
 
       try {
         setLoading(true);
         setActionError(null);
 
         await deleteBookmark(bookmarkId, userId);
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
 
         // Optimistically update local state
         setBookmarks((prev) => prev.filter((b) => b.id !== bookmarkId));
       } catch (err) {
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
         const errorMessage = err instanceof Error ? err.message : '북마크 삭제에 실패했습니다';
         setActionError(errorMessage);
         console.error('Failed to remove bookmark:', err);
         throw err;
       } finally {
-        setLoading(false);
+        if (requestVersion.current === version && requestedUserId === userId) setLoading(false);
       }
     },
     [userId]
@@ -203,22 +223,26 @@ export function useBookmarks(
       if (!userId) {
         throw new Error('로그인이 필요합니다');
       }
+      const version = requestVersion.current;
+      const requestedUserId = userId;
 
       try {
         setLoading(true);
         setActionError(null);
 
         await deleteBookmarkByPaperId(paperId, userId);
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
 
         // Optimistically update local state
         setBookmarks((prev) => prev.filter((b) => b.paperId !== paperId));
       } catch (err) {
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
         const errorMessage = err instanceof Error ? err.message : '북마크 삭제에 실패했습니다';
         setActionError(errorMessage);
         console.error('Failed to remove bookmark by paper ID:', err);
         throw err;
       } finally {
-        setLoading(false);
+        if (requestVersion.current === version && requestedUserId === userId) setLoading(false);
       }
     },
     [userId]
@@ -232,24 +256,28 @@ export function useBookmarks(
       if (!userId) {
         throw new Error('로그인이 필요합니다');
       }
+      const version = requestVersion.current;
+      const requestedUserId = userId;
 
       try {
         setLoading(true);
         setActionError(null);
 
         const updatedBookmark = await updateBookmark(bookmarkId, userId, updates);
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
 
         // Optimistically update local state
         setBookmarks((prev) =>
           prev.map((b) => (b.id === bookmarkId ? updatedBookmark : b))
         );
       } catch (err) {
+        if (requestVersion.current !== version || requestedUserId !== userId) return;
         const errorMessage = err instanceof Error ? err.message : '북마크 업데이트에 실패했습니다';
         setActionError(errorMessage);
         console.error('Failed to update bookmark:', err);
         throw err;
       } finally {
-        setLoading(false);
+        if (requestVersion.current === version && requestedUserId === userId) setLoading(false);
       }
     },
     [userId]

@@ -11,9 +11,22 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import NewsFeed, { type NewsItem } from '../NewsFeed';
+
+vi.mock('../../../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'test-user' } }),
+}));
+
+vi.mock('../../../services/bookmarkApi', () => ({
+  getNewsBookmarks: vi.fn().mockReturnValue(new Promise(() => {})),
+  createNewsBookmark: vi.fn().mockImplementation(async ({ articleId }: { articleId: string }) => ({
+    id: `bookmark-${articleId}`,
+    itemId: articleId,
+  })),
+  deleteNewsBookmark: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Mock react-router-dom's useNavigate
 const mockNavigate = vi.fn();
@@ -139,7 +152,7 @@ describe('NewsFeed Component', () => {
       expect(bookmarkButtons).toHaveLength(2);
     });
 
-    it('should toggle bookmark state when clicked', () => {
+    it('should toggle bookmark state when clicked', async () => {
       renderNewsFeed({ newsItems: mockNewsItems });
       const bookmarkButton = screen.getAllByLabelText('북마크 추가')[0];
 
@@ -148,12 +161,14 @@ describe('NewsFeed Component', () => {
 
       // Click to bookmark
       fireEvent.click(bookmarkButton);
-      expect(bookmarkButton).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByLabelText('북마크 제거')).toBeInTheDocument();
+      await waitFor(() => {
+        expect(bookmarkButton).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByLabelText('북마크 제거')).toBeInTheDocument();
+      });
 
       // Click again to unbookmark
       fireEvent.click(bookmarkButton);
-      expect(bookmarkButton).toHaveAttribute('aria-pressed', 'false');
+      await waitFor(() => expect(bookmarkButton).toHaveAttribute('aria-pressed', 'false'));
     });
 
     it('should not navigate when bookmark button is clicked', () => {
@@ -164,19 +179,23 @@ describe('NewsFeed Component', () => {
       expect(mockNavigate).not.toHaveBeenCalled();
     });
 
-    it('should maintain independent bookmark states for different items', () => {
+    it('should maintain independent bookmark states for different items', async () => {
       renderNewsFeed({ newsItems: mockNewsItems });
       const bookmarkButtons = screen.getAllByLabelText('북마크 추가');
 
       // Bookmark first item
       fireEvent.click(bookmarkButtons[0]);
-      expect(bookmarkButtons[0]).toHaveAttribute('aria-pressed', 'true');
-      expect(bookmarkButtons[1]).toHaveAttribute('aria-pressed', 'false');
+      await waitFor(() => {
+        expect(bookmarkButtons[0]).toHaveAttribute('aria-pressed', 'true');
+        expect(bookmarkButtons[1]).toHaveAttribute('aria-pressed', 'false');
+      });
 
       // Bookmark second item
       fireEvent.click(bookmarkButtons[1]);
-      expect(bookmarkButtons[0]).toHaveAttribute('aria-pressed', 'true');
-      expect(bookmarkButtons[1]).toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => {
+        expect(bookmarkButtons[0]).toHaveAttribute('aria-pressed', 'true');
+        expect(bookmarkButtons[1]).toHaveAttribute('aria-pressed', 'true');
+      });
     });
   });
 
