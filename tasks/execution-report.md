@@ -1,4 +1,4 @@
-# CareGuide 1~5 실행 결과 (2026-08-15)
+# CareGuide 1~5 실행 결과 (2026-08-14)
 
 ## 실행 환경
 
@@ -34,16 +34,16 @@ MongoClient(MONGODB_URI).admin.command('ping')                # {'ok': 1.0}
 
 ## Phase 2 — FastAPI
 
-성공:
+라우트/설정 도달성 확인(Parlant 또는 외부 서비스 readiness 증거 아님):
 
 ```text
 GET /health       -> 200 {"status":"healthy"}
 GET /db-check     -> 200 MongoDB 연결 성공
-GET /api/trends/health -> 200 (trend_agent/summarization/pubmed/news ready)
-GET /api/chat/info -> 200 (Research 8800, Welfare 8801)
+GET /api/trends/health -> 200 (FastAPI route response only; 외부 PubMed/news readiness 아님)
+GET /api/chat/info -> 200 (FastAPI route/config response only; Research 8800 listener readiness 아님)
 ```
 
-트렌드 POST는 최초 요청이 20초 timeout이었으나 FastAPI 로그상 PubMed 재시도 후 다음 요청은 PubMed 5건·차트·설명 생성까지 완료했다. 이 경로는 외부 PubMed 서비스 의존이 있으므로 “Ollama + local Mongo only” 최종 게이트를 통과한 것으로 보지 않는다.
+트렌드 POST는 최초 요청이 20초 timeout이었으나 FastAPI 로그상 PubMed 재시도 후 다음 요청은 PubMed 5건·차트·설명 생성까지 완료했다. Research `8800` listener는 기동되지 않았고 Welfare 흐름은 실행하지 않았다. 이 경로는 외부 PubMed 서비스 의존이 있으므로 “Ollama + local Mongo only” 최종 게이트를 통과한 것으로 보지 않는다.
 
 인증 없는 `/api/health-records/`는 예상대로 `401 MISSING_AUTHORIZATION`을 반환했다. 인증 CRUD는 테스트 계정/토큰 없이 실행하지 않았다.
 
