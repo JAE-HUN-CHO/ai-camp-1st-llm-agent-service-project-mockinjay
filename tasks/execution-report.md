@@ -3,7 +3,7 @@
 ## 실행 환경
 
 - 브랜치: `codex/ollama-integration-smoke-fix`
-- Parlant lock/.venv: `parlant==3.3.2`, `parlant-client==3.3.1` (일치)
+- Parlant lock/.venv: lock 파일의 각 pin(`parlant==3.3.2`, `parlant-client==3.3.1`)과 `.venv`의 해당 설치 버전이 각각 일치함(두 패키지가 같은 버전이라는 뜻은 아님)
 - 포트: Research `8800`, Welfare `8801` (1~65535, 서로 다름)
 - Ollama: `qwen3.6:27b-mlx`, `nomic-embed-text-v2-moe`
 - MongoDB: `mongodb/mongodb-atlas-local:8.0.6`, Docker healthy, authenticated `ping` 성공
@@ -43,7 +43,7 @@ GET /api/trends/health -> 200 (FastAPI route response only; 외부 PubMed/news r
 GET /api/chat/info -> 200 (FastAPI route/config response only; Research 8800 listener readiness 아님)
 ```
 
-트렌드 POST는 최초 요청이 20초 timeout이었으나 FastAPI 로그상 PubMed 재시도 후 다음 요청은 PubMed 5건·차트·설명 생성까지 완료했다. Research `8800` listener는 기동되지 않았고 Welfare 흐름은 실행하지 않았다. 이 경로는 외부 PubMed 서비스 의존이 있으므로 “Ollama + local Mongo only” 최종 게이트를 통과한 것으로 보지 않는다.
+트렌드 POST는 최초 요청이 20초 timeout이었다. 이후 FastAPI 내부 처리 로그상 PubMed 재시도 후 PubMed 5건·차트·설명 생성까지 진행됐지만, 최종 HTTP status와 response body를 보존하지 못했으므로 endpoint 성공 증거로 기록하지 않는다. Research `8800` listener는 기동되지 않았고 Welfare 흐름은 실행하지 않았다. 이 경로는 외부 PubMed 서비스 의존이 있으므로 “Ollama + local Mongo only” 최종 게이트를 통과한 것으로 보지 않는다.
 
 인증 없는 `/api/health-records/`는 예상대로 `401 MISSING_AUTHORIZATION`을 반환했다. 인증 CRUD는 테스트 계정/토큰 없이 실행하지 않았다.
 
