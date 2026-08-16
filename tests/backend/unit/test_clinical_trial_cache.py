@@ -85,7 +85,10 @@ async def test_detail_contract_preserves_source_and_forbids_generated_interpreta
     assert response["source"]["url"].endswith("NCT00000001")
     assert response["informationOnly"] is True
     assert response["disclaimer"]
-    assert {"aiSummary", "recommendations", "clinicalSignificance"}.isdisjoint(response)
+    forbidden = {"aiSummary", "recommendations", "clinicalSignificance"}
+    assert forbidden.isdisjoint(response)
+    assert forbidden.isdisjoint(response["trial"])
+    assert forbidden.isdisjoint(response["translation"])
 
 
 @pytest.mark.asyncio

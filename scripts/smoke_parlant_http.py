@@ -21,6 +21,13 @@ TARGETS = (
 )
 
 
+def _prepare_error_artifact(artifact_dir: Path) -> Path:
+    """Return the current-run error path after removing any stale predecessor."""
+    error_artifact = artifact_dir / "http" / "parlant-smoke-error.json"
+    error_artifact.unlink(missing_ok=True)
+    return error_artifact
+
+
 def _items(payload: object) -> list[dict]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -211,13 +218,14 @@ def main() -> int:
     args = parser.parse_args()
     artifact_dir = args.artifact_dir or default_artifact_dir()
     args.artifact_dir = artifact_dir
+    error_artifact = _prepare_error_artifact(artifact_dir)
     started = utc_now()
     try:
         exit_code = asyncio.run(run(args))
     except Exception as exc:
         exit_code = 1
         write_json(
-            artifact_dir / "http" / "parlant-smoke-error.json",
+            error_artifact,
             {
                 "error_type": type(exc).__name__,
                 "error_message": digest_text(str(exc)),
@@ -230,7 +238,7 @@ def main() -> int:
         for name in target_names
         if (artifact_dir / "http" / f"{name}.json").is_file()
     ]
-    if (artifact_dir / "http" / "parlant-smoke-error.json").is_file():
+    if error_artifact.is_file():
         artifacts.append("http/parlant-smoke-error.json")
     append_command(
         artifact_dir,

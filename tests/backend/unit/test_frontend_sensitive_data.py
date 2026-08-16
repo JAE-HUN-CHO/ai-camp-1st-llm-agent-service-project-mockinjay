@@ -7,12 +7,7 @@ import re
 ROOT = Path(__file__).resolve().parents[3]
 FRONTEND = ROOT / "frontend" / "src"
 CONSOLE_CALL = re.compile(
-    r"console\.(?:log|info|warn|error|debug)\s*\((.*?)\)",
-    re.DOTALL,
-)
-STRING_LITERAL = re.compile(
-    r'''(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)''',
-    re.DOTALL,
+    r"console\.(?:log|info|warn|error|debug)\s*\(",
 )
 RAW_CONSOLE_VALUE = re.compile(
     r"\b(?:error|err|e|user|data|buffer|query|message|profile|record|health|"
@@ -21,11 +16,98 @@ RAW_CONSOLE_VALUE = re.compile(
 )
 
 
+def _console_argument_code(source: str, open_paren: int) -> str | None:
+    """Extract executable argument code while ignoring literal/comment text.
+
+    Parentheses are balanced across nested calls, and template interpolation is
+    scanned as code while the template's literal portion remains ignored.
+    """
+    output: list[str] = []
+    mode = "code"
+    return_stack: list[tuple[str, int | None]] = []
+    interpolation_depth: int | None = None
+    parenthesis_depth = 1
+    index = open_paren + 1
+
+    while index < len(source):
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < len(source) else ""
+
+        if mode == "code":
+            if char in ("'", '"'):
+                return_stack.append(("code", interpolation_depth))
+                mode = char
+                output.append(" ")
+            elif char == "`":
+                return_stack.append(("code", interpolation_depth))
+                mode = "template"
+                output.append(" ")
+            elif char == "/" and next_char == "/":
+                return_stack.append(("code", interpolation_depth))
+                mode = "line_comment"
+                output.append(" ")
+                index += 1
+            elif char == "/" and next_char == "*":
+                return_stack.append(("code", interpolation_depth))
+                mode = "block_comment"
+                output.append(" ")
+                index += 1
+            elif interpolation_depth is not None and char == "{":
+                interpolation_depth += 1
+                output.append(char)
+            elif interpolation_depth is not None and char == "}":
+                interpolation_depth -= 1
+                if interpolation_depth == 0:
+                    mode, interpolation_depth = return_stack.pop()
+                    output.append(" ")
+                else:
+                    output.append(char)
+            elif char == "(":
+                parenthesis_depth += 1
+                output.append(char)
+            elif char == ")":
+                parenthesis_depth -= 1
+                if parenthesis_depth == 0:
+                    return "".join(output)
+                output.append(char)
+            else:
+                output.append(char)
+        elif mode in ("'", '"'):
+            if char == "\\":
+                index += 1
+            elif char == mode:
+                mode, interpolation_depth = return_stack.pop()
+                output.append(" ")
+        elif mode == "template":
+            if char == "\\":
+                index += 1
+            elif char == "`":
+                mode, interpolation_depth = return_stack.pop()
+                output.append(" ")
+            elif char == "$" and next_char == "{":
+                return_stack.append(("template", None))
+                mode = "code"
+                interpolation_depth = 1
+                output.append(" ")
+                index += 1
+        elif mode == "line_comment":
+            if char == "\n":
+                mode, interpolation_depth = return_stack.pop()
+                output.append("\n")
+        elif mode == "block_comment" and char == "*" and next_char == "/":
+            mode, interpolation_depth = return_stack.pop()
+            output.append(" ")
+            index += 1
+
+        index += 1
+    return None
+
+
 def _find_raw_console_sink_lines(source: str) -> list[int]:
     violations = []
     for match in CONSOLE_CALL.finditer(source):
-        arguments_without_literals = STRING_LITERAL.sub("", match.group(1))
-        if RAW_CONSOLE_VALUE.search(arguments_without_literals):
+        argument_code = _console_argument_code(source, match.end() - 1)
+        if argument_code is not None and RAW_CONSOLE_VALUE.search(argument_code):
             violations.append(source.count("\n", 0, match.start()) + 1)
     return violations
 
@@ -64,14 +146,18 @@ def test_chat_auth_health_console_calls_do_not_include_raw_values() -> None:
     assert violations == [], "raw sensitive console sinks found:\n" + "\n".join(violations)
 
 
-def test_console_sink_detector_covers_single_argument_and_multiline_calls() -> None:
+def test_console_sink_detector_covers_nested_multiline_and_template_calls() -> None:
     source = """console.error(error)
 console.log(user)
 console.info(data)
 console.log(
   buffer
 )
+console.log(JSON.stringify(safe), user)
+console.log(`token=${token}`)
 console.error('safe generic message')
+console.log(JSON.stringify({ label: 'user' }), safe)
+console.log(`token literal only`)
 """
 
-    assert _find_raw_console_sink_lines(source) == [1, 2, 3, 4]
+    assert _find_raw_console_sink_lines(source) == [1, 2, 3, 4, 7, 8]
