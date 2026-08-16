@@ -5,10 +5,10 @@
  * Manages in-memory chat room metadata and CRUD operations.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { ChatRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
 import type { AgentType } from '../services/intentRouter';
-import { createRoomWithSession } from '../services/api';
+import { createRoomWithSession, getChatRooms, type ChatRoomData } from '../services/api';
 
 /**
  * Generate a title based on agent type
@@ -25,9 +25,52 @@ function generateRoomTitle(agentType: AgentType | 'auto'): string {
   return titles[agentType] || 'AI 대화';
 }
 
-export function useChatRooms() {
+function mapApiRoom(room: ChatRoomData): ChatRoom {
+  const createdAt = new Date(room.created_at);
+  const updatedAt = new Date(room.updated_at || room.last_activity || room.created_at);
+  return {
+    id: room.id || room.room_id || '',
+    title: room.title || room.room_name || 'AI 대화',
+    agentType: (room.agent_type as AgentType) || 'auto',
+    lastMessage: room.last_message,
+    lastMessageTime: room.last_message_time ? new Date(room.last_message_time) : undefined,
+    messageCount: room.message_count || 0,
+    createdAt,
+    updatedAt,
+    isPinned: room.is_pinned || false,
+    isArchived: room.is_archived || false,
+    parlantSessionId: room.parlant_session_id,
+    parlantCustomerId: room.parlant_customer_id,
+  };
+}
+
+export function useChatRooms(authenticatedUserId?: string, authenticatedProfile = 'general') {
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
+  const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
+  const isHydrated = Boolean(authenticatedUserId && hydratedUserId === authenticatedUserId);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!authenticatedUserId) {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setRooms([]);
+        setCurrentRoomId(null);
+        setHydratedUserId(null);
+      });
+      return () => { cancelled = true; };
+    }
+
+    void getChatRooms(authenticatedUserId).then((serverRooms) => {
+      if (cancelled) return;
+      const restored = serverRooms.map(mapApiRoom).filter((room) => room.id);
+      setRooms(restored);
+      setCurrentRoomId(restored[0]?.id || null);
+      setHydratedUserId(authenticatedUserId);
+    });
+    return () => { cancelled = true; };
+  }, [authenticatedUserId]);
 
   /**
    * Create a new chat room with Parlant session (async)
@@ -40,8 +83,8 @@ export function useChatRooms() {
   const createRoom = useCallback(
     async (
       options: CreateRoomOptions = {},
-      userId?: string,
-      profile: string = 'general'
+      userId: string | undefined = authenticatedUserId,
+      profile: string = authenticatedProfile
     ): Promise<ChatRoom> => {
       const now = new Date();
       const agentType = options.agentType || 'auto';
@@ -81,7 +124,7 @@ export function useChatRooms() {
       }
       throw new Error('인증된 사용자만 채팅방을 생성할 수 있습니다.');
     },
-    []
+    [authenticatedProfile, authenticatedUserId]
   );
 
   /**
@@ -265,6 +308,7 @@ export function useChatRooms() {
     activeRooms,
     currentRoom,
     currentRoomId,
+    isHydrated,
 
     // Actions
     createRoom,

@@ -73,7 +73,8 @@ const ChatPageEnhanced: React.FC = () => {
     clearAllRooms,
     setCurrentRoomId,
     rooms,
-  } = useChatRooms();
+    isHydrated,
+  } = useChatRooms(user?.id, chatProfile);
 
   // Stream state
   const [isStreaming, setIsStreaming] = useState(false);
@@ -190,14 +191,15 @@ const ChatPageEnhanced: React.FC = () => {
   // Create default room if none exists
   useEffect(() => {
     const initializeDefaultRoom = async () => {
+      if (!user?.id || !isHydrated) return;
       if (rooms.length === 0) {
-        await createRoom({ agentType: getCurrentAgentType() });
+        await createRoom({ agentType: getCurrentAgentType() }, user.id, chatProfile);
       } else if (!currentRoomId && rooms.length > 0) {
         setCurrentRoomId(rooms[0].id);
       }
     };
     initializeDefaultRoom();
-  }, [rooms.length, currentRoomId, createRoom, getCurrentAgentType, setCurrentRoomId]);
+  }, [rooms, currentRoomId, createRoom, getCurrentAgentType, setCurrentRoomId, user?.id, chatProfile, isHydrated]);
 
   // Cleanup on unmount or route change
   useEffect(() => {
@@ -308,8 +310,8 @@ const ChatPageEnhanced: React.FC = () => {
     handleStopStream();
     setIsSessionExpired(false);
     // Create a new default room
-    await createRoom({ agentType: getCurrentAgentType() });
-  }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType]);
+    await createRoom({ agentType: getCurrentAgentType() }, user?.id, chatProfile);
+  }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType, user?.id, chatProfile]);
 
   /**
    * Handle restore history
@@ -577,6 +579,7 @@ const ChatPageEnhanced: React.FC = () => {
     getCurrentAgentType,
     updateRoomLastMessage,
     incrementMessageCount,
+    user?.id,
   ]);
 
   /**

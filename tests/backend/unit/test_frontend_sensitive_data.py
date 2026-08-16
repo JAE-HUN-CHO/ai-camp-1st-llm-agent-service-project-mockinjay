@@ -36,8 +36,9 @@ def test_chat_auth_health_console_calls_do_not_include_raw_values() -> None:
     forbidden = re.compile(r"console\.(?:log|warn|error|debug)\([^\n]*(?:,\s*(?:error|err|e|user|data|buffer)|substring\()")
     violations = []
     for path in sensitive_paths:
+        assert path.is_file(), f"sensitive sink inventory path is missing: {path.relative_to(ROOT)}"
         source = path.read_text(encoding="utf-8")
         for line_no, line in enumerate(source.splitlines(), start=1):
             if forbidden.search(line):
                 violations.append(f"{path.relative_to(ROOT)}:{line_no}")
-    assert violations == []
+    assert violations == [], "raw sensitive console sinks found:\n" + "\n".join(violations)

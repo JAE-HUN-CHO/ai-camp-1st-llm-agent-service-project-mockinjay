@@ -196,9 +196,6 @@ const MyPageEnhanced: React.FC = () => {
       // Publish the profile in memory for real-time sync with ChatPage.
       if (data.profile) {
         publishUserProfile(data.profile);
-        window.dispatchEvent(new CustomEvent('careguide:profile-changed', {
-          detail: data.profile,
-        }));
       }
 
       setSubmitSuccess('프로필이 성공적으로 업데이트되었습니다.');

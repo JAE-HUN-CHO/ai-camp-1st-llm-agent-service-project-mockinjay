@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../AuthContext';
 import api from '../../services/api';
+import { secureTokenStorage } from '../../utils/security';
 
 // Mock the API module
 vi.mock('../../services/api', () => ({
@@ -19,6 +20,8 @@ describe('AuthContext', () => {
   beforeEach(() => {
     // Clear localStorage before each test
     localStorage.clear();
+    secureTokenStorage.clear();
+    delete api.defaults.headers.common.Authorization;
     // Clear all mocks
     vi.clearAllMocks();
   });

@@ -218,97 +218,90 @@ export async function callBackendAgentStream(
     let detectedAgents: AgentType[] = [];
     let detectedIntents: IntentCategory[] = [];
     let isEmergency = false;
+    let sseBuffer = '';
+
+    const processEvent = (frame: string): boolean => {
+      const dataLines = frame
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).replace(/^ /, ''));
+      if (dataLines.length === 0) return false;
+
+      const data = dataLines.join('\n');
+      if (data === '[DONE]') return true;
+
+      let parsed: BackendStreamChunk;
+      try {
+        parsed = JSON.parse(data) as BackendStreamChunk;
+      } catch (error) {
+        throw new Error('Invalid SSE JSON frame', { cause: error });
+      }
+      if (parsed.error) throw new Error(parsed.error);
+
+      isEmergency = isEmergency || parsed.is_emergency === true;
+      if (parsed.metadata?.routed_to && parsed.metadata.routed_to.length > 0) {
+        const validAgents: readonly AgentType[] = [
+          'medical_welfare',
+          'nutrition',
+          'research_paper',
+          'router',
+        ];
+        const routedAgents = parsed.metadata.routed_to
+          .filter((agentName): agentName is string => typeof agentName === 'string')
+          .filter((agentName): agentName is AgentType =>
+            validAgents.includes(agentName as AgentType)
+          );
+        if (routedAgents.length > 0) {
+          detectedAgents = routedAgents;
+          detectedIntents = mapAgentsToIntents(routedAgents);
+        }
+      }
+
+      if (parsed.agent_type) {
+        const agentType = parsed.agent_type as AgentType;
+        if (!detectedAgents.includes(agentType)) detectedAgents.push(agentType);
+      }
+
+      const content = parsed.content || parsed.answer || parsed.response || '';
+      if (content) {
+        if (parsed.status === 'streaming') {
+          accumulatedContent += content;
+        } else if (parsed.status === 'new_message') {
+          accumulatedContent = accumulatedContent
+            ? `${accumulatedContent}\n\n${content}`
+            : content;
+        } else {
+          accumulatedContent = content;
+        }
+        onChunk(accumulatedContent, false, parsed);
+      }
+      return false;
+    };
 
     while (true) {
       const { done, value } = await reader.read();
 
       if (done) {
+        sseBuffer += decoder.decode();
+        if (sseBuffer.trim() && processEvent(sseBuffer.replace(/\r\n/g, '\n'))) {
+          onChunk(accumulatedContent, true);
+          return { agents: detectedAgents, intents: detectedIntents, isEmergency };
+        }
         onChunk(accumulatedContent, true);
         break;
       }
 
-      const chunk = decoder.decode(value, { stream: true });
-
-      // SSE 형식 파싱: "data: {...}\n\n"
-      const lines = chunk.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6); // "data: " 제거
-
-          if (data === '[DONE]') {
-            onChunk(accumulatedContent, true);
-            return { agents: detectedAgents, intents: detectedIntents, isEmergency };
-          }
-
-          try {
-            const parsed: BackendStreamChunk = JSON.parse(data);
-            isEmergency = isEmergency || parsed.is_emergency === true;
-
-            // 의도 정보 추출 (metadata.routed_to)
-            // Extract intent information from metadata
-            if (parsed.metadata?.routed_to && parsed.metadata.routed_to.length > 0) {
-              // 유효한 에이전트 타입만 필터링 (Filter valid agent types only)
-              const VALID_AGENTS: readonly AgentType[] = ['medical_welfare', 'nutrition', 'research_paper', 'router'];
-              const routedAgents = parsed.metadata.routed_to
-                .filter((agentName): agentName is string => typeof agentName === 'string')
-                .filter((agentName): agentName is AgentType =>
-                  VALID_AGENTS.includes(agentName as AgentType)
-                ) as AgentType[];
-
-              if (routedAgents.length > 0) {
-                detectedAgents = routedAgents;
-                detectedIntents = mapAgentsToIntents(routedAgents);
-              }
-            }
-
-            // 에이전트 타입 추출
-            if (parsed.agent_type && !detectedAgents.includes(parsed.agent_type as AgentType)) {
-              const agentType = parsed.agent_type as AgentType;
-              if (!detectedAgents.includes(agentType)) {
-                detectedAgents.push(agentType);
-              }
-            }
-
-            // 콘텐츠 추출
-            let content = '';
-            if (parsed.content) {
-              content = parsed.content;
-            } else if (parsed.answer) {
-              content = parsed.answer;
-            } else if (parsed.response) {
-              content = parsed.response;
-            }
-
-            if (content) {
-              // 스트리밍 청크인 경우 누적
-              if (parsed.status === 'streaming') {
-                accumulatedContent += content;
-                onChunk(accumulatedContent, false, parsed);
-              } else if (parsed.status === 'new_message') {
-                // 새 메시지 - 줄바꿈으로 구분하여 누적
-                if (accumulatedContent) {
-                  accumulatedContent += '\n\n' + content;
-                } else {
-                  accumulatedContent = content;
-                }
-                onChunk(accumulatedContent, false, parsed);
-              } else {
-                // 완료, 성공, 또는 기타 상태인 경우 (complete, success, undefined 등)
-                // Handle complete, success, or any other status
-                accumulatedContent = content;
-                onChunk(accumulatedContent, false, parsed);
-              }
-            }
-
-            // 에러 처리
-            if (parsed.error) {
-              throw new Error(parsed.error);
-            }
-          } catch (_e) {
-            // JSON 파싱 실패 시 무시 (불완전한 청크일 수 있음)
-            // Ignore JSON parse failures (may be incomplete chunks)
-          }
+      sseBuffer += decoder.decode(value, { stream: true });
+      sseBuffer = sseBuffer.replace(/\r\n/g, '\n');
+      let boundary = sseBuffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const frame = sseBuffer.slice(0, boundary);
+        sseBuffer = sseBuffer.slice(boundary + 2);
+        if (processEvent(frame)) {
+          onChunk(accumulatedContent, true);
+          return { agents: detectedAgents, intents: detectedIntents, isEmergency };
         }
+        boundary = sseBuffer.indexOf('\n\n');
       }
     }
 
