@@ -29,7 +29,7 @@ class ChatCommand:
 
 @dataclass(frozen=True, slots=True)
 class PreparedChatStream:
-    """Hold an authorized stream request without transport-layer state."""
+    """Hold a safety-blocked or owner-authorized request without HTTP state."""
 
     command: ChatCommand
     actor: ActorContext
@@ -127,7 +127,11 @@ class StreamChatMessage:
         self._safety_policy = safety_policy
 
     async def prepare(self, command: ChatCommand) -> PreparedChatStream:
-        """Apply safety first, then authorize and load owner-scoped context."""
+        """Apply safety before authorization and owner-scoped context loading.
+
+        A blocked emergency request returns ``emergency=True`` without calling
+        the repository. Only non-emergency requests are owner-authorized.
+        """
 
         decision = self._safety_policy.evaluate(command.query)
         if decision.blocked:

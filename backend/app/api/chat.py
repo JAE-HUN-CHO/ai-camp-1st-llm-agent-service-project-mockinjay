@@ -607,15 +607,17 @@ async def chat_message(request: Request):
     A prepared non-streaming path returns the established JSON payload. The
     legacy RouterAgent compatibility path may return ``text/event-stream``.
     Validation, authentication, ownership, and provider failures that occur
-    before streaming starts remain JSON HTTP errors. Once an SSE response has
-    started, ``error`` or ``cancelled`` is the terminal business outcome and
-    ``[DONE]`` only marks transport termination.
+    before streaming starts remain JSON HTTP errors. In a compatibility stream,
+    an ``error`` or ``cancelled`` frame fixes the business outcome as failure
+    even if later provider frames are relayed; ``[DONE]`` only marks transport
+    termination and cannot turn that failure into success.
 
     Raises:
         HTTPException: For invalid input (400), authentication (401), ownership
-            (403), missing owner-scoped resources (404), local provider
-            unavailability or timeout (503/504), or an unexpected failure
-            before response headers (500).
+            (403), missing owner-scoped resources (404), Hex-path provider
+            unavailability or timeout (503/504), or an unhandled non-Hex
+            provider or other failure before response headers (500). Failures
+            after an SSE response starts are emitted as ``error`` frames.
     """
     container = None
     try:
@@ -895,16 +897,17 @@ async def chat_stream(request: Request):
     """Handle the frozen v1 ``POST /api/chat/stream`` SSE contract.
 
     Successful preparation returns ``text/event-stream`` and preserves the
-    observed progress and terminal status vocabulary. ``complete`` or
-    ``success`` is a successful terminal frame; ``error`` or ``cancelled`` is
-    a failed terminal frame. ``[DONE]`` follows stream cleanup but never turns
-    a preceding failure, or a stream without a success terminal, into success.
+    observed status vocabulary. The legacy compatibility adapter may normalize
+    provider EOF with accumulated content into ``complete``. Once ``error`` or
+    ``cancelled`` is observed, the business outcome remains failure even if a
+    later provider frame is relayed. ``[DONE]`` marks only transport shutdown.
 
     Raises:
         HTTPException: For invalid input (400), authentication (401), ownership
-            (403), missing owner-scoped resources (404), local provider
-            unavailability or timeout (503/504), or an unexpected failure
-            before response headers (500).
+            (403), missing owner-scoped resources (404), Hex-path provider
+            unavailability or timeout during stream preparation (503/504), or
+            another failure before response headers (500). Provider failures
+            after streaming starts are emitted as SSE ``error`` frames.
     """
     container = None
     try:
