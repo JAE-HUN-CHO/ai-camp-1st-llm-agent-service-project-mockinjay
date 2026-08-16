@@ -71,6 +71,45 @@ class _Client:
         return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1] * 1536)])
 
 
+class _ClosableStream:
+    def __init__(self) -> None:
+        self.closed = False
+        self._sent = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._sent:
+            raise StopAsyncIteration
+        self._sent = True
+        return SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content="chunk"))]
+        )
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _ClosableCompletions(_Completions):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stream = _ClosableStream()
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs.get("stream"):
+            return self.stream
+        return await super().create(**kwargs)
+
+
+class _ClosableClient(_Client):
+    def __init__(self) -> None:
+        super().__init__()
+        self.completions = _ClosableCompletions()
+        self.chat = SimpleNamespace(completions=self.completions)
+
+
 @pytest.fixture(autouse=True)
 def _pin_vector_contract(monkeypatch):
     monkeypatch.setenv("OLLAMA_EMBEDDING_DIMENSIONS", "1536")
@@ -157,3 +196,20 @@ async def test_empty_chat_choices_raise_and_empty_stream_chunks_are_skipped():
     events = [event async for event in service.stream("CKD 식단")]
     assert len(events) == 1
     assert events[0]["status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_stream_closes_provider_iterator_when_consumer_disconnects():
+    client = _ClosableClient()
+    service = OllamaChatService(
+        client=client,
+        database=_Database(),
+        collection_name="pubmed_embeddings",
+    )
+    stream = service.stream("CKD 식단")
+
+    assert (await anext(stream))["status"] == "processing"
+    assert (await anext(stream))["status"] == "streaming"
+    await stream.aclose()
+
+    assert client.completions.stream.closed is True

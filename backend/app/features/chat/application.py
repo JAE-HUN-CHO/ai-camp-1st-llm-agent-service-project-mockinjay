@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.core.actor import ActorContext
 from app.core.emergency_safety import EMERGENCY_RESPONSE
@@ -31,6 +31,22 @@ class PreparedChatStream:
     actor: ActorContext
     user_context: Mapping[str, object]
     emergency: bool = False
+
+
+def accumulate_chat_stream_content(
+    accumulated: str,
+    event: ChatStreamEvent,
+) -> str:
+    """Apply the frozen v1 content semantics to one provider-neutral event."""
+    if event.status == "streaming":
+        return accumulated + event.content
+    if event.status == "partial":
+        return event.content or accumulated
+    if event.status == "new_message":
+        return f"{accumulated}\n\n{event.content}" if accumulated else event.content
+    if event.status in {"complete", "success"}:
+        return event.content or accumulated
+    return accumulated
 
 
 class SendChatMessage:
@@ -127,13 +143,15 @@ class StreamChatMessage:
         agent_type = "ollama_rag"
         completed = False
         failed = False
+        close_failed = False
         terminal_event: ChatStreamEvent | None = None
+        provider_stream = self._generator.stream(
+            prepared.command.query,
+            profile=prepared.command.profile,
+            user_context=prepared.user_context,
+        )
         try:
-            async for event in self._generator.stream(
-                prepared.command.query,
-                profile=prepared.command.profile,
-                user_context=prepared.user_context,
-            ):
+            async for event in provider_stream:
                 if is_cancelled is not None and await is_cancelled():
                     failed = True
                     yield ChatStreamEvent(
@@ -149,22 +167,28 @@ class StreamChatMessage:
                     yield event
                     break
                 if event.status in {"complete", "success"}:
-                    accumulated = event.content or accumulated
+                    accumulated = accumulate_chat_stream_content(accumulated, event)
                     completed = True
-                    terminal_event = event
+                    terminal_event = replace(event, content=accumulated)
                     break
-                elif event.status == "streaming":
-                    accumulated += event.content
-                elif event.status == "partial":
-                    accumulated = event.content or accumulated
-                elif event.status == "new_message":
-                    accumulated = (
-                        f"{accumulated}\n\n{event.content}"
-                        if accumulated
-                        else event.content
-                    )
+                accumulated = accumulate_chat_stream_content(accumulated, event)
                 yield event
         except Exception:
+            failed = True
+            yield ChatStreamEvent(
+                status="error",
+                error="local provider stream failed",
+                agent_type=agent_type,
+            )
+        finally:
+            close = getattr(provider_stream, "aclose", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:
+                    close_failed = True
+
+        if close_failed and not failed:
             failed = True
             yield ChatStreamEvent(
                 status="error",

@@ -13,9 +13,17 @@ from app.features.chat.domain import ChatProviderUnavailable
 
 
 class Service:
-    def __init__(self, result=None, *, failure: Exception | None = None) -> None:
+    def __init__(
+        self,
+        result=None,
+        *,
+        failure: Exception | None = None,
+        stream_event: dict | None = None,
+    ) -> None:
         self.result = result
         self.failure = failure
+        self.stream_event = stream_event or {"status": "complete", "content": "safe"}
+        self.stream_closed = False
 
     async def generate(self, _query, *, profile, user_context):
         if self.failure is not None:
@@ -23,9 +31,12 @@ class Service:
         return self.result
 
     async def stream(self, _query, *, profile, user_context) -> AsyncIterator[dict]:
-        if self.failure is not None:
-            raise self.failure
-        yield {"status": "complete", "content": "safe"}
+        try:
+            if self.failure is not None:
+                raise self.failure
+            yield self.stream_event
+        finally:
+            self.stream_closed = True
 
 
 @pytest.mark.asyncio
@@ -62,3 +73,44 @@ async def test_unexpected_provider_exception_is_mapped_without_raw_message() -> 
         ):
             pass
     assert "raw provider detail" not in str(stream_error.value)
+
+
+@pytest.mark.asyncio
+async def test_stream_exposes_only_frozen_attributes_and_sanitizes_error() -> None:
+    service = Service(
+        stream_event={
+            "status": "error",
+            "error": "raw provider detail",
+            "retrieved_count": 2,
+            "private_prompt": "must not escape",
+        }
+    )
+    generator = OllamaChatGenerator(service)
+
+    events = [
+        event
+        async for event in generator.stream(
+            "query",
+            profile="general",
+            user_context={},
+        )
+    ]
+
+    assert events[0].error == "local provider stream failed"
+    assert events[0].attributes == {"retrieved_count": 2}
+    assert service.stream_closed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_closes_delegated_iterator_on_consumer_exit() -> None:
+    service = Service()
+    stream = OllamaChatGenerator(service).stream(
+        "query",
+        profile="general",
+        user_context={},
+    )
+
+    await anext(stream)
+    await stream.aclose()
+
+    assert service.stream_closed is True

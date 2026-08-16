@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 import logging
 import os
-from datetime import datetime
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any, NoReturn, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,24 @@ _background_tasks: set[asyncio.Task] = set()
 _ALLOWED_PROFILES = {"general", "patient", "researcher"}
 
 
+def _consume_background_task(task: asyncio.Task[Any]) -> None:
+    if task.cancelled():
+        return
+    try:
+        failure = task.exception()
+    except Exception:
+        logger.warning("Chat context analysis task failed")
+        return
+    if failure is not None:
+        logger.warning("Chat context analysis task failed")
+
+
+def _track_background_task(task: asyncio.Task[Any]) -> None:
+    _background_tasks.add(task)
+    task.add_done_callback(_consume_background_task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 def _normalize_profile(value: object) -> str:
     return value if isinstance(value, str) and value in _ALLOWED_PROFILES else "general"
 
@@ -52,7 +70,11 @@ from app.api.dependencies import (
 from app.bootstrap.container import ChatContainer, get_chat_container
 from app.core.actor import ActorContext
 from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
-from app.features.chat.application import ChatCommand, PreparedChatStream
+from app.features.chat.application import (
+    ChatCommand,
+    PreparedChatStream,
+    accumulate_chat_stream_content,
+)
 from app.features.chat.domain import (
     ChatAccessDenied,
     ChatError,
@@ -119,13 +141,12 @@ async def _persist_chat_response(
         task = asyncio.create_task(
             context_system.context_engineer.analyze_and_update_context(user_id)
         )
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
+        _track_background_task(task)
     except Exception as exc:  # history persistence must not hide a valid answer
         logger.warning("History saving failed for direct Ollama response: %s", exc)
 
 
-def _raise_hex_chat_error(error: ChatError) -> None:
+def _raise_hex_chat_error(error: ChatError) -> NoReturn:
     if isinstance(error, ChatAccessDenied):
         raise HTTPException(status_code=403, detail="Access denied") from error
     if isinstance(error, (ChatRoomNotFound, ChatSessionNotFound)):
@@ -245,12 +266,13 @@ async def _hex_chat_stream_events(
             "session_id": session_id,
             "room_id": prepared.actor.room_id,
             "user_id": prepared.actor.user_id,
-            "started_at": datetime.utcnow(),
+            "started_at": datetime.now(UTC),
             "cancel_requested": False,
             "partial_response": "",
         },
     )
     terminal = "failure"
+    accumulated = ""
 
     async def is_cancelled() -> bool:
         metadata = stream_registry.get(session_id, {})
@@ -265,8 +287,9 @@ async def _hex_chat_stream_events(
             elif event.status == "error":
                 terminal = "failure"
             metadata = stream_registry.get(session_id)
-            if metadata is not None and event.content:
-                metadata["partial_response"] = event.content
+            accumulated = accumulate_chat_stream_content(accumulated, event)
+            if metadata is not None:
+                metadata["partial_response"] = accumulated
             yield f"data: {json.dumps(event.as_payload(), ensure_ascii=False, default=str)}\n\n"
     finally:
         stream_registry.pop(session_id, None)
@@ -723,7 +746,7 @@ async def chat_message(request: Request):
                 "session_id": session_id,
                 "room_id": room_id,
                 "user_id": user_id,
-                "started_at": datetime.utcnow(),
+                "started_at": datetime.now(UTC),
                 "cancel_requested": False,
                 "partial_response": ""
             }
@@ -821,8 +844,10 @@ async def chat_message(request: Request):
                         client_message_id,
                     )
                     if created is not False:
-                        asyncio.create_task(
-                            context_system.context_engineer.analyze_and_update_context(user_id)
+                        _track_background_task(
+                            asyncio.create_task(
+                                context_system.context_engineer.analyze_and_update_context(user_id)
+                            )
                         )
                     logger.info("Saved redacted streaming conversation metadata")
             except Exception as e:
@@ -1086,8 +1111,10 @@ async def chat_stream(request: Request):
                     )
                     # Trigger analysis (fire and forget)
                     if created is not False:
-                        asyncio.create_task(
-                            context_system.context_engineer.analyze_and_update_context(user_id)
+                        _track_background_task(
+                            asyncio.create_task(
+                                context_system.context_engineer.analyze_and_update_context(user_id)
+                            )
                         )
                     logger.info("Saved redacted streaming conversation metadata")
             except Exception as e:

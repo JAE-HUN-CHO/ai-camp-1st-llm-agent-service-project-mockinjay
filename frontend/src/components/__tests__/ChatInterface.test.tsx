@@ -69,6 +69,32 @@ describe('ChatInterface', () => {
   });
 
   describe('Message Sending', () => {
+    it('cancels and releases the reader after an invalid SSE frame', async () => {
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      const releaseLock = vi.fn();
+      const encoder = new TextEncoder();
+      const read = vi.fn()
+        .mockResolvedValueOnce({
+          done: false,
+          value: encoder.encode('data: {invalid json}\n\n'),
+        })
+        .mockResolvedValue({ done: true });
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        body: { getReader: () => ({ read, cancel, releaseLock }) },
+      });
+
+      renderWithProviders(<ChatInterface />);
+      const input = screen.getByPlaceholderText(/만성콩팥병에 대해 무엇이든/i);
+      fireEvent.change(input, { target: { value: 'Test message' } });
+      fireEvent.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(cancel).toHaveBeenCalledTimes(1);
+        expect(releaseLock).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('includes user_profile in API payload', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         body: {

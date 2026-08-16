@@ -78,7 +78,7 @@ export function applyChatStreamFrame(
         error: frame.message || 'Chat stream cancelled',
       };
     default:
-      return content ? { ...state, content } : state;
+      throw new Error('Unknown Chat stream status');
   }
 }
 

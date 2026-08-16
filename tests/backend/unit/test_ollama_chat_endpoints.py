@@ -23,6 +23,7 @@ class _Context:
 
     async def save_conversation(self, *args):
         self.saved.append(args)
+        return True
 
     async def analyze_and_update_context(self, _user_id):
         return None

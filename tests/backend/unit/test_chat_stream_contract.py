@@ -31,7 +31,7 @@ class _FakeContextManager:
         agent_response: str,
         room_id: str | None = None,
         client_message_id: str | None = None,
-    ) -> None:
+    ) -> bool:
         saved = {
             "user_id": user_id,
             "session_id": session_id,
@@ -43,6 +43,7 @@ class _FakeContextManager:
         if client_message_id is not None:
             saved["client_message_id"] = client_message_id
         self.saved.append(saved)
+        return True
 
     async def analyze_and_update_context(self, _user_id: str) -> None:
         return None

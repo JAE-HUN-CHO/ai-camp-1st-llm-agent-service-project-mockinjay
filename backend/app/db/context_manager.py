@@ -3,9 +3,10 @@ from typing import List, Dict, Optional
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 from dotenv import load_dotenv
+from pymongo.errors import DuplicateKeyError
 
 load_dotenv()
 
@@ -46,8 +47,8 @@ class ContextManager:
         agent_type: str,
         user_input: str,
         agent_response: str,
-        room_id: str = None,
-        client_message_id: str = None,
+        room_id: str | None = None,
+        client_message_id: str | None = None,
     ) -> bool:
         """
         Save a single conversation turn to history.
@@ -75,7 +76,7 @@ class ContextManager:
             "agent_type": agent_type,
             "user_input": user_input,
             "agent_response": agent_response,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(UTC)
         }
         if client_message_id:
             document["client_message_id"] = client_message_id
@@ -87,11 +88,16 @@ class ContextManager:
             )
             digest = hashlib.sha256(scope.encode("utf-8")).hexdigest()
             document["_id"] = f"chat-v1:{digest}"
-            result = await self.db.conversation_history.update_one(
-                {"_id": document["_id"]},
-                {"$setOnInsert": document},
-                upsert=True,
-            )
+            try:
+                result = await self.db.conversation_history.update_one(
+                    {"_id": document["_id"]},
+                    {"$setOnInsert": document},
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                # A concurrent retry can win the deterministic _id upsert
+                # between the query and insert. That is an idempotent replay.
+                return False
             return result.upserted_id is not None
 
         await self.db.conversation_history.insert_one(document)

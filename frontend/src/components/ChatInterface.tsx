@@ -15,6 +15,7 @@ import {
   createChatStreamState,
   type ChatStreamFrame,
 } from '../services/chatStreamContract';
+import { createClientMessageId } from '../services/intentRouter';
 
 interface Message {
   id: string;
@@ -159,7 +160,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
 
-    const clientMessageId = globalThis.crypto.randomUUID();
+    const clientMessageId = createClientMessageId();
     const userMessage: Message = {
       id: clientMessageId,
       role: 'user',
@@ -253,44 +254,53 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
         }
       };
 
-      while (!done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
+      try {
+        while (!done) {
+          const { value, done: doneReading } = await reader.read();
+          done = doneReading;
 
-        if (value) {
-          const chunkValue = decoder.decode(value, { stream: true });
-          buffer += chunkValue;
-          // SSE messages are separated by \n\n, so split properly
-          const messages = buffer.split('\n\n');
-          buffer = messages.pop() || ''; // Keep incomplete message in buffer
+          if (value) {
+            const chunkValue = decoder.decode(value, { stream: true });
+            buffer += chunkValue;
+            // SSE messages are separated by \n\n, so split properly
+            const messages = buffer.split('\n\n');
+            buffer = messages.pop() || ''; // Keep incomplete message in buffer
 
-          for (const message of messages) {
-            const lines = message.split('\n');
-            for (const line of lines) {
-              const trimmedLine = line.trim();
-              if (trimmedLine.startsWith('data: ')) {
-                const dataStr = trimmedLine.slice(6);
-                processSseData(dataStr);
+            for (const message of messages) {
+              const lines = message.split('\n');
+              for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('data: ')) {
+                  const dataStr = trimmedLine.slice(6);
+                  processSseData(dataStr);
+                }
               }
+              if (done) break;
             }
-            if (done) break;
           }
         }
-      }
 
-      // Process remaining buffer
-      if (buffer.trim()) {
-        const lines = buffer.split('\n');
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('data: ')) {
-            const dataStr = trimmedLine.slice(6);
-            processSseData(dataStr);
+        // Process remaining buffer
+        if (buffer.trim()) {
+          const lines = buffer.split('\n');
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith('data: ')) {
+              const dataStr = trimmedLine.slice(6);
+              processSseData(dataStr);
+            }
           }
         }
-      }
 
-      assertChatStreamSucceeded(streamState);
+        assertChatStreamSucceeded(streamState);
+      } finally {
+        try {
+          await reader.cancel?.();
+        } catch {
+          // The transport may already be closed or aborted.
+        }
+        reader.releaseLock?.();
+      }
 
       // Remove empty placeholder if no messages received
       if (!firstMessageReceived) {

@@ -47,13 +47,24 @@ class FakeRepository:
 
 
 class FakeGenerator:
-    def __init__(self, events: list[ChatStreamEvent] | None = None) -> None:
+    def __init__(
+        self,
+        events: list[ChatStreamEvent] | None = None,
+        *,
+        close_failure: bool = False,
+    ) -> None:
         self.generate_calls = 0
         self.stream_calls = 0
-        self._events = events or [
-            ChatStreamEvent("streaming", "hello ", "ollama_rag"),
-            ChatStreamEvent("streaming", "world", "ollama_rag"),
-        ]
+        self.closed = False
+        self.close_failure = close_failure
+        self._events = (
+            events
+            if events is not None
+            else [
+                ChatStreamEvent("streaming", "hello ", "ollama_rag"),
+                ChatStreamEvent("streaming", "world", "ollama_rag"),
+            ]
+        )
 
     async def generate(self, query, *, profile, user_context) -> ChatGeneration:
         self.generate_calls += 1
@@ -70,8 +81,13 @@ class FakeGenerator:
         assert query == "일반 질문"
         assert profile == "patient"
         assert user_context["summary"] == "redacted"
-        for event in self._events:
-            yield event
+        try:
+            for event in self._events:
+                yield event
+        finally:
+            self.closed = True
+            if self.close_failure:
+                raise RuntimeError("raw close detail")
 
 
 def command(query: str = "일반 질문") -> ChatCommand:
@@ -175,6 +191,44 @@ async def test_error_frame_stops_later_complete_and_never_saves() -> None:
 
     assert [event.status for event in events] == ["streaming", "error"]
     assert repository.saved == []
+    assert generator.closed is True
+
+
+@pytest.mark.asyncio
+async def test_terminal_without_content_reuses_accumulated_answer() -> None:
+    repository = FakeRepository()
+    generator = FakeGenerator(
+        [
+            ChatStreamEvent("streaming", "complete answer", "ollama_rag"),
+            ChatStreamEvent("complete", agent_type="ollama_rag"),
+        ]
+    )
+    use_case = StreamChatMessage(repository, generator, emergency_safety_policy)
+
+    prepared = await use_case.prepare(command())
+    events = [event async for event in use_case.events(prepared)]
+
+    assert events[-1].status == "complete"
+    assert events[-1].content == "complete answer"
+    assert repository.saved[0].answer == "complete answer"
+
+
+@pytest.mark.asyncio
+async def test_provider_close_failure_is_terminal_error_and_has_zero_write() -> None:
+    repository = FakeRepository()
+    generator = FakeGenerator(
+        [ChatStreamEvent("complete", "answer", "ollama_rag")],
+        close_failure=True,
+    )
+    use_case = StreamChatMessage(repository, generator, emergency_safety_policy)
+
+    prepared = await use_case.prepare(command())
+    events = [event async for event in use_case.events(prepared)]
+
+    assert [event.status for event in events] == ["error"]
+    assert events[0].error == "local provider stream failed"
+    assert "raw close detail" not in str(events[0].as_payload())
+    assert repository.saved == []
 
 
 @pytest.mark.asyncio
@@ -194,6 +248,7 @@ async def test_cancel_emits_terminal_and_has_zero_write() -> None:
 
     assert [event.status for event in events] == ["cancelled"]
     assert repository.saved == []
+    assert generator.closed is True
 
 
 @pytest.mark.asyncio
@@ -222,7 +277,6 @@ async def test_disconnect_after_partial_emits_cancelled_and_has_zero_write() -> 
 async def test_empty_provider_eof_is_terminal_error_and_has_zero_write() -> None:
     repository = FakeRepository()
     generator = FakeGenerator([])
-    generator._events = []
     use_case = StreamChatMessage(repository, generator, emergency_safety_policy)
 
     prepared = await use_case.prepare(command())

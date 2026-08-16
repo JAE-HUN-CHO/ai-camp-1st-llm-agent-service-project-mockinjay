@@ -15,8 +15,23 @@ import {
   type ChatStreamFrame,
 } from './chatStreamContract';
 
-function createClientMessageId(): string {
-  return globalThis.crypto.randomUUID();
+let fallbackMessageIdCounter = 0;
+
+export function createClientMessageId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return cryptoApi.randomUUID();
+  }
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const value = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+  }
+  fallbackMessageIdCounter += 1;
+  const entropy = Math.random().toString(36).slice(2);
+  return `chat-${Date.now().toString(36)}-${fallbackMessageIdCounter.toString(36)}-${entropy}`;
 }
 
 export type AgentType = 'medical_welfare' | 'nutrition' | 'research_paper' | 'router';
@@ -40,12 +55,6 @@ export interface RouterResponse {
  * 백엔드 스트리밍 응답 형식
  */
 export interface BackendStreamChunk extends ChatStreamFrame {
-  /** 응답 내용 */
-  content?: string;
-  answer?: string;
-  response?: string;
-  /** 스트리밍 상태 */
-  status?: ChatStreamFrame['status'];
   /** 에이전트 타입 */
   agent_type?: string;
   /** 메타데이터 (의도 정보 포함) */
@@ -54,8 +63,6 @@ export interface BackendStreamChunk extends ChatStreamFrame {
     synthesis?: boolean;
     individual_responses?: Record<string, string>;
   };
-  /** 에러 메시지 */
-  error?: string;
   is_emergency?: boolean;
 }
 

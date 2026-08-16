@@ -20,6 +20,19 @@ from app.features.chat.domain import (
 logger = logging.getLogger(__name__)
 
 
+def _consume_background_task(task: asyncio.Task[Any]) -> None:
+    """Retrieve task failures without exposing context or chat content."""
+    if task.cancelled():
+        return
+    try:
+        failure = task.exception()
+    except Exception:
+        logger.warning("Chat context analysis task failed")
+        return
+    if failure is not None:
+        logger.warning("Chat context analysis task failed")
+
+
 class MongoChatRepository:
     """Adapt the existing context/session stores without changing schemas."""
 
@@ -106,6 +119,7 @@ class MongoChatRepository:
                 )
             )
             self._background_tasks.add(task)
+            task.add_done_callback(_consume_background_task)
             task.add_done_callback(self._background_tasks.discard)
         except (ChatAccessDenied, ChatRoomNotFound, ChatSessionNotFound):
             raise

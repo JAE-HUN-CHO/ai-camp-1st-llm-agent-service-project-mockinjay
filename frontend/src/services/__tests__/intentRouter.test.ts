@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { callBackendAgentStream, routeQueryStream } from '../intentRouter';
+import {
+  callBackendAgentStream,
+  createClientMessageId,
+  routeQueryStream,
+} from '../intentRouter';
 import contractFixture from '../__fixtures__/chat-v1-contract.json';
 import {
   applyChatStreamFrame,
@@ -107,7 +111,37 @@ describe('callBackendAgentStream', () => {
   });
 });
 
+describe('createClientMessageId', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('uses getRandomValues when randomUUID is unavailable', () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(7);
+        return bytes;
+      },
+    });
+
+    expect(createClientMessageId()).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('keeps fallback identifiers unique without Web Crypto', () => {
+    vi.stubGlobal('crypto', undefined);
+
+    expect(createClientMessageId()).not.toBe(createClientMessageId());
+  });
+});
+
 describe('frozen chat v1 fixture', () => {
+  it('fails closed on a status outside the frozen v1 vocabulary', () => {
+    expect(() => applyChatStreamFrame(
+      createChatStreamState(),
+      { status: 'future_status' as ChatStreamFrame['status'], content: 'unsafe' },
+    )).toThrow('Unknown Chat stream status');
+  });
+
   it.each(contractFixture.scenarios)(
     '$name preserves terminal and content semantics',
     (scenario) => {

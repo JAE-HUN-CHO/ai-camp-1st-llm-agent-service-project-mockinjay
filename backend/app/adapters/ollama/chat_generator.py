@@ -64,12 +64,13 @@ class OllamaChatGenerator:
         profile: str,
         user_context: Mapping[str, object],
     ) -> AsyncIterator[ChatStreamEvent]:
+        service_stream = self._service.stream(
+            query,
+            profile=profile,
+            user_context=user_context,
+        )
         try:
-            async for raw in self._service.stream(
-                query,
-                profile=profile,
-                user_context=user_context,
-            ):
+            async for raw in service_stream:
                 if isinstance(raw, Mapping):
                     status = str(raw.get("status") or "streaming")
                     content = str(
@@ -81,21 +82,15 @@ class OllamaChatGenerator:
                     attributes = {
                         key: value
                         for key, value in raw.items()
-                        if key
-                        not in {
-                            "status",
-                            "content",
-                            "answer",
-                            "response",
-                            "agent_type",
-                            "error",
-                        }
+                        if key in {"is_emergency", "retrieved_count"}
                     }
                     yield ChatStreamEvent(
                         status=status,
                         content=content,
                         agent_type=str(raw.get("agent_type") or "ollama_rag"),
-                        error=str(raw["error"]) if raw.get("error") else None,
+                        error="local provider stream failed"
+                        if raw.get("error")
+                        else None,
                         attributes=attributes,
                     )
                 else:
@@ -110,3 +105,12 @@ class OllamaChatGenerator:
             raise ChatProviderUnavailable("local provider is unavailable") from exc
         except Exception as exc:
             raise ChatProviderUnavailable("local provider is unavailable") from exc
+        finally:
+            close = getattr(service_stream, "aclose", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception as exc:
+                    raise ChatProviderUnavailable(
+                        "local provider is unavailable"
+                    ) from exc
