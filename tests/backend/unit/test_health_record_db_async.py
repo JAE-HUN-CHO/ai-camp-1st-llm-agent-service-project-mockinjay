@@ -1,16 +1,15 @@
 """Regression tests for the Motor boundary in health-record endpoints."""
 
 from datetime import datetime
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend"))
 
 import pytest
+from fastapi import HTTPException
 
-from backend.app.api import user_health_records
-from backend.app.api.dependencies import ActorContext
-from backend.app.models.user_health_record import HealthRecordCreate, HealthRecordUpdate
+from app.api import user_health_records
+from app.bootstrap import container as container_module
+from app.bootstrap.container import HealthRecordsContainer, build_health_records_container
+from app.core.actor import ActorContext
+from app.models.user_health_record import HealthRecordCreate, HealthRecordUpdate
 
 
 class _AsyncInsertResult:
@@ -64,10 +63,17 @@ class _FakeHealthRecords:
         return _AsyncDeleteResult()
 
 
+def _legacy_container(
+    monkeypatch, collection: _FakeHealthRecords
+) -> HealthRecordsContainer:
+    monkeypatch.setattr(container_module, "get_health_records_collection", lambda: collection)
+    return build_health_records_container(environment={})
+
+
 @pytest.mark.asyncio
 async def test_create_health_record_awaits_motor_insert(monkeypatch) -> None:
     collection = _FakeHealthRecords()
-    monkeypatch.setattr(user_health_records, "get_health_records_collection", lambda: collection)
+    container = _legacy_container(monkeypatch, collection)
 
     response = await user_health_records.create_health_record(
         HealthRecordCreate(
@@ -77,6 +83,7 @@ async def test_create_health_record_awaits_motor_insert(monkeypatch) -> None:
             gfr=62.0,
         ),
         actor=ActorContext(user_id="user-1"),
+        container=container,
     )
 
     assert response["id"] == _AsyncInsertResult.inserted_id
@@ -86,16 +93,17 @@ async def test_create_health_record_awaits_motor_insert(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_update_and_delete_health_record_await_motor_operations(monkeypatch) -> None:
     collection = _FakeHealthRecords()
-    monkeypatch.setattr(user_health_records, "get_health_records_collection", lambda: collection)
+    container = _legacy_container(monkeypatch, collection)
     record_id = "507f1f77bcf86cd799439011"
 
     updated = await user_health_records.update_health_record(
         record_id,
         HealthRecordUpdate(memo=None),
         actor=ActorContext(user_id="user-1"),
+        container=container,
     )
     deleted = await user_health_records.delete_health_record(
-        record_id, actor=ActorContext(user_id="user-1")
+        record_id, actor=ActorContext(user_id="user-1"), container=container
     )
 
     assert updated["memo"] is None
@@ -107,13 +115,14 @@ async def test_update_and_delete_health_record_await_motor_operations(monkeypatc
 @pytest.mark.asyncio
 async def test_cross_user_health_update_has_zero_mutations(monkeypatch) -> None:
     collection = _FakeHealthRecords()
-    monkeypatch.setattr(user_health_records, "get_health_records_collection", lambda: collection)
+    container = _legacy_container(monkeypatch, collection)
 
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(HTTPException) as exc:
         await user_health_records.update_health_record(
             "507f1f77bcf86cd799439011",
             HealthRecordUpdate(memo="unauthorized"),
             actor=ActorContext(user_id="user-2"),
+            container=container,
         )
 
     assert getattr(exc.value, "status_code", None) == 404

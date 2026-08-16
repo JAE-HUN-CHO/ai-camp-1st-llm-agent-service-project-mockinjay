@@ -2,11 +2,12 @@
 
 **작성일:** 2026-08-15
 **최종 갱신일:** 2026-08-16
-**상태:** Phase 0~2 verified; Phase 3 이후 별도 승인 필요
+**상태:** Phase 0~2와 Phase 3A verified; Phase 3B 이후 별도 승인 필요
 **전제:** 현재 API·MongoDB·Ollama·Parlant 계약을 보존하는 점진적 strangler refactor
 
-**착수 판정:** Phase 0~2는 완료·검증됐다. Phase 2 완료는 Phase 3 착수 승인을 포함하지
-않으며, Phase 3 이후는 각 phase의 별도 범위 확인 전 startable하지 않다.
+**착수 판정:** Phase 0~2는 완료·검증됐고 owner가 Phase 3A `/api/health-records`만 별도로
+승인했다. 이 승인은 Phase 3B·3C 또는 이후 phase의 착수를 포함하지 않는다.
+**Tracking:** [GH-#30](https://github.com/KernelAcademy-AICamp/ai-camp-1st-llm-agent-service-project-mockinjay/issues/30)
 
 실제 실행 작업에 전달할 복사 가능한 지시문과 계량 성공조건은
 [`ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md`](./ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md)를 사용한다.
@@ -18,7 +19,7 @@
 3. 기존 endpoint는 compatibility facade로 유지한다.
 4. untracked `data/`와 생성 artifact는 변경 범위에 포함하지 않는다.
 5. 실패한 runtime gate를 문서에 남기고, 통과 전 다음 gate로 넘어가지 않는다.
-6. [`ADR-013`](../adr/ADR-013-feature-first-hexagonal-modular-monolith.md)의 범위에 따라 Phase 2 Chat에서 멈추고 Phase 3는 별도 승인 전 실행하지 않는다.
+6. [`ADR-013`](../adr/ADR-013-feature-first-hexagonal-modular-monolith.md)의 범위에 따라 승인된 Phase 3A에서 멈추고 Phase 3B·3C는 별도 승인 전 실행하지 않는다.
 
 ## Phase 0 — 기준선과 안전장치
 
@@ -115,18 +116,34 @@ frame이며 provider 원문을 노출하지 않는다.
 
 ## Phase 3 — Health vertical slices
 
-- [ ] 3A: active `/api/health-records` → `health_records`를 behavior-preserving migration
+- [x] 3A: active `/api/health-records` → `health_records`를 behavior-preserving migration
 - [ ] 3B: active `/api/mypage/health` → `health_profiles`를 별도 migration
 - [ ] 3C: dormant `/api/health`와 `HealthRepository`를 retain/delete/versioned-activate 결정
-- [ ] collection/field/API matrix와 schema ADR 없이 collection 병합 금지
-- [ ] 건강기록 entity와 validation policy 이동
-- [ ] 사용자 소유권·인증 정책을 application 계층으로 이동
-- [ ] `HealthRecordRepository`의 get/update/delete에 `owner_id`를 필수 인자로 고정
-- [ ] create/read/update/delete 계약 테스트 추가
-- [ ] null과 unset semantics 보존
-- [ ] 민감정보 로그 redaction end-to-end 검증
+- [x] 3A에서 collection/field/API를 재대조하고 schema ADR 없이 collection 병합 금지
+- [x] frozen v1 validation을 바꾸지 않고 3A 건강기록 entity를 framework-independent domain으로 이동
+- [x] 3A 사용자 소유권·인증 정책을 application 계층으로 이동
+- [x] `HealthRecordRepository`의 get/update/delete에 `owner_id`를 필수 인자로 고정
+- [x] legacy/hex 공통 create/read/update/delete 계약 테스트 추가
+- [x] null과 unset semantics 보존
+- [x] 실제 HTTP synthetic canary로 민감정보 artifact/application log 유출 0 검증
 
 **완료 조건:** router raw query 제거, 타 사용자 접근 거부, 삭제·재시도·부분 실패 재현 가능.
+
+### Phase 3A 고정 결정과 증거
+
+- `HEALTH_RECORDS_IMPLEMENTATION=legacy|hex`는 API composition root에서 한 번만 평가한다.
+  미설정 기본값은 `legacy`이며 잘못된 값은 startup을 fail-closed한다.
+- 기존 REST v1 method/path/status/media type/payload key와 `health_records` 문서 필드를 유지한다.
+  legacy facade는 restart rollback을 위해 남기고 hex 경로만 application port와 MongoDB adapter를
+  사용한다.
+- create idempotency key, 신규 index, backfill, collection 병합, cleanup은 frozen schema를 바꿀
+  필요가 없어 추가하지 않았다. delete retry는 기존 404 계약으로 fail-closed한다.
+- Phase 3B `/api/mypage/health`, Phase 3C dormant `/api/health`와 기존 `HealthRepository`는 수정하지
+  않았다.
+- 근거는
+  `logs/verification/12199ec324efa1f47ccfa3f78e45fbe18b6e9085/20260816T132213Z/manifest.json`과
+  동일 run의 `http/health-records.json`, `http/health-records-hex.json`,
+  `selector/health-records-hex.json`, `selector/health-records-rollback.json`에 보관한다.
 
 ## Phase 4 — Welfare/Research adapter 정리
 
@@ -215,6 +232,8 @@ logs/verification/<git-sha>/<UTC-run-id>/
   provider/{ollama-chat,ollama-embedding}.json
   http/{research,welfare,chat-message}.json
   http/chat-stream.ndjson
+  http/{health-records,health-records-hex}.json
+  selector/{health-records-hex,health-records-rollback}.json
   eval/{router-summary,safety-summary}.json
 ```
 

@@ -1,4 +1,4 @@
-"""Single API-process composition root for the Chat implementation selector."""
+"""Single API-process composition root for incremental implementation selectors."""
 
 from __future__ import annotations
 
@@ -10,10 +10,21 @@ import logging
 import os
 from typing import Any
 
+from fastapi import Request
+
+from app.adapters.mongodb.health_record_repository import MongoHealthRecordRepository
 from app.adapters.mongodb.chat_repository import MongoChatRepository
 from app.adapters.ollama.chat_generator import OllamaChatGenerator
 from app.core.emergency_safety import emergency_safety_policy
+from app.db.connection import get_health_records_collection
 from app.features.chat.application import SendChatMessage, StreamChatMessage
+from app.features.health.application import (
+    CreateHealthRecord,
+    DeleteHealthRecord,
+    ListHealthRecords,
+    UpdateHealthRecord,
+)
+from app.services.health_records_legacy import LegacyHealthRecordsFacade
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +35,15 @@ class ChatConfigurationError(RuntimeError):
 
 
 class ChatImplementation(StrEnum):
+    LEGACY = "legacy"
+    HEX = "hex"
+
+
+class HealthRecordsConfigurationError(RuntimeError):
+    pass
+
+
+class HealthRecordsImplementation(StrEnum):
     LEGACY = "legacy"
     HEX = "hex"
 
@@ -56,6 +76,35 @@ class ChatTelemetry:
         }
 
 
+class HealthRecordsTelemetry:
+    """Process-local counters containing no record IDs or health values."""
+
+    def __init__(self, implementation: HealthRecordsImplementation) -> None:
+        self._implementation = implementation
+        self._counters: Counter[tuple[str, str]] = Counter()
+
+    def record(self, operation: str, outcome: str) -> None:
+        key = (operation, outcome)
+        self._counters[key] += 1
+        logger.info(
+            "Health Records implementation call implementation=%s operation=%s "
+            "outcome=%s count=%d",
+            self._implementation.value,
+            operation,
+            outcome,
+            self._counters[key],
+        )
+
+    def snapshot(self) -> dict[str, object]:
+        return {
+            "implementation": self._implementation.value,
+            "counters": {
+                f"{operation}.{outcome}": count
+                for (operation, outcome), count in sorted(self._counters.items())
+            },
+        }
+
+
 @dataclass(slots=True)
 class ChatContainer:
     implementation: ChatImplementation
@@ -66,6 +115,21 @@ class ChatContainer:
     @property
     def is_hex(self) -> bool:
         return self.implementation is ChatImplementation.HEX
+
+
+@dataclass(slots=True)
+class HealthRecordsContainer:
+    implementation: HealthRecordsImplementation
+    telemetry: HealthRecordsTelemetry
+    legacy: LegacyHealthRecordsFacade | None = None
+    list_health_records: ListHealthRecords | None = None
+    create_health_record: CreateHealthRecord | None = None
+    update_health_record: UpdateHealthRecord | None = None
+    delete_health_record: DeleteHealthRecord | None = None
+
+    @property
+    def is_hex(self) -> bool:
+        return self.implementation is HealthRecordsImplementation.HEX
 
 
 def resolve_chat_implementation(
@@ -80,6 +144,21 @@ def resolve_chat_implementation(
     except ValueError as exc:
         raise ChatConfigurationError(
             "CHAT_IMPLEMENTATION must be exactly 'legacy' or 'hex'"
+        ) from exc
+
+
+def resolve_health_records_implementation(
+    environment: Mapping[str, str] | None = None,
+) -> HealthRecordsImplementation:
+    """Evaluate ``HEALTH_RECORDS_IMPLEMENTATION`` once per container build."""
+    environment = os.environ if environment is None else environment
+    raw = environment.get("HEALTH_RECORDS_IMPLEMENTATION")
+    value = "legacy" if raw is None else raw
+    try:
+        return HealthRecordsImplementation(value)
+    except ValueError as exc:
+        raise HealthRecordsConfigurationError(
+            "HEALTH_RECORDS_IMPLEMENTATION must be exactly 'legacy' or 'hex'"
         ) from exc
 
 
@@ -117,6 +196,30 @@ def build_chat_container(
     )
 
 
+def build_health_records_container(
+    *, environment: Mapping[str, str] | None = None
+) -> HealthRecordsContainer:
+    """Build exactly one selected Health Records implementation."""
+    implementation = resolve_health_records_implementation(environment)
+    telemetry = HealthRecordsTelemetry(implementation)
+    if implementation is HealthRecordsImplementation.LEGACY:
+        return HealthRecordsContainer(
+            implementation=implementation,
+            telemetry=telemetry,
+            legacy=LegacyHealthRecordsFacade(get_health_records_collection),
+        )
+
+    repository = MongoHealthRecordRepository(get_health_records_collection)
+    return HealthRecordsContainer(
+        implementation=implementation,
+        telemetry=telemetry,
+        list_health_records=ListHealthRecords(repository),
+        create_health_record=CreateHealthRecord(repository),
+        update_health_record=UpdateHealthRecord(repository),
+        delete_health_record=DeleteHealthRecord(repository),
+    )
+
+
 def get_chat_container(request: Any) -> ChatContainer:
     """Return the one container owned by this FastAPI application."""
     container = getattr(request.app.state, "chat_container", None)
@@ -129,4 +232,13 @@ def get_chat_container(request: Any) -> ChatContainer:
             agent_runtime=get_agent_runtime(request),
         )
         request.app.state.chat_container = container
+    return container
+
+
+def get_health_records_container(request: Request) -> HealthRecordsContainer:
+    """Return the Health Records container owned by this FastAPI application."""
+    container = getattr(request.app.state, "health_records_container", None)
+    if container is None:
+        container = build_health_records_container()
+        request.app.state.health_records_container = container
     return container
