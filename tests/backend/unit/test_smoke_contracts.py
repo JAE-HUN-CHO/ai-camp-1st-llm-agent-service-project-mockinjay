@@ -159,7 +159,7 @@ def test_health_records_server_manifest_keeps_process_exit_code(
 ) -> None:
     recorded: list[dict[str, object]] = []
 
-    def capture_append_command(_artifact_dir, **kwargs) -> None:
+    def capture_append_command(_artifact_dir, **kwargs: object) -> None:
         recorded.append(kwargs)
 
     monkeypatch.setattr(
@@ -170,7 +170,11 @@ def test_health_records_server_manifest_keeps_process_exit_code(
     health_records_verification.record_server_command(
         tmp_path,
         server_argv=["python", "-m", "uvicorn"],
-        shutdown=health_records_verification.ShutdownResult(True, -15, "terminate"),
+        shutdown=health_records_verification.ShutdownResult(
+            controlled=True,
+            exit_code=-15,
+            method="terminate",
+        ),
         server_started_at="2026-08-16T00:00:00+00:00",
         finished_at="2026-08-16T00:00:01+00:00",
         artifacts=["selector/health-records-hex.json"],
