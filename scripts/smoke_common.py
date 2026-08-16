@@ -6,16 +6,14 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
-import re
 import subprocess
 from urllib.parse import urlparse
 
+from sensitive_patterns import SENSITIVE_PATTERN
+
 
 ROOT = Path(__file__).resolve().parents[1]
-SENSITIVE = re.compile(
-    r"(?i)(?:bearer\s+[a-z0-9._~+/=-]+|eyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+|"
-    r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(?:pii|health|token)[_-]?canary)"
-)
+SENSITIVE = SENSITIVE_PATTERN
 
 
 def utc_now() -> str:
@@ -25,7 +23,7 @@ def utc_now() -> str:
 def require_local_http(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("only loopback HTTP endpoints are allowed")
+        raise ValueError("only loopback HTTP endpoints are allowed: 127.0.0.1, localhost, ::1")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("credentials, query strings and fragments are forbidden in base URLs")
     return url.rstrip("/")

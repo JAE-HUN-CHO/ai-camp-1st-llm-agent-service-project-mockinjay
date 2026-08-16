@@ -19,6 +19,20 @@ APP = ROOT / "backend" / "app"
 FORBIDDEN = ("fastapi", "motor", "pymongo", "parlant", "ollama", "app.db", "app.adapters")
 
 
+def _relative_import(path: Path, node: ast.ImportFrom) -> str:
+    if node.level == 0:
+        return node.module or ""
+    module_parts = ["app", *path.relative_to(APP).with_suffix("").parts]
+    package_parts = module_parts[:-1]
+    keep = len(package_parts) - (node.level - 1)
+    base = package_parts[: max(0, keep)]
+    return ".".join([*base, *((node.module or "").split("."))]).rstrip(".")
+
+
+def _matches_module(imported: str, prefix: str) -> bool:
+    return imported == prefix or imported.startswith(f"{prefix}.")
+
+
 def imports(path: Path) -> list[tuple[int, str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     result = []
@@ -26,7 +40,7 @@ def imports(path: Path) -> list[tuple[int, str]]:
         if isinstance(node, ast.Import):
             result.extend((node.lineno, alias.name) for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            result.append((node.lineno, node.module or ""))
+            result.append((node.lineno, _relative_import(path, node)))
     return result
 
 
@@ -42,10 +56,14 @@ def scan() -> dict:
         feature = path.parent.name if "features" in path.parts else None
         for line, imported in imports(path):
             reason = None
-            if imported.startswith(FORBIDDEN):
+            if any(_matches_module(imported, prefix) for prefix in FORBIDDEN):
                 reason = "infrastructure import in inner seam"
-            if feature and imported.startswith("app.features.") and not imported.startswith(
-                f"app.features.{feature}"
+            own_feature = f"app.features.{feature}" if feature else None
+            if (
+                feature
+                and _matches_module(imported, "app.features")
+                and own_feature
+                and not _matches_module(imported, own_feature)
             ):
                 reason = "cross-feature implementation import"
             if reason:

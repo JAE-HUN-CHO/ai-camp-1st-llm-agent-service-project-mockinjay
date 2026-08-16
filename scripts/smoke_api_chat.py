@@ -20,9 +20,9 @@ PROMPT = "만성 신장질환의 일반적인 식이 관리 원칙을 근거 중
 
 
 def parse_sse_line(line: str) -> tuple[str, dict | None]:
-    if not line.startswith("data: "):
+    if not line.startswith("data:"):
         return "ignored", None
-    data = line[6:]
+    data = line[5:].removeprefix(" ")
     if data == "[DONE]":
         return "done", None
     payload = json.loads(data)
@@ -128,16 +128,21 @@ def main() -> int:
     artifact_dir = args.artifact_dir or default_artifact_dir()
     args.artifact_dir = artifact_dir
     started = utc_now()
-    artifacts = ["http/chat-message.json", "http/chat-stream.ndjson"]
+    candidates = ["http/chat-message.json", "http/chat-stream.ndjson"]
     try:
         exit_code = asyncio.run(run(args))
     except Exception as exc:
         exit_code = 1
         write_json(
             artifact_dir / "http" / "chat-smoke-error.json",
-            {"error_type": type(exc).__name__, "error": str(exc), "finished_at": utc_now()},
+            {
+                "error_type": type(exc).__name__,
+                "error_message": digest_text(str(exc)),
+                "finished_at": utc_now(),
+            },
         )
-        artifacts.append("http/chat-smoke-error.json")
+        candidates.append("http/chat-smoke-error.json")
+    artifacts = [name for name in candidates if (artifact_dir / name).is_file()]
     append_command(
         artifact_dir,
         argv=[sys.executable, *sys.argv],

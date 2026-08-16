@@ -24,7 +24,7 @@ def git_sha() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
 
 
-def worktree_fingerprint() -> str:
+def worktree_fingerprint(artifact_dir: Path | None = None) -> str:
     tracked = subprocess.check_output(["git", "diff", "--binary", "HEAD"], cwd=ROOT)
     untracked_names = subprocess.check_output(
         ["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=ROOT
@@ -32,6 +32,12 @@ def worktree_fingerprint() -> str:
     digest = hashlib.sha256(tracked + b"\0")
     for raw_name in filter(None, untracked_names.split(b"\0")):
         path = ROOT / raw_name.decode("utf-8")
+        if artifact_dir is not None:
+            try:
+                path.resolve().relative_to(artifact_dir.resolve())
+                continue
+            except ValueError:
+                pass
         digest.update(raw_name)
         digest.update(b"\0")
         if path.is_file():
@@ -68,7 +74,7 @@ def append_command(
             },
             "commands": [],
         }
-    fingerprint = worktree_fingerprint()
+    fingerprint = worktree_fingerprint(artifact_dir)
     manifest["worktree_fingerprint"] = fingerprint
     manifest["updated_at"] = finished_at
     manifest["commands"].append(
@@ -87,6 +93,12 @@ def append_command(
 
 
 def run_command(artifact_dir: Path, output: Path, command: list[str]) -> int:
+    artifact_dir = artifact_dir.resolve()
+    output = output.resolve()
+    try:
+        relative_output = output.relative_to(artifact_dir)
+    except ValueError as exc:
+        raise ValueError("verification output must be inside artifact_dir") from exc
     started = _now()
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as stream:
@@ -105,7 +117,7 @@ def run_command(artifact_dir: Path, output: Path, command: list[str]) -> int:
         exit_code=completed.returncode,
         started_at=started,
         finished_at=finished,
-        artifacts=[str(output.relative_to(artifact_dir))],
+        artifacts=[str(relative_output)],
     )
     return completed.returncode
 

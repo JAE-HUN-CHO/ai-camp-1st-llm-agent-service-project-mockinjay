@@ -139,6 +139,7 @@ async def smoke_target(
             ]
             if response_events:
                 break
+            await asyncio.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
         if not response_events:
             raise TimeoutError("no agent message event before smoke timeout")
 
@@ -161,7 +162,7 @@ async def smoke_target(
 
 
 async def run(args) -> int:
-    artifact_dir = args.artifact_dir or default_artifact_dir()
+    artifact_dir = args.artifact_dir
     urls = {"research": require_local_http(args.research_url), "welfare": require_local_http(args.welfare_url)}
     if urls["research"] == urls["welfare"]:
         raise ValueError("research and welfare endpoints must be distinct")
@@ -176,10 +177,10 @@ async def run(args) -> int:
                 prompt=prompt,
                 timeout=args.timeout,
             )
-        except BaseException as exc:
+        except Exception as exc:
             result = exc
         path = artifact_dir / "http" / f"{name}.json"
-        if isinstance(result, BaseException):
+        if isinstance(result, Exception):
             exit_code = 1
             write_json(
                 path,
@@ -191,7 +192,7 @@ async def run(args) -> int:
                     "expected_agent": expected,
                     "provider": "parlant-local",
                     "error_type": type(result).__name__,
-                    "error": str(result),
+                    "error_message": digest_text(str(result)),
                     "finished_at": utc_now(),
                 },
             )
@@ -217,7 +218,11 @@ def main() -> int:
         exit_code = 1
         write_json(
             artifact_dir / "http" / "parlant-smoke-error.json",
-            {"error_type": type(exc).__name__, "error": str(exc), "finished_at": utc_now()},
+            {
+                "error_type": type(exc).__name__,
+                "error_message": digest_text(str(exc)),
+                "finished_at": utc_now(),
+            },
         )
     target_names = ("research", "welfare") if args.target == "all" else (args.target,)
     append_command(
@@ -226,7 +231,11 @@ def main() -> int:
         exit_code=exit_code,
         started_at=started,
         finished_at=utc_now(),
-        artifacts=[f"http/{name}.json" for name in target_names],
+        artifacts=[
+            f"http/{name}.json"
+            for name in target_names
+            if (artifact_dir / "http" / f"{name}.json").is_file()
+        ],
     )
     return exit_code
 
