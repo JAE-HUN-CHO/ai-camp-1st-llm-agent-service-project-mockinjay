@@ -40,6 +40,19 @@ def ensure_redacted(payload: object) -> None:
         raise ValueError("sensitive canary or credential detected in evidence payload")
 
 
+def resolve_artifact_path(artifact_dir: Path, relative_path: Path) -> Path:
+    """Resolve a verification artifact without allowing path traversal."""
+    artifact_root = artifact_dir.resolve()
+    if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.name:
+        raise ValueError("verification artifact path must stay inside artifact_dir")
+    resolved = (artifact_root / relative_path).resolve()
+    try:
+        resolved.relative_to(artifact_root)
+    except ValueError as exc:
+        raise ValueError("verification artifact path must stay inside artifact_dir") from exc
+    return resolved
+
+
 def write_json(path: Path, payload: object) -> None:
     ensure_redacted(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
