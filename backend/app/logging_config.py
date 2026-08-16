@@ -35,6 +35,24 @@ class SensitiveDataFilter(logging.Filter):
         return True
 
 
+class RedactingFormatter(logging.Formatter):
+    """Apply the same PII policy to messages and formatted tracebacks."""
+
+    def formatException(self, exc_info) -> str:  # noqa: N802 - logging API
+        rendered = super().formatException(exc_info)
+        record = logging.LogRecord(
+            name="traceback",
+            level=logging.ERROR,
+            pathname="",
+            lineno=0,
+            msg=rendered,
+            args=(),
+            exc_info=None,
+        )
+        SensitiveDataFilter().filter(record)
+        return record.getMessage()
+
+
 def setup_logging():
     """
     Configure application logging with structured format and rotating file handlers
@@ -44,7 +62,7 @@ def setup_logging():
     log_dir.mkdir(exist_ok=True)
 
     # Log format
-    log_format = logging.Formatter(
+    log_format = RedactingFormatter(
         fmt='%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

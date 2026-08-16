@@ -135,8 +135,11 @@ class MedicalWelfareAgent(LocalAgent):
             return
         
         if cls._parlant_server_process is not None:
-            logger.info("✅ Medical Welfare server process already started")
-            return
+            if cls._parlant_server_process.poll() is not None:
+                raise RuntimeError("Medical Welfare server process exited before readiness")
+            raise RuntimeError(
+                "Medical Welfare server is running without the expected agent identity"
+            )
         
         logger.info("🚀 Starting Medical Welfare Parlant server...")
         
@@ -219,9 +222,7 @@ class MedicalWelfareAgent(LocalAgent):
                     cls._agent_id = target_agent.id
                     logger.info(f"✅ Using agent: {target_agent.name} (ID: {cls._agent_id})")
                 else:
-                    # Fallback to first agent if specific one not found
-                    cls._agent_id = agents_response[0].id
-                    logger.warning(f"⚠️ 'MedicalWelfare_Agent' not found, using first available: {agents_response[0].name} (ID: {cls._agent_id})")
+                    raise ValueError("Expected Parlant agent 'MedicalWelfare_Agent' not found")
             else:
                 raise ValueError("No agents found on Parlant server")
         except Exception as e:

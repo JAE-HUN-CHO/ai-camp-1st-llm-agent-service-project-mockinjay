@@ -131,8 +131,11 @@ class ResearchPaperAgent(LocalAgent):
             return
         
         if cls._parlant_server_process is not None:
-            logger.info("✅ Research Paper server process already started")
-            return
+            if cls._parlant_server_process.poll() is not None:
+                raise RuntimeError("Research Paper server process exited before readiness")
+            raise RuntimeError(
+                "Research Paper server is running without the expected agent identity"
+            )
         
         # Start the server
         logger.info("🚀 Starting Parlant healthcare server...")
@@ -222,9 +225,7 @@ class ResearchPaperAgent(LocalAgent):
                     cls._agent_id = target_agent.id
                     logger.info(f"✅ Using agent: {target_agent.name} (ID: {cls._agent_id})")
                 else:
-                    # Fallback to first agent if specific one not found
-                    cls._agent_id = agents_response[0].id
-                    logger.warning(f"⚠️ 'CareGuide_v2' not found, using first available: {agents_response[0].name} (ID: {cls._agent_id})")
+                    raise ValueError("Expected Parlant agent 'CareGuide_v2' not found")
             else:
                 raise ValueError("No agents found on Parlant server")
         except Exception as e:

@@ -516,6 +516,7 @@ async def chat_message(request: Request):
         async def event_generator():
             accumulated_response = ""
             final_agent_type = None
+            completed = False
             stream_registry = get_stream_registry(request)
 
             # Register this stream as active
@@ -534,6 +535,7 @@ async def chat_message(request: Request):
                     # Check for cancellation request
                     if stream_registry.get(session_id, {}).get("cancel_requested"):
                         logger.info("Chat stream cancelled")
+                        completed = False
                         yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Stream stopped by user'})}\n\n"
                         break
                     content = ""
@@ -562,8 +564,9 @@ async def chat_message(request: Request):
                     if current_agent_type:
                         final_agent_type = current_agent_type
 
-                    if isinstance(chunk, dict) and chunk.get("status") == "complete":
+                    if isinstance(chunk, dict) and chunk.get("status") in {"complete", "success"}:
                         accumulated_response = content
+                        completed = True
                     elif isinstance(chunk, dict) and chunk.get("status") == "streaming":
                         accumulated_response += content
                     elif isinstance(chunk, dict) and chunk.get("status") == "new_message":
@@ -574,12 +577,14 @@ async def chat_message(request: Request):
                             accumulated_response = content
                     elif hasattr(chunk, 'dict'):
                         accumulated_response = content
+                        completed = resp_dict.get("status") in {"complete", "success"}
 
                     # Update partial response for cancellation handling
                     if session_id in stream_registry:
                         stream_registry.get(session_id)["partial_response"] = accumulated_response
 
             except Exception:
+                completed = False
                 logger.error("Chat stream failed", exc_info=True)
                 yield 'data: {"status":"error","error":"local chat stream failed"}\n\n'
             finally:
@@ -588,7 +593,7 @@ async def chat_message(request: Request):
 
             # Save to DB after stream completes
             try:
-                if session_id and query and user_id and accumulated_response:
+                if completed and session_id and query and user_id and accumulated_response:
                     save_agent_type = final_agent_type or "research_paper"
 
                     await context_system.context_engineer.db_manager.save_conversation(
@@ -720,6 +725,7 @@ async def chat_stream(request: Request):
         async def event_generator():
             accumulated_response = ""
             final_agent_type = None
+            completed = False
 
             try:
                 async for chunk in router_agent.process_stream(agent_request):
@@ -768,9 +774,10 @@ async def chat_stream(request: Request):
                     if current_agent_type:
                         final_agent_type = current_agent_type
                     
-                    if isinstance(chunk, dict) and chunk.get("status") == "complete":
+                    if isinstance(chunk, dict) and chunk.get("status") in {"complete", "success"}:
                         # Final synthesized answer
                         accumulated_response = content
+                        completed = True
                     elif isinstance(chunk, dict) and chunk.get("status") == "streaming":
                         # Streaming parts
                         accumulated_response += content
@@ -783,14 +790,16 @@ async def chat_stream(request: Request):
                     elif hasattr(chunk, 'dict'):
                         # Full response object
                         accumulated_response = content
+                        completed = resp_dict.get("status") in {"complete", "success"}
 
             except Exception:
+                completed = False
                 logger.error("Chat stream failed", exc_info=True)
                 yield 'data: {"status":"error","error":"local chat stream failed"}\n\n'
 
             # Save to DB after stream completes
             try:
-                if session_id and query and user_id and accumulated_response:
+                if completed and session_id and query and user_id and accumulated_response:
                     # Use final_agent_type or default to router/research_paper
                     save_agent_type = final_agent_type or "research_paper"
 
@@ -862,62 +871,62 @@ async def _proxy_request(path: str, request: Request, base_url: str):
             if key.lower() not in ["host", "content-length"]
         }
 
-        # Get request body
-        body = await request.body()
-        
         # --- Context Engineering: Injection (Only for POST) ---
         if request.method == "POST":
+            # Authenticate before reading or parsing attacker-controlled body
+            # bytes so malformed payloads cannot bypass the actor boundary.
+            get_request_user_id(request)
+            if "application/json" not in request.headers.get("content-type", "").lower():
+                raise HTTPException(status_code=415, detail="POST proxy body must be JSON")
+            body = await request.body()
             try:
-                # Try to parse body as JSON to inject context
                 body_json = json.loads(body)
-                session_id = body_json.get("session_id")
-                query = body_json.get("query") or body_json.get("message")
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise HTTPException(status_code=400, detail="Invalid JSON body") from exc
+            if not isinstance(body_json, dict):
+                raise HTTPException(status_code=400, detail="JSON body must be an object")
 
-                if query and emergency_safety_policy.evaluate(query).blocked:
-                    return JSONResponse(
-                        content={
-                            "status": "success",
-                            "content": EMERGENCY_RESPONSE,
-                            "agent_type": "emergency_safety",
-                            "is_emergency": True,
-                        }
+            session_id = body_json.get("session_id")
+            query = body_json.get("query") or body_json.get("message")
+            actor = await authorize_chat_actor(
+                request,
+                context_system,
+                requested_user_id=body_json.get("user_id"),
+                room_id=body_json.get("room_id"),
+                session_id=session_id,
+            )
+            body_json["user_id"] = actor.user_id
+
+            if query and emergency_safety_policy.evaluate(query).blocked:
+                return JSONResponse(
+                    content={
+                        "status": "success",
+                        "content": EMERGENCY_RESPONSE,
+                        "agent_type": "emergency_safety",
+                        "is_emergency": True,
+                    }
+                )
+
+            if session_id and query:
+                try:
+                    user_context = await context_system.context_engineer.get_user_context(
+                        actor.user_id
                     )
+                    if user_context.get("summary") or user_context.get("keywords"):
+                        context = body_json.setdefault("context", {})
+                        if not isinstance(context, dict):
+                            raise HTTPException(status_code=400, detail="context must be an object")
+                        context["user_history"] = user_context
+                        logger.info("Injected redacted user context into proxy request")
+                except HTTPException:
+                    raise
+                except Exception:
+                    logger.warning("Context injection failed", exc_info=True)
 
-                if query:
-                    await authorize_chat_actor(
-                        request,
-                        context_system,
-                        requested_user_id=body_json.get("user_id"),
-                        room_id=body_json.get("room_id"),
-                        session_id=session_id,
-                    )
-
-                if session_id and query:
-                    session = context_system.session_manager.get_session(session_id)
-                    if session:
-                        user_id = session.get("user_id")
-                        if user_id:
-                            # 1. Get Context
-                            user_context = await context_system.context_engineer.get_user_context(user_id)
-                            
-                            # 2. Inject Context
-                            if user_context.get("summary") or user_context.get("keywords"):
-                                # Add to 'context' field which agents should respect
-                                if "context" not in body_json:
-                                    body_json["context"] = {}
-                                
-                                # Add user history context
-                                body_json["context"]["user_history"] = user_context
-                                
-                                # Re-serialize body
-                                body = json.dumps(body_json).encode("utf-8")
-                                # Update content-length header
-                                headers["content-length"] = str(len(body))
-                                logger.info("Injected redacted user context into proxy request")
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.warning(f"Context injection failed: {e}")
+            body = json.dumps(body_json).encode("utf-8")
+            headers["content-length"] = str(len(body))
+        else:
+            body = await request.body()
 
         logger.info("Proxying authenticated request to local Parlant")
 

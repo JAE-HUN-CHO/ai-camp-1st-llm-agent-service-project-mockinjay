@@ -103,17 +103,7 @@ async def authorize_chat_actor(
     user_id = get_request_user_id(request)
     require_user_match(requested_user_id, user_id)
 
-    session = None
-    if session_id and session_id != "default":
-        session = context_system.session_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-        if str(session.get("user_id")) != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: session ownership mismatch",
-            )
-
+    owned_room = None
     if room_id:
         db_manager = context_system.context_engineer.db_manager
         await db_manager.connect()
@@ -125,7 +115,22 @@ async def authorize_chat_actor(
         if not owned_room:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
 
-        if session and session.get("room_id") not in {None, room_id}:
+    session = None
+    if session_id and session_id != "default":
+        session = context_system.session_manager.get_session(session_id)
+        # Persisted rooms survive process restarts while SessionManager is only
+        # an in-memory accelerator. The canonical client uses room_id as the
+        # compatibility session identifier, so Mongo ownership is sufficient
+        # when that cache entry is absent.
+        if not session and not (owned_room and session_id == room_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        if session and str(session.get("user_id")) != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: session ownership mismatch",
+            )
+
+        if room_id and session and session.get("room_id") not in {None, room_id}:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied: session room mismatch",

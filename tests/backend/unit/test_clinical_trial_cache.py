@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 backend_dir = Path(__file__).resolve().parents[3] / "backend"
 if str(backend_dir) not in sys.path:
@@ -42,6 +43,11 @@ def test_status_is_part_of_trial_cache_key() -> None:
     assert clinical_trials.get_cached_trials("kidney", 1, 10, "COMPLETED") is None
 
 
+def test_trial_cache_key_is_namespaced_by_source_contract() -> None:
+    key = clinical_trials.get_cache_key("kidney", 1, 10)
+    assert key.startswith(f"{clinical_trials.CACHE_CONTRACT_VERSION}:")
+
+
 def test_translation_cache_expires_with_same_ttl_policy() -> None:
     clinical_trials.set_cached_translation("kidney", "신장")
 
@@ -64,7 +70,7 @@ async def test_detail_contract_preserves_source_and_forbids_generated_interpreta
     async def fake_parse(_study, *, translate=False):
         return {
             "nctId": "NCT00000001",
-            "title": "충실한 번역" if translate else "Original title",
+            "title": "충실한 번역" if translate else "Recommendations and clinical significance",
         }
 
     monkeypatch.setattr(clinical_trials, "fetch_trial_detail", fake_detail)
@@ -74,15 +80,38 @@ async def test_detail_contract_preserves_source_and_forbids_generated_interpreta
         clinical_trials.ClinicalTrialDetailRequest(nct_id="NCT00000001", language="ko")
     )
 
-    assert response["trial"]["title"] == "Original title"
+    assert response["trial"]["title"] == "Recommendations and clinical significance"
     assert response["translation"]["title"] == "충실한 번역"
     assert response["source"]["url"].endswith("NCT00000001")
     assert response["informationOnly"] is True
     assert response["disclaimer"]
-    assert "aiSummary" not in response
-    serialized = str(response).lower()
-    assert "recommendations" not in serialized
-    assert "clinical significance" not in serialized
+    assert {"aiSummary", "recommendations", "clinicalSignificance"}.isdisjoint(response)
+
+
+@pytest.mark.asyncio
+async def test_english_detail_skips_translation(monkeypatch) -> None:
+    calls = []
+
+    async def fake_detail(_nct_id):
+        return {"protocolSection": {"identificationModule": {"nctId": "NCT00000001"}}}
+
+    async def fake_parse(_study, *, translate=False):
+        calls.append(translate)
+        return {"nctId": "NCT00000001", "title": "Original title"}
+
+    monkeypatch.setattr(clinical_trials, "fetch_trial_detail", fake_detail)
+    monkeypatch.setattr(clinical_trials, "parse_trial_data", fake_parse)
+    response = await clinical_trials.get_trial_detail(
+        clinical_trials.ClinicalTrialDetailRequest(nct_id="NCT00000001", language="en")
+    )
+
+    assert calls == [False]
+    assert response["translation"] == response["trial"]
+
+
+def test_detail_request_rejects_unsupported_language() -> None:
+    with pytest.raises(ValidationError):
+        clinical_trials.ClinicalTrialDetailRequest(nct_id="NCT00000001", language="ja")
 
 
 @pytest.mark.asyncio

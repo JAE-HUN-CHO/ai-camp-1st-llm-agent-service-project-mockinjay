@@ -56,6 +56,40 @@ class _FakeRouter:
         yield {"status": "complete", "content": "hello world", "agent_type": "test"}
 
 
+class _FailingRouter:
+    async def process_stream(self, _request):
+        yield {"status": "streaming", "content": "unsafe partial", "agent_type": "test"}
+        raise RuntimeError("provider failed")
+
+
+def _chat_app(manager, router, *, authenticated: bool = True) -> FastAPI:
+    context_system = SimpleNamespace(
+        session_manager=SimpleNamespace(
+            get_session=lambda session_id: {
+                "session_id": session_id,
+                "user_id": "user-1",
+                "room_id": "room-1",
+            }
+        ),
+        context_engineer=SimpleNamespace(
+            db_manager=manager,
+            get_user_context=manager.get_user_context,
+        ),
+    )
+    app = FastAPI()
+    app.state.context_system = context_system
+    app.state.agent_runtime = SimpleNamespace(router_agent=router)
+
+    if authenticated:
+        @app.middleware("http")
+        async def set_authenticated_user(request, call_next):
+            request.state.user_id = "user-1"
+            return await call_next(request)
+
+    app.include_router(chat.router)
+    return app
+
+
 def test_chat_stream_emits_sse_and_persists_final_response(monkeypatch) -> None:
     manager = _FakeContextManager()
     context_system = SimpleNamespace(
@@ -124,3 +158,63 @@ def test_chat_stream_requires_query() -> None:
 
     assert response.status_code == 400
     assert "Query is required" in response.json()["detail"]
+
+
+def test_failed_chat_stream_does_not_persist_partial_response(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    runtime = SimpleNamespace(router_agent=_FailingRouter())
+    app = _chat_app(manager, runtime.router_agent)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={
+                "query": "hello",
+                "session_id": "session-1",
+                "user_id": "user-1",
+                "room_id": "room-1",
+            },
+        )
+
+    assert '"status":"error"' in response.text
+    assert response.text.endswith("data: [DONE]\n\n")
+    assert manager.saved == []
+
+
+def test_proxy_post_authenticates_before_rejecting_invalid_json(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    app = _chat_app(manager, _FakeRouter(), authenticated=False)
+
+    class _NoForwardClient:
+        async def request(self, **_kwargs):
+            raise AssertionError("unauthenticated payload must not be forwarded")
+
+    monkeypatch.setattr(chat, "client", _NoForwardClient())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/research/events",
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 401
+
+
+def test_proxy_post_rejects_invalid_json_without_forwarding(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    app = _chat_app(manager, _FakeRouter())
+
+    class _NoForwardClient:
+        async def request(self, **_kwargs):
+            raise AssertionError("invalid JSON must not be forwarded")
+
+    monkeypatch.setattr(chat, "client", _NoForwardClient())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/research/events",
+            content=b"not-json",
+            headers={"content-type": "application/json"},
+        )
+
+    assert response.status_code == 400

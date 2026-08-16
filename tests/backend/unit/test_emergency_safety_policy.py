@@ -18,6 +18,7 @@ from Agent.research_paper.agent import ResearchPaperAgent
     [
         "숨을 쉬기 어려워요",
         "숨이 안 쉬어져요",
+        "숨이 차요",
         "호흡이 곤란해요",
         "가슴이 조이고 식은땀이 나요",
         "가슴 통증과 호흡곤란이 같이 있어요",

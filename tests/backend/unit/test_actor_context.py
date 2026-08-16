@@ -68,6 +68,21 @@ async def test_owned_room_and_session_are_bound_before_downstream() -> None:
 
 
 @pytest.mark.asyncio
+async def test_persisted_room_authorizes_after_session_cache_restart() -> None:
+    context, manager = _context(None)
+    actor = await authorize_chat_actor(
+        _request("user-a"),
+        context,
+        requested_user_id="user-a",
+        room_id="room-a",
+        session_id="room-a",
+    )
+    assert actor.room_id == "room-a"
+    assert actor.session_id == "room-a"
+    assert manager.connect_count == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("request_user", "requested_user", "room_id", "session", "expected_status"),
     [

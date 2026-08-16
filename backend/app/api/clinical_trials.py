@@ -29,6 +29,7 @@ ollama_client: Optional[OllamaClient] = None
 _trials_cache = {}
 _translation_cache = {}  # Key: text hash -> {translation, timestamp}
 CACHE_TTL = 3600  # Cache for 1 hour
+CACHE_CONTRACT_VERSION = "source-faithful-v2"
 
 
 async def get_persistent_cache(cache_key: str) -> Optional[Dict[str, Any]]:
@@ -96,7 +97,7 @@ def get_cache_key(
     status: Optional[str] = None,
 ) -> str:
     """Generate cache key for trial list"""
-    return f"{condition}:{status or 'all'}:{page}:{page_size}"
+    return f"{CACHE_CONTRACT_VERSION}:{condition}:{status or 'all'}:{page}:{page_size}"
 
 
 def is_cache_valid(timestamp: float) -> bool:
@@ -286,7 +287,7 @@ async def translate_to_korean(text: str) -> str:
         return text
 
     # Mongo is the shared cache; the process cache remains a fast local tier.
-    persistent_key = f"translation:{get_text_hash(text)}"
+    persistent_key = f"translation:{CACHE_CONTRACT_VERSION}:{get_text_hash(text)}"
     cached = await get_persistent_cache(persistent_key)
     if cached:
         set_cached_translation(text, cached)
