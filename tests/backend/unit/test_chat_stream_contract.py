@@ -62,6 +62,18 @@ class _FailingRouter:
         raise RuntimeError("provider failed")
 
 
+class _NaturalCompletionRouter:
+    async def process_stream(self, _request):
+        yield {"status": "new_message", "content": "first", "agent_type": "research_paper"}
+        yield {"status": "new_message", "content": "second", "agent_type": "research_paper"}
+
+
+class _ErrorFrameRouter:
+    async def process_stream(self, _request):
+        yield {"status": "streaming", "content": "unsafe partial", "agent_type": "test"}
+        yield {"status": "error", "error": "provider failed", "agent_type": "test"}
+
+
 def _chat_app(manager, router, *, authenticated: bool = True) -> FastAPI:
     context_system = SimpleNamespace(
         session_manager=SimpleNamespace(
@@ -177,8 +189,55 @@ def test_failed_chat_stream_does_not_persist_partial_response(monkeypatch) -> No
             },
         )
 
+    assert "unsafe partial" in response.text
+    assert response.text.index("unsafe partial") < response.text.index('"status":"error"')
     assert '"status":"error"' in response.text
     assert response.text.endswith("data: [DONE]\n\n")
+    assert manager.saved == []
+
+
+def test_naturally_completed_chat_stream_emits_terminal_and_persists(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    runtime = SimpleNamespace(router_agent=_NaturalCompletionRouter())
+    app = _chat_app(manager, runtime.router_agent)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={
+                "query": "hello",
+                "session_id": "default",
+                "user_id": "user-1",
+                "room_id": "room-1",
+            },
+        )
+
+    assert '"status": "complete"' in response.text
+    assert response.text.index('"status": "complete"') < response.text.index("data: [DONE]")
+    assert manager.saved[0]["session_id"] == "room-1"
+    assert manager.saved[0]["agent_response"] == "first\n\nsecond"
+
+
+def test_explicit_error_frame_does_not_emit_success_or_persist(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    runtime = SimpleNamespace(router_agent=_ErrorFrameRouter())
+    app = _chat_app(manager, runtime.router_agent)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={
+                "query": "hello",
+                "session_id": "session-1",
+                "user_id": "user-1",
+                "room_id": "room-1",
+            },
+        )
+
+    assert '"status": "error"' in response.text
+    assert '"status": "complete"' not in response.text
     assert manager.saved == []
 
 

@@ -115,14 +115,25 @@ async def authorize_chat_actor(
         if not owned_room:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
 
+    normalized_session_id = session_id
+    if session_id in {None, "default"}:
+        # Legacy callers may omit session_id. Bind that compatibility value to
+        # an owned room when available, otherwise keep it user-scoped so the
+        # remote-agent session cache can never be shared across actors.
+        normalized_session_id = room_id or f"default:{user_id}"
+
     session = None
-    if session_id and session_id != "default":
-        session = context_system.session_manager.get_session(session_id)
+    if normalized_session_id:
+        session = context_system.session_manager.get_session(normalized_session_id)
         # Persisted rooms survive process restarts while SessionManager is only
         # an in-memory accelerator. The canonical client uses room_id as the
         # compatibility session identifier, so Mongo ownership is sufficient
         # when that cache entry is absent.
-        if not session and not (owned_room and session_id == room_id):
+        compatibility_session = normalized_session_id == f"default:{user_id}"
+        if not session and not (
+            compatibility_session
+            or (owned_room and normalized_session_id == room_id)
+        ):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         if session and str(session.get("user_id")) != user_id:
             raise HTTPException(
@@ -136,7 +147,11 @@ async def authorize_chat_actor(
                 detail="Access denied: session room mismatch",
             )
 
-    return ActorContext(user_id=user_id, room_id=room_id, session_id=session_id)
+    return ActorContext(
+        user_id=user_id,
+        room_id=room_id,
+        session_id=normalized_session_id,
+    )
 
 
 async def require_admin(user_id: str = Depends(get_current_user)) -> str:

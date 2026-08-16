@@ -65,6 +65,7 @@ class MedicalWelfareAgent(LocalAgent):
     _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}
+    _client_initialization_lock = asyncio.Lock()
 
     # Session-based polling management
     # 세션 기반 폴링 관리
@@ -137,24 +138,22 @@ class MedicalWelfareAgent(LocalAgent):
         if cls._parlant_server_process is not None:
             if cls._parlant_server_process.poll() is not None:
                 raise RuntimeError("Medical Welfare server process exited before readiness")
-            raise RuntimeError(
-                "Medical Welfare server is running without the expected agent identity"
+            logger.info("⏳ Medical Welfare server process is still starting")
+        else:
+            logger.info("🚀 Starting Medical Welfare Parlant server...")
+
+            server_path = Path(__file__).parent / "server" / "medical_welfare_server.py"
+
+            if not server_path.exists():
+                raise FileNotFoundError(f"Server not found: {server_path}")
+
+            logger.info(f"📝 Server path: {server_path}")
+
+            cls._parlant_server_process = subprocess.Popen(
+                [sys.executable, str(server_path)],
+                cwd=str(server_path.parent),
+                env=os.environ.copy()
             )
-        
-        logger.info("🚀 Starting Medical Welfare Parlant server...")
-        
-        server_path = Path(__file__).parent / "server" / "medical_welfare_server.py"
-        
-        if not server_path.exists():
-            raise FileNotFoundError(f"Server not found: {server_path}")
-        
-        logger.info(f"📝 Server path: {server_path}")
-        
-        cls._parlant_server_process = subprocess.Popen(
-            [sys.executable, str(server_path)],
-            cwd=str(server_path.parent),
-            env=os.environ.copy()
-        )
         
         logger.info("⏳ Waiting for server to start...")
         max_wait = 60
@@ -182,26 +181,32 @@ class MedicalWelfareAgent(LocalAgent):
     @classmethod
     async def _get_client(cls) -> AsyncParlantClient:
         """Get singleton Parlant client"""
-        if cls._parlant_client is None:
-            await cls._ensure_server_running()
-            
-            # Create httpx client with extended timeout for long-polling
-            httpx_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    connect=10.0,      # Connection timeout
-                    read=240.0,        # Read timeout - 4 minutes for long-polling
-                    write=10.0,        # Write timeout
-                    pool=None          # No pool timeout
+        async with cls._client_initialization_lock:
+            if cls._parlant_client is None:
+                await cls._ensure_server_running()
+
+                # Create httpx client with extended timeout for long-polling
+                httpx_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=10.0,      # Connection timeout
+                        read=240.0,        # Read timeout - 4 minutes for long-polling
+                        write=10.0,        # Write timeout
+                        pool=None          # No pool timeout
+                    )
                 )
-            )
-            
-            cls._parlant_client = AsyncParlantClient(
-                base_url=cls._server_url,
-                httpx_client=httpx_client
-            )
-            logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
-            
-            await cls._setup_agent()
+
+                cls._parlant_client = AsyncParlantClient(
+                    base_url=cls._server_url,
+                    httpx_client=httpx_client
+                )
+                logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
+
+                try:
+                    await cls._setup_agent()
+                except Exception:
+                    cls._parlant_client = None
+                    await httpx_client.aclose()
+                    raise
         
         return cls._parlant_client
     

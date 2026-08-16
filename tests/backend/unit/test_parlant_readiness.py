@@ -1,5 +1,6 @@
 """A listening port or wrong identity must never become ready."""
 
+import asyncio
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -85,14 +86,71 @@ async def test_setup_never_falls_back_to_wrong_agent(monkeypatch, agent_class, i
 async def test_existing_process_is_not_ready_without_expected_identity(
     monkeypatch, agent_class
 ) -> None:
+    checks = 0
+
     async def not_ready():
+        nonlocal checks
+        checks += 1
         return False
 
+    async def no_wait(_seconds):
+        return None
+
     monkeypatch.setattr(agent_class, "_check_server_running", not_ready)
+    monkeypatch.setattr(asyncio, "sleep", no_wait)
     monkeypatch.setattr(
         agent_class,
         "_parlant_server_process",
         SimpleNamespace(poll=lambda: None),
     )
-    with pytest.raises(RuntimeError, match="expected agent identity"):
+    with pytest.raises(TimeoutError, match="failed to start"):
         await agent_class._ensure_server_running()
+    assert checks > 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module", "agent_class"),
+    [
+        (research_module, research_module.ResearchPaperAgent),
+        (welfare_module, welfare_module.MedicalWelfareAgent),
+    ],
+)
+async def test_client_initialization_is_serialized(
+    monkeypatch, module, agent_class
+) -> None:
+    initialized = 0
+    release = asyncio.Event()
+
+    async def ensure_ready():
+        nonlocal initialized
+        initialized += 1
+        await release.wait()
+
+    class _HTTPClient:
+        async def aclose(self):
+            return None
+
+    class _ParlantClient:
+        pass
+
+    async def setup_agent():
+        agent_class._agent_id = "agent-1"
+
+    monkeypatch.setattr(agent_class, "_parlant_client", None)
+    monkeypatch.setattr(agent_class, "_client_initialization_lock", asyncio.Lock())
+    monkeypatch.setattr(agent_class, "_ensure_server_running", ensure_ready)
+    monkeypatch.setattr(agent_class, "_setup_agent", setup_agent)
+    monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: _HTTPClient())
+    monkeypatch.setattr(module, "AsyncParlantClient", lambda **_kwargs: _ParlantClient())
+
+    first = asyncio.create_task(agent_class._get_client())
+    await asyncio.sleep(0)
+    second = asyncio.create_task(agent_class._get_client())
+    await asyncio.sleep(0)
+    assert initialized == 1
+
+    release.set()
+    first_client, second_client = await asyncio.gather(first, second)
+    assert first_client is second_client
+    assert initialized == 1

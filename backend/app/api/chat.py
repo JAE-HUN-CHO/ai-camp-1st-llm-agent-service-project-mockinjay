@@ -444,6 +444,7 @@ async def chat_message(request: Request):
             session_id=session_id,
         )
         user_id = actor.user_id
+        session_id = actor.session_id
 
         # --- Context Engineering: Injection ---
         context = body.get("context", {})
@@ -517,6 +518,7 @@ async def chat_message(request: Request):
             accumulated_response = ""
             final_agent_type = None
             completed = False
+            failed = False
             stream_registry = get_stream_registry(request)
 
             # Register this stream as active
@@ -536,6 +538,7 @@ async def chat_message(request: Request):
                     if stream_registry.get(session_id, {}).get("cancel_requested"):
                         logger.info("Chat stream cancelled")
                         completed = False
+                        failed = True
                         yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Stream stopped by user'})}\n\n"
                         break
                     content = ""
@@ -564,6 +567,9 @@ async def chat_message(request: Request):
                     if current_agent_type:
                         final_agent_type = current_agent_type
 
+                    if isinstance(chunk, dict) and chunk.get("status") in {"error", "cancelled"}:
+                        failed = True
+
                     if isinstance(chunk, dict) and chunk.get("status") in {"complete", "success"}:
                         accumulated_response = content
                         completed = True
@@ -578,10 +584,15 @@ async def chat_message(request: Request):
                     elif hasattr(chunk, 'dict'):
                         accumulated_response = content
                         completed = resp_dict.get("status") in {"complete", "success"}
+                        failed = failed or resp_dict.get("status") in {"error", "cancelled"}
 
                     # Update partial response for cancellation handling
                     if session_id in stream_registry:
                         stream_registry.get(session_id)["partial_response"] = accumulated_response
+
+                if accumulated_response and not completed and not failed:
+                    completed = True
+                    yield f"data: {json.dumps({'status': 'complete', 'content': accumulated_response, 'agent_type': final_agent_type or 'research_paper'})}\n\n"
 
             except Exception:
                 completed = False
@@ -662,6 +673,7 @@ async def chat_stream(request: Request):
             session_id=session_id,
         )
         user_id = actor.user_id
+        session_id = actor.session_id
 
         # --- Context Engineering: Injection ---
         context = body.get("context", {})
@@ -726,6 +738,7 @@ async def chat_stream(request: Request):
             accumulated_response = ""
             final_agent_type = None
             completed = False
+            failed = False
 
             try:
                 async for chunk in router_agent.process_stream(agent_request):
@@ -773,6 +786,9 @@ async def chat_stream(request: Request):
                     
                     if current_agent_type:
                         final_agent_type = current_agent_type
+
+                    if isinstance(chunk, dict) and chunk.get("status") in {"error", "cancelled"}:
+                        failed = True
                     
                     if isinstance(chunk, dict) and chunk.get("status") in {"complete", "success"}:
                         # Final synthesized answer
@@ -791,6 +807,11 @@ async def chat_stream(request: Request):
                         # Full response object
                         accumulated_response = content
                         completed = resp_dict.get("status") in {"complete", "success"}
+                        failed = failed or resp_dict.get("status") in {"error", "cancelled"}
+
+                if accumulated_response and not completed and not failed:
+                    completed = True
+                    yield f"data: {json.dumps({'status': 'complete', 'content': accumulated_response, 'agent_type': final_agent_type or 'research_paper'})}\n\n"
 
             except Exception:
                 completed = False
@@ -896,6 +917,7 @@ async def _proxy_request(path: str, request: Request, base_url: str):
                 session_id=session_id,
             )
             body_json["user_id"] = actor.user_id
+            body_json["session_id"] = actor.session_id
 
             if query and emergency_safety_policy.evaluate(query).blocked:
                 return JSONResponse(
@@ -907,7 +929,7 @@ async def _proxy_request(path: str, request: Request, base_url: str):
                     }
                 )
 
-            if session_id and query:
+            if actor.session_id and query:
                 try:
                     user_context = await context_system.context_engineer.get_user_context(
                         actor.user_id

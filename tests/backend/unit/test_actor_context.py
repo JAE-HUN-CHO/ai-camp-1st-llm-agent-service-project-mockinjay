@@ -84,6 +84,30 @@ async def test_persisted_room_authorizes_after_session_cache_restart() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("user_id", "room_id", "expected_session_id"),
+    [
+        ("user-a", "room-a", "room-a"),
+        ("user-a", None, "default:user-a"),
+        ("user-b", None, "default:user-b"),
+    ],
+)
+async def test_default_session_is_bound_to_room_or_actor(
+    user_id, room_id, expected_session_id
+) -> None:
+    context, _manager = _context(None)
+    actor = await authorize_chat_actor(
+        _request(user_id),
+        context,
+        requested_user_id=user_id,
+        room_id=room_id,
+        session_id="default",
+    )
+
+    assert actor.session_id == expected_session_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("request_user", "requested_user", "room_id", "session", "expected_status"),
     [
         ("user-a", "user-b", None, None, 403),

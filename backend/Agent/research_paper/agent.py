@@ -61,6 +61,7 @@ class ResearchPaperAgent(LocalAgent):
     _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}  # session_id -> (parlant_session_id, customer_id)
+    _client_initialization_lock = asyncio.Lock()
 
     # Session-based polling management
     # 세션 기반 폴링 관리
@@ -133,25 +134,23 @@ class ResearchPaperAgent(LocalAgent):
         if cls._parlant_server_process is not None:
             if cls._parlant_server_process.poll() is not None:
                 raise RuntimeError("Research Paper server process exited before readiness")
-            raise RuntimeError(
-                "Research Paper server is running without the expected agent identity"
+            logger.info("⏳ Research Paper server process is still starting")
+        else:
+            # Start the server
+            logger.info("🚀 Starting Parlant healthcare server...")
+
+            server_path = Path(__file__).parent / "server" / "healthcare_v2_en.py"
+
+            if not server_path.exists():
+                raise FileNotFoundError(f"Server not found: {server_path}")
+
+            logger.info(f"📝 Server path: {server_path}")
+
+            cls._parlant_server_process = subprocess.Popen(
+                [sys.executable, str(server_path)],
+                cwd=str(server_path.parent),
+                env=os.environ.copy()
             )
-        
-        # Start the server
-        logger.info("🚀 Starting Parlant healthcare server...")
-        
-        server_path = Path(__file__).parent / "server" / "healthcare_v2_en.py"
-        
-        if not server_path.exists():
-            raise FileNotFoundError(f"Server not found: {server_path}")
-        
-        logger.info(f"📝 Server path: {server_path}")
-        
-        cls._parlant_server_process = subprocess.Popen(
-            [sys.executable, str(server_path)],
-            cwd=str(server_path.parent),
-            env=os.environ.copy()
-        )
         
         # Wait for server to start
         logger.info("⏳ Waiting for server to start...")
@@ -181,29 +180,35 @@ class ResearchPaperAgent(LocalAgent):
     @classmethod
     async def _get_client(cls) -> AsyncParlantClient:
         """Get singleton Parlant client"""
-        if cls._parlant_client is None:
-            # Ensure server is running
-            await cls._ensure_server_running()
-            
-            # Create httpx client with extended timeout for long-polling
-            httpx_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    connect=10.0,      # Connection timeout
-                    read=240.0,        # Read timeout - 4 minutes for long-polling
-                    write=10.0,        # Write timeout
-                    pool=None          # No pool timeout
+        async with cls._client_initialization_lock:
+            if cls._parlant_client is None:
+                # Ensure server is running
+                await cls._ensure_server_running()
+
+                # Create httpx client with extended timeout for long-polling
+                httpx_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=10.0,      # Connection timeout
+                        read=240.0,        # Read timeout - 4 minutes for long-polling
+                        write=10.0,        # Write timeout
+                        pool=None          # No pool timeout
+                    )
                 )
-            )
-            
-            # Create client
-            cls._parlant_client = AsyncParlantClient(
-                base_url=cls._server_url,
-                httpx_client=httpx_client
-            )
-            logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
-            
-            # Setup agent
-            await cls._setup_agent()
+
+                # Create client
+                cls._parlant_client = AsyncParlantClient(
+                    base_url=cls._server_url,
+                    httpx_client=httpx_client
+                )
+                logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
+
+                try:
+                    # Setup agent
+                    await cls._setup_agent()
+                except Exception:
+                    cls._parlant_client = None
+                    await httpx_client.aclose()
+                    raise
         
         return cls._parlant_client
     
