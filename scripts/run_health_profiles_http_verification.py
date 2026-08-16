@@ -35,6 +35,7 @@ from smoke_common import (
     ensure_redacted,
     require_local_http,
     resolve_artifact_path,
+    sanitize_hosted_credentials,
     utc_now,
     write_json,
 )
@@ -190,9 +191,7 @@ def run(args: argparse.Namespace) -> int:
     _require_local_mongodb(settings.mongodb_uri)
 
     environment = os.environ.copy()
-    removed_hosted_credentials = sorted(
-        name for name in HOSTED_SECRET_NAMES if environment.pop(name, None)
-    )
+    removed_hosted_credentials = sanitize_hosted_credentials(environment)
     environment["PYTHONPATH"] = str(BACKEND)
     environment["OLLAMA_ENABLED"] = "false"
     environment["CHAT_IMPLEMENTATION"] = "legacy"

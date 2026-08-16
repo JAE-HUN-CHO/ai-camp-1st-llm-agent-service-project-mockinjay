@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -19,11 +20,25 @@ HOSTED_SECRET_NAMES = frozenset(
         "ANTHROPIC_API_KEY",
         "AZURE_OPENAI_API_KEY",
         "EMCIE_API_KEY",
+        "GNEWS_API_KEY",
         "GOOGLE_API_KEY",
         "GROQ_API_KEY",
+        "NCBI_API_KEY",
+        "NEWSDATA_API_KEY",
+        "NEWSAPI_KEY",
         "OPENAI_API_KEY",
     }
 )
+
+
+def sanitize_hosted_credentials(environment: MutableMapping[str, str]) -> list[str]:
+    """Remove hosted-provider credentials and return names only, never values."""
+    removed_names = sorted(
+        name for name in HOSTED_SECRET_NAMES if name in environment
+    )
+    for name in removed_names:
+        environment.pop(name)
+    return removed_names
 
 
 def utc_now() -> str:

@@ -21,7 +21,11 @@ from run_health_profiles_http_verification import (
     validate_selector_contract,
     verification_exit_code,
 )
-from smoke_common import resolve_artifact_path as shared_resolve_artifact_path
+from smoke_common import (
+    HOSTED_SECRET_NAMES,
+    resolve_artifact_path as shared_resolve_artifact_path,
+    sanitize_hosted_credentials,
+)
 import verify_health_profile_invalid_selector as invalid_selector
 
 
@@ -35,6 +39,28 @@ def test_health_profile_artifact_path_stays_inside_run(tmp_path: Path) -> None:
         resolve_artifact_path(tmp_path, Path("../profile.json"))
     with pytest.raises(ValueError):
         resolve_artifact_path(tmp_path, Path("/tmp/profile.json"))
+
+
+def test_health_profile_child_environment_removes_all_hosted_credentials() -> None:
+    required_names = {
+        "ANTHROPIC_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "EMCIE_API_KEY",
+        "GNEWS_API_KEY",
+        "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
+        "NCBI_API_KEY",
+        "NEWSDATA_API_KEY",
+        "NEWSAPI_KEY",
+        "OPENAI_API_KEY",
+    }
+    assert required_names <= HOSTED_SECRET_NAMES
+    environment = {name: "synthetic-secret" for name in HOSTED_SECRET_NAMES}
+    environment["SAFE_SETTING"] = "preserved"
+
+    assert sanitize_hosted_credentials(environment) == sorted(HOSTED_SECRET_NAMES)
+    assert not HOSTED_SECRET_NAMES.intersection(environment)
+    assert environment == {"SAFE_SETTING": "preserved"}
 
 
 def test_health_profile_schema_audit_requires_all_zero_counters(tmp_path: Path) -> None:

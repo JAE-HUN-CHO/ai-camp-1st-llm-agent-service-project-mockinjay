@@ -23,6 +23,7 @@ from smoke_common import (
     digest_text,
     require_local_http,
     resolve_artifact_path,
+    sanitize_hosted_credentials,
     utc_now,
     write_json,
 )
@@ -39,9 +40,7 @@ def run(args: argparse.Namespace) -> int:
     environment["CHAT_IMPLEMENTATION"] = "legacy"
     environment["HEALTH_RECORDS_IMPLEMENTATION"] = "legacy"
     environment["HEALTH_PROFILE_IMPLEMENTATION"] = "invalid"
-    removed_hosted_credentials = sorted(
-        name for name in HOSTED_SECRET_NAMES if environment.pop(name, None)
-    )
+    removed_hosted_credentials = sanitize_hosted_credentials(environment)
 
     server_argv = [
         sys.executable,
