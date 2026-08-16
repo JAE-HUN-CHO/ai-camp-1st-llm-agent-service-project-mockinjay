@@ -26,8 +26,8 @@ CareGuide의 도메인은 하나의 bounded context로 유지한다. 다만 변�
                                       │
                          ┌────────────▼─────────────┐
                          │ External Integrations     │
-                         │ OpenAI, PubMed, Clinical  │
-                         │ Trials.gov, MongoDB       │
+                         │ Ollama, Parlant, PubMed,  │
+                         │ ClinicalTrials.gov        │
                          └──────────────────────────┘
 
              Tests / Eval observe every boundary; Scripts execute workflows.
@@ -196,7 +196,7 @@ HTTP Router
 
 ### 정리 대상
 
-- `new_frontend`의 기능을 최종 `frontend`로 이전
+- `frontend/` 내부의 legacy component/service 정리
 - `frontend/src/services/api.ts` 도메인별 분리
 - `frontend/src/components/mypage/MyPageModals.tsx` 분리
 - `ChatPageEnhanced.tsx`, `TrendsPageEnhanced.tsx`의 fetching을 hooks로 이동
@@ -204,7 +204,9 @@ HTTP Router
 
 ### Frontend consolidation rule
 
-현재 구현 완성도가 높은 `new_frontend`를 기능 원본으로 삼고, 최종 디렉터리 이름만 `frontend`로 통일하는 것을 기본안으로 한다. 기존 `frontend`는 기능별로 `reuse / replace / obsolete`를 판정하고, `stitch_frontend`는 디자인 자산만 이관한다. 세 디렉터리를 동시에 유지하는 기간은 migration branch와 parity test가 통과할 때까지로 제한한다.
+통합은 완료됐다. ADR-011에 따라 `frontend/`만 제품 코드이며 `new_frontend/`와
+`stitch_frontend/`는 `logs/rollback/` 아래 historical material이다. 신규 기능·버그 수정·디자인
+이관의 기준은 항상 현재 `frontend/`이고 rollback 원본을 migration source로 사용하지 않는다.
 
 ## 5. Scripts boundary
 

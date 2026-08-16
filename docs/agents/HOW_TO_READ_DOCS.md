@@ -1,10 +1,33 @@
 # 📚 문서 읽는 가이드
 
-작성된 4개 문서를 **어떻게 읽고 활용**해야 하는지 설명합니다.
+현재 기준 문서와 과거 4개 설계 문서를 **어떻게 구분해 읽는지** 설명합니다.
+
+> 아래 `REFACTORING_SUMMARY`, `AGENT_REFACTORING_PLAN`,
+> `PARLANT_SERVER_SEPARATION_PLAN`, `DESIGN_IMPROVEMENTS`는 historical reference다.
+> OpenAI, `new_frontend`, 과거 Agent 수·포트를 현재 구현 지시로 사용하지 않는다.
+
+## 현재 아키텍처 트랙
+
+```text
+DOCUMENT_CONSISTENCY_MATRIX
+  → domain.md + Accepted ADR-004/005/006/011
+  → ARCHITECTURE_CURRENT_STATE
+  → ARCHITECTURE_GAP_ANALYSIS
+  → ARCHITECTURE_REFERENCE_ALIGNMENT
+  → Accepted ADR-013 + ARCHITECTURE_REFACTORING_DESIGN
+  → ARCHITECTURE_REFACTORING_PLAN
+  → ARCHITECTURE_MULTI_AGENT_REVIEW
+```
+
+현재 상태는 사실, gap은 미해결 문제, reference alignment는 적용 근거다. ADR-013은 binding
+결정이고 설계/계획은 그 결정을 실행하는 가이드다. Phase 0~1은 검증됐으며 현재는 Phase 2 Chat
+vertical slice만 다음 실행 범위로 승인됐다. Phase 3 이후는 별도 범위 확인 전 시작하지 않는다.
+`ARCHITECTURE_GAP_ANALYSIS`와 `ARCHITECTURE_MULTI_AGENT_REVIEW`에 남은 ADR-013
+`Proposed`/`REQUEST CHANGES` 문구는 2026-08-15 승인 전 snapshot이며 현재 status가 아니다.
 
 ---
 
-## 🗺️ 문서 구조 및 읽는 순서
+## 🗺️ Historical 문서 구조 및 읽는 순서
 
 ```
 시작

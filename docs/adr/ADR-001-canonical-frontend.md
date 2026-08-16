@@ -1,6 +1,6 @@
 # ADR-001: Canonical Frontend
 
-- **Status**: Proposed
+- **Status**: Superseded by ADR-011
 - **Date**: 2026-05-23
 - **Deciders**: TBD (요청자 확인 필요)
 - **Related**: PRD v0.95 §10, `docs/converted/_ANALYSIS_REPORT.md` Section 5 RED FLAG #4

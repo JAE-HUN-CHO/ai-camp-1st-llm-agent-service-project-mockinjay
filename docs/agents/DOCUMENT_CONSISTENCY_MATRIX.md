@@ -11,10 +11,11 @@
 | 실행 계약 | `AGENTS.md`, `docs/AGENTS.md` |
 | 도메인/경계 | `docs/agents/domain.md`, `docs/agents/BOUNDARY_MAP.md` |
 | cache | `docs/agents/CACHE_POLICY.md` |
-| 결정 | `docs/adr/README.md`, Accepted ADR-004/005/006/008/009/010/011 |
+| 결정 | `docs/adr/README.md`, Accepted ADR-004/005/006/011/013 |
 | API | `backend/app/main.py`, `scripts/check_api_contract.py`, `scripts/check_frontend_parity.py` |
 | 환경 | `.env.example`, `backend/.env.example`, `backend/requirements.txt`, `backend/requirements.lock` |
 | 검증 | `tests/`, `frontend/src/**/*.test.*`, `eval/` |
+| 방법 참고 | `docs/agents/ARCHITECTURE_REFERENCE_ALIGNMENT.md` (Accepted ADR보다 낮은 우선순위) |
 
 현재 구현 계약은 다음과 같다.
 
@@ -25,6 +26,11 @@
 - 결제 SDK/UI/endpoint는 없다.
 - 임상시험 응답 cache는 Mongo `clinical_trials_cache`가 공유 계층이고, 메모리 cache는
   best-effort 단기 tier다.
+
+ADR-001/008/009/010의 Proposed 방향은 ADR-011이 supersede했으므로 historical이다.
+ADR-013의 목표 구조와 owner/selector/rollback 정책은 binding이다. 현재 승인된 다음 구현
+범위는 Phase 2 Chat vertical slice뿐이다. ADR-004의 오래된
+`new_frontend/` 실행 메모는 수정하지 않고, 현재 구현 대상은 ADR-011에 따라 `frontend/`다.
 
 ## 역사적·참고 문서 (non-normative)
 

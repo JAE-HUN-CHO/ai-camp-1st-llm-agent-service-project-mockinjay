@@ -1,6 +1,6 @@
 # ADR-009: Local-First Runtime and Package Policy
 
-- **Status**: Proposed
+- **Status**: Superseded by ADR-011
 - **Date**: 2026-08-11
 - **Related**: [ADR-005](./ADR-005-vector-db.md), [ADR-008](./ADR-008-single-frontend-root.md), [`BOUNDARY_MAP.md`](../agents/BOUNDARY_MAP.md)
 
