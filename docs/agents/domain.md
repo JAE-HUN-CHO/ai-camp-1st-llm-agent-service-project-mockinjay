@@ -48,6 +48,7 @@ Phase 0 schema mapping에 따라 binding이다.
 internally. Cross-feature changes go through an application command or an explicit domain event.
 
 ### Chat Room
+
 - Identified by `room_id`.
 - Owns an ordered message history.
 - Target invariant: Parlant-enabled rooms transition
@@ -56,15 +57,18 @@ internally. Cross-feature changes go through an application command or an explic
 - Current gap: room creation precedes Parlant creation, but the session link is not reliably persisted back to the room.
 
 ### Health Record
+
 - Required: `creatinine` (float > 0), `gfr` (float > 0).
 - Optional fields are nullable — the PUT API distinguishes "not sent" (`model_dump(exclude_unset=True)`) from "explicitly cleared" (client sends `null`).
 
 ### Point Ledger
+
 - Target invariant: balance equals the sum of ledger transactions and commands are idempotent.
 - Owner: `rewards`. Quiz and Community call its public commands instead of owning mutations.
 - Existing collection differences require an additive migration decision before cleanup.
 
 ### Daily Search Counter
+
 - Planned owner: `research`.
 - Target document id is `"{user_id}:{YYYY-MM-DD}"` with atomic increment and expiry.
 - Current gap: no active `daily_search_counter` implementation or index exists.
@@ -73,7 +77,7 @@ internally. Cross-feature changes go through an application command or an explic
 
 ### 1. Current default Chat turn
 
-```
+```text
 User → POST /api/chat/stream
   → OllamaChatService
   → Mongo vector retrieval
@@ -87,7 +91,7 @@ User → POST /api/chat/stream
 
 ### 2. Research search (rate-limited)
 
-```
+```text
 User → POST /api/trends/{temporal|geographic|compare|papers|mesh|summarize|translate}
   → Research/Trend provider and local vector adapter
   → return informational results
@@ -96,7 +100,7 @@ User → POST /api/trends/{temporal|geographic|compare|papers|mesh|summarize|tra
 
 ### 3. Health record upsert
 
-```
+```text
 User → PUT /api/health-records/{id}
   → Pydantic model with optional null fields
   → record_update.model_dump(exclude_unset=True)

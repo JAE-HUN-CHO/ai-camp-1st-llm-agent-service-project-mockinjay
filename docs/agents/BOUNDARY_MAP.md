@@ -288,17 +288,18 @@ Observability: logs, error payload, latency, cache hit/miss
 
 ### 포함 범위
 
-- OpenAI/LLM provider
-- Parlant runtime
+- Ollama local generation/embedding adapter
+- Parlant local runtime
 - PubMed/ClinicalTrials.gov
 - MongoDB/Vector Search
 
 ### 규칙
 
-- provider별 adapter를 둔다.
+- local runtime과 공개 정보 source별 adapter를 둔다.
 - timeout, retry, rate limit, fallback을 adapter 경계에서 처리한다.
 - provider response를 내부 domain/API schema로 변환한다.
 - API key와 provider-specific type이 frontend로 새지 않게 한다.
+- hosted/paid LLM provider는 비활성 historical 경로이며 local-first runtime에서 호출·fallback하지 않는다.
 
 ## Runtime / configuration rule
 
@@ -315,7 +316,8 @@ Observability: logs, error payload, latency, cache hit/miss
 - LLM과 embedding은 local adapter를 기본값으로 둔다.
 - MongoDB와 vector 검색은 로컬 runtime을 기본값으로 둔다.
 - PubMed/ClinicalTrials.gov 같은 외부 데이터는 backend adapter와 local cache를 통해서만 사용한다.
-- 외부 provider는 opt-in이며, provider 없이도 핵심 테스트가 실행되어야 한다.
+- PubMed/ClinicalTrials.gov 같은 공개 정보 source는 명시적으로 opt-in하며, hosted LLM provider 없이
+  핵심 테스트와 로컬 채팅이 실행되어야 한다.
 - 패키지는 최신 안정 버전을 검토하되 lockfile/compiled requirements로 고정한다.
 
 Cache는 별도 최상위 경계가 아니다. domain-persistent cache는 backend feature repository와 local MongoDB가 소유하고, 재생성 가능한 cache는 backend cache adapter 또는 frontend의 비민감 UX cache가 소유한다.

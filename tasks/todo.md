@@ -1,34 +1,28 @@
-# CareGuide 1~5 실행 체크리스트
+# CareGuide 다음 작업 체크리스트
 
-## Phase 1 — Parlant HTTP
+## 완료
 
-- [ ] 1.1 Parlant lock/모델/Mongo/포트 사전 점검
-- [ ] 1.2 Research Parlant customer/session/message 실제 테스트
-- [ ] 1.3 Medical Welfare Parlant customer/session/message 실제 테스트
-- [ ] Checkpoint 1 통과 및 증거 기록
+- [x] Phase 0 안전·소유권·privacy·architecture inventory
+- [x] Phase 1 Research/Welfare/Chat local HTTP evidence
+- [x] ADR-013 Accepted와 aggregate/capability/selector/process owner 결정
 
-## Phase 2 — FastAPI 통합
+## 승인된 다음 범위 — Phase 2 Chat
 
-- [ ] 2.1 MongoDB/Ollama/FastAPI health smoke
-- [ ] 2.2 채팅·영양·트렌드 실제 API 테스트
-- [ ] 2.3 퀴즈·건강기록·알림 실제 API 테스트
-- [ ] Checkpoint 2 통과 및 임시 fixture 정리
+- [ ] REST/SSE v1 characterization fixture 작성
+- [ ] Chat domain/application/port seam 구현
+- [ ] MongoDB/Ollama/legacy Agent adapter 조립
+- [ ] `CHAT_IMPLEMENTATION=legacy|hex`, 기본값 `legacy`
+- [ ] ActorContext·EmergencySafetyPolicy 선행 gate 유지
+- [ ] legacy/hex parity, cross-user, error/cancel/idempotency tests
+- [ ] legacy/new telemetry와 rollback drill
+- [ ] local MongoDB + Ollama message/stream 실제 HTTP artifact
+- [ ] Ruff, backend unit/integration, frontend test/build/lint
+- [ ] doc links, architecture imports, PII scan, `git diff --check`
+- [ ] 동일 SHA·run-id manifest와 최종 Phase 2 보고
 
-## Phase 3 — Frontend
+## 금지/보류
 
-- [ ] 3.1 Vitest/build/lint
-- [ ] 3.2 프로필·채팅·퀴즈·건강기록·커뮤니티 UI 흐름
-- [ ] Checkpoint 3 통과
-
-## Phase 4 — 안전/운영
-
-- [ ] 4.1 응급·의료 안전 시나리오
-- [ ] 4.2 Ollama/Mongo/포트/worker 장애·재시도
-- [ ] Checkpoint 4 통과 및 민감 로그 점검
-
-## Phase 5 — 문서/릴리스
-
-- [ ] 5.1 문서 일관성 업데이트
-- [ ] 5.2 전체 회귀 및 최종 smoke
-- [ ] 5.3 작은 커밋 → push → CodeRabbit/Codex → merge → fetch
-- [ ] 최종 완료 조건 충족
+- [ ] Phase 3 Health는 별도 승인 전 시작하지 않음
+- [ ] RemoteAgent/compatibility facade는 telemetry 확인 전 삭제하지 않음
+- [ ] hosted/paid provider와 결제 기능을 추가하지 않음
+- [ ] 기존 REST/SSE v1 계약을 Phase 2에서 변경하지 않음

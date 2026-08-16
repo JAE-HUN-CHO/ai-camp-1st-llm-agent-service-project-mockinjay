@@ -1,7 +1,8 @@
 # CareGuide 소프트웨어 공학 근거 정렬
 
 **작성일:** 2026-08-15
-**입력 자료:** [`software_engineering_methods_pdf_collection_2026-08-15.zip`](/Users/apple/Downloads/software_engineering_methods_pdf_collection_2026-08-15.zip)
+**입력 자료:** 로컬 검토 archive `software_engineering_methods_pdf_collection_2026-08-15.zip`
+(`SHA-256 78c05572517a2137e38b5574bbb952f9936a3847c665a2739d6873822ae728d2`, 저장소에는 미포함)
 **상태:** 설계·검증 방법의 참고 기준. Accepted ADR보다 우선하지 않는다.
 
 ## 1. 검토 범위와 원칙
@@ -9,6 +10,14 @@
 ZIP의 42개 PDF를 `SHA256SUMS.txt`로 전부 검증했고 모두 원본 manifest의 hash와 일치했다.
 CareGuide의 현재 P0/P1 갭에 직접 연결되는 architecture, secure SDLC, API protection, testing,
 code review, CI/CD, SLO, incident response 자료를 우선 읽었다.
+
+archive 위치에 의존하지 않는 무결성 확인 명령은 다음과 같다.
+
+```bash
+shasum -a 256 <path-to>/software_engineering_methods_pdf_collection_2026-08-15.zip
+```
+
+출력은 위 SHA-256과 정확히 일치해야 한다. 개인 홈 디렉터리 경로는 재현 계약에 포함하지 않는다.
 
 자료의 일반 원칙을 그대로 도입하지 않고 다음 기준으로 적용했다.
 

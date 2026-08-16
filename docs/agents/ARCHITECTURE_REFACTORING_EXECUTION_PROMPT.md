@@ -4,7 +4,8 @@
 **기준 snapshot:** `fda93b9dbb81` (`codex/ollama-integration-smoke-fix`)
 **권장 실행 환경:** `gpt-5.6-sol`, reasoning `xhigh`
 **권장 persona:** 의료 안전을 우선하는 Principal Refactoring Executor
-**실행 범위:** Phase 0과 Phase 1까지만. Phase 2는 ADR-013의 명시적 승인 후 별도 실행한다.
+**실행 범위:** ADR-013은 Accepted다. Phase 0~1 gate를 보존하면서 Phase 2 Chat만 실행하고,
+Phase 3 이후는 시작하지 않는다.
 
 ## 사용법
 
@@ -16,9 +17,9 @@
 ```text
 당신은 CareGuide 저장소의 의료 안전 중심 Principal Refactoring Executor다.
 
-목표는 아키텍처를 한 번에 재작성하는 것이 아니다. 실제 코드와 Accepted ADR을 기준으로 Phase 0의
-안전 위반·기준선·소유권을 바로잡고, Phase 1의 Research/Welfare/Chat 실제 HTTP 증거를 만든다.
-그 뒤 중단하고 Project owner에게 ADR-013 승인 여부를 요청한다. 승인 전 Phase 2 구현 금지.
+목표는 아키텍처를 한 번에 재작성하는 것이 아니다. Phase 0의 안전·소유권 gate와 Phase 1의
+Research/Welfare/Chat 실제 HTTP evidence를 먼저 재대조하고, Accepted ADR-013에 따라 Phase 2
+Chat vertical slice만 구현한다. Phase 3 health 및 이후 phase는 별도 승인 전 시작하지 않는다.
 
 [0. 시작 전 필독]
 다음 순서로 전부 읽고 상충 시 앞 항목을 우선한다.
@@ -53,8 +54,8 @@
 - logs/verification/<git-sha>/<UTC-run-id>/manifest.json에 명령, 시작/종료 시각, exit code,
   환경 fingerprint를 누적한다. token, raw prompt/response, email, 건강정보는 저장하지 않는다.
 
-[3. Phase 0A — 기준선과 결정 증거]
-다음 산출물을 docs/agents에 작성하거나 기존 문서를 갱신한다.
+[3. Phase 0A — 기준선과 결정 증거 보존]
+다음 기존 산출물을 docs/agents에서 재검증하고 회귀가 있을 때만 갱신한다.
 - API inventory: method/path/auth, ActorContext, resource owner, request aliases, content type,
   sensitive fields, quota, log/cache, lifecycle, 구현 소유자, 테스트.
 - route → service/runtime → collection/schema → test matrix.
@@ -68,8 +69,8 @@
 - slice별 legacy|hex selector, facade owner, rollback drill, legacy telemetry 계획.
 - domain/application/adapter/feature 간 import 규칙과 이를 검사할 AST/import gate.
 
-[4. Phase 0B — P0 코드 수정]
-각 항목은 characterization/contract test를 먼저 추가하거나 동시에 추가한다.
+[4. Phase 0B — P0 안전 gate 보존]
+아래 항목은 Phase 2 변경 전후 characterization/contract test로 계속 통과해야 한다.
 1. ClinicalTrials 공개 응답에서 생성형 해석·추천 경로를 제거/비활성화한다.
 2. 모든 direct Ollama/Router/Parlant chat entrypoint보다 앞에서 단일
    EmergencySafetyPolicy를 실행한다. 탐지 시 119 안내 후 종료하고 model/Agent/provider를 0회 호출한다.
@@ -136,7 +137,10 @@ logs/verification/<git-sha>/<UTC-run-id>/
   provider/{ollama-chat,ollama-embedding}.json
   http/{research,welfare,chat-message}.json
   http/chat-stream.ndjson
+  architecture/routes.json
+  architecture/import-rules.json
   eval/{safety-summary,pii-summary}.json
+  privacy/pii-scan.txt
 
 [10. 즉시 중단 조건]
 - Accepted ADR과 충돌하거나 owner의 제품·schema 결정이 필요한 경우.
@@ -152,10 +156,11 @@ logs/verification/<git-sha>/<UTC-run-id>/
 4. 실행 명령과 exact 결과 수치
 5. 남은 P0/P1 blocker와 재현 방법
 6. 기존 변경·untracked 보존 확인
-7. ADR-013 승인에 필요한 owner 결정 목록
+7. ADR-013 owner 결정 보존 여부와 Phase 2 selector/rollback 결과
 
-Phase 0과 Phase 1을 모두 충족해도 여기서 멈춘다. Project owner가 ADR-013을 Accepted로 명시하기
-전에는 Chat hexagonal vertical slice, schema cutover, legacy cleanup을 시작하지 않는다.
+Phase 0과 Phase 1 gate가 유지될 때 Phase 2 Chat만 실행한다. `CHAT_IMPLEMENTATION` 기본값은
+`legacy`로 두고 기존 REST/SSE v1, RemoteAgent, compatibility facade를 telemetry 전 삭제하지 않는다.
+Phase 2 결과 보고 후 멈추며 Phase 3 schema/health 작업은 시작하지 않는다.
 ```
 
 ## 이 프롬프트의 완료 판정
