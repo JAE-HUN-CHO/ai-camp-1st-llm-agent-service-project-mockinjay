@@ -583,7 +583,7 @@ async def chat_message(request: Request):
                             accumulated_response = content
                     elif hasattr(chunk, 'dict'):
                         accumulated_response = content
-                        completed = resp_dict.get("status") in {"complete", "success"}
+                        completed = completed or resp_dict.get("status") in {"complete", "success"}
                         failed = failed or resp_dict.get("status") in {"error", "cancelled"}
 
                     # Update partial response for cancellation handling
@@ -813,7 +813,7 @@ async def chat_stream(request: Request):
                     elif hasattr(chunk, 'dict'):
                         # Full response object
                         accumulated_response = content
-                        completed = resp_dict.get("status") in {"complete", "success"}
+                        completed = completed or resp_dict.get("status") in {"complete", "success"}
                         failed = failed or resp_dict.get("status") in {"error", "cancelled"}
 
                 if accumulated_response and not completed and not failed:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -75,7 +76,7 @@ class _ErrorFrameRouter:
 
 
 class _ErrorThenCompleteRouter:
-    async def process_stream(self, _request):
+    async def process_stream(self, _request) -> AsyncIterator[dict]:
         yield {"status": "streaming", "content": "unsafe partial", "agent_type": "test"}
         yield {"status": "error", "error": "provider failed", "agent_type": "test"}
         yield {"status": "complete", "content": "must not persist", "agent_type": "test"}
@@ -265,7 +266,8 @@ def test_error_then_complete_frame_still_does_not_persist(monkeypatch) -> None:
             },
         )
 
-    assert '"status": "complete"' in response.text
+    assert '"status": "error"' in response.text
+    assert response.text.index('"status": "error"') < response.text.index('"status": "complete"')
     assert manager.saved == []
 
 

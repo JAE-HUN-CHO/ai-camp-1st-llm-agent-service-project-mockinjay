@@ -160,3 +160,22 @@ async def test_client_initialization_is_serialized(
     assert first_client is second_client
     assert initialized == 1
     assert setup_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "agent_class",
+    [research_module.ResearchPaperAgent, welfare_module.MedicalWelfareAgent],
+)
+async def test_client_initialization_rejects_event_loop_switch(
+    monkeypatch, agent_class
+) -> None:
+    monkeypatch.setattr(agent_class, "_client_initialization_lock", None)
+    monkeypatch.setattr(agent_class, "_client_initialization_loop", None)
+
+    original_lock = agent_class._get_client_initialization_lock()
+    monkeypatch.setattr(asyncio, "get_running_loop", lambda: object())
+
+    with pytest.raises(RuntimeError, match="single asyncio event loop"):
+        agent_class._get_client_initialization_lock()
+    assert agent_class._client_initialization_lock is original_lock

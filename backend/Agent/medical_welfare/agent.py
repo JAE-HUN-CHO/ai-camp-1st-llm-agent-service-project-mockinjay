@@ -181,14 +181,15 @@ class MedicalWelfareAgent(LocalAgent):
     
     @classmethod
     def _get_client_initialization_lock(cls) -> asyncio.Lock:
-        """Return a lazy lock bound to the currently running event loop."""
+        """Return the lazy lock for this agent's single event-loop runtime."""
         loop = asyncio.get_running_loop()
-        if (
-            cls._client_initialization_lock is None
-            or cls._client_initialization_loop is not loop
-        ):
+        if cls._client_initialization_loop is None:
             cls._client_initialization_lock = asyncio.Lock()
             cls._client_initialization_loop = loop
+        elif cls._client_initialization_loop is not loop:
+            raise RuntimeError("Medical Welfare client requires a single asyncio event loop")
+        elif cls._client_initialization_lock is None:
+            cls._client_initialization_lock = asyncio.Lock()
         return cls._client_initialization_lock
 
     @classmethod

@@ -277,6 +277,12 @@ const ChatPageEnhanced: React.FC = () => {
    */
   const handleSelectRoom = useCallback(
     (roomId: string) => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setIsStreaming(false);
+      setStreamingContent('');
       setCurrentRoomId(roomId);
       setIsSessionExpired(false);
     },
