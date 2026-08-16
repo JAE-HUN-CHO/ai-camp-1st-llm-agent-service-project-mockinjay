@@ -52,8 +52,37 @@ def test_translation_cache_expires_with_same_ttl_policy() -> None:
     assert clinical_trials.get_cached_translation("kidney") is None
 
 
-def test_local_summary_client_is_configured() -> None:
+def test_local_translation_client_is_configured() -> None:
     assert clinical_trials.get_ollama_client() is not None
+
+
+@pytest.mark.asyncio
+async def test_detail_contract_preserves_source_and_forbids_generated_interpretation(monkeypatch) -> None:
+    async def fake_detail(_nct_id):
+        return {"protocolSection": {"identificationModule": {"nctId": "NCT00000001"}}}
+
+    async def fake_parse(_study, *, translate=False):
+        return {
+            "nctId": "NCT00000001",
+            "title": "충실한 번역" if translate else "Original title",
+        }
+
+    monkeypatch.setattr(clinical_trials, "fetch_trial_detail", fake_detail)
+    monkeypatch.setattr(clinical_trials, "parse_trial_data", fake_parse)
+
+    response = await clinical_trials.get_trial_detail(
+        clinical_trials.ClinicalTrialDetailRequest(nct_id="NCT00000001", language="ko")
+    )
+
+    assert response["trial"]["title"] == "Original title"
+    assert response["translation"]["title"] == "충실한 번역"
+    assert response["source"]["url"].endswith("NCT00000001")
+    assert response["informationOnly"] is True
+    assert response["disclaimer"]
+    assert "aiSummary" not in response
+    serialized = str(response).lower()
+    assert "recommendations" not in serialized
+    assert "clinical significance" not in serialized
 
 
 @pytest.mark.asyncio
