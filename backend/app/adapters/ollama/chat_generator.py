@@ -21,6 +21,11 @@ class OllamaChatGenerator:
     """Translate the existing local service into the consumer-owned port."""
 
     def __init__(self, service: Any) -> None:
+        """Ollama 채팅 생성에 사용할 서비스 의존성을 초기화합니다.
+        
+        Parameters:
+        	service (Any): 채팅 생성 및 스트리밍을 제공하는 서비스
+        """
         self._service = service
 
     async def generate(
@@ -30,6 +35,21 @@ class OllamaChatGenerator:
         profile: str,
         user_context: Mapping[str, object],
     ) -> ChatGeneration:
+        """
+        로컬 Ollama 서비스에 질의를 전달하고 채팅 생성 결과로 변환합니다.
+        
+        Parameters:
+        	query (str): 생성할 응답에 대한 사용자 질의
+        	profile (str): 응답 생성에 사용할 프로필
+        	user_context (Mapping[str, object]): 응답 생성에 필요한 사용자 컨텍스트
+        
+        Returns:
+        	ChatGeneration: 답변, 매핑 형식의 출처, 메타데이터 및 에이전트 유형을 포함한 생성 결과
+        
+        Raises:
+        	ChatProviderTimeout: 로컬 provider의 응답이 시간 제한을 초과한 경우
+        	ChatProviderUnavailable: provider 오류가 발생했거나 응답 형식이 잘못되었거나 답변이 비어 있는 경우
+        """
         try:
             result = await self._service.generate(
                 query,
@@ -64,6 +84,16 @@ class OllamaChatGenerator:
         profile: str,
         user_context: Mapping[str, object],
     ) -> AsyncIterator[ChatStreamEvent]:
+        """
+        로컬 채팅 제공자의 응답을 스트리밍 이벤트로 변환합니다.
+        
+        Returns:
+        	ChatStreamEvent: 제공자 응답의 상태, 콘텐츠, 에이전트 유형, 오류 및 추가 속성을 담은 이벤트
+        
+        Raises:
+        	ChatProviderTimeout: 로컬 제공자 응답이 시간 제한을 초과한 경우
+        	ChatProviderUnavailable: 로컬 제공자를 사용할 수 없거나 처리 중 예외가 발생한 경우
+        """
         try:
             async for raw in self._service.stream(
                 query,

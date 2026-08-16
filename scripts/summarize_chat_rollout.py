@@ -15,6 +15,18 @@ class RolloutEvidenceError(RuntimeError):
 
 
 def _read(path: Path) -> dict[str, object]:
+    """
+    JSON 선택자 아티팩트를 객체로 읽습니다.
+    
+    Parameters:
+    	path (Path): 읽을 JSON 아티팩트 파일 경로
+    
+    Returns:
+    	dict[str, object]: 아티팩트의 최상위 객체
+    
+    Raises:
+    	RolloutEvidenceError: JSON의 최상위 값이 객체가 아닌 경우
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RolloutEvidenceError(f"selector artifact must be an object: {path.name}")
@@ -22,6 +34,19 @@ def _read(path: Path) -> dict[str, object]:
 
 
 def validate_selector(path: Path, implementation: str) -> dict[str, object]:
+    """
+    선택기 실행 아티팩트가 지정된 구현체의 성공 증거를 충족하는지 검증합니다.
+    
+    Parameters:
+    	path (Path): 검증할 JSON 아티팩트의 경로
+    	implementation (str): 아티팩트에 기록되어야 하는 구현체 식별자
+    
+    Returns:
+    	dict[str, object]: 아티팩트 이름, 실행 시간, 메시지 식별자, 스트림 종료 상태 및 전송 완료 횟수를 포함한 검증 요약
+    
+    Raises:
+    	RolloutEvidenceError: 필수 검증 조건을 충족하지 못한 경우
+    """
     payload = _read(path)
     smoke = payload.get("smoke")
     smoke = smoke if isinstance(smoke, dict) else {}
@@ -69,6 +94,12 @@ def validate_selector(path: Path, implementation: str) -> dict[str, object]:
 
 
 def main() -> int:
+    """
+    검증된 hex 선택자 실행 5건과 legacy 롤백 실행 결과를 요약 보고서로 생성합니다.
+    
+    Returns:
+    	int: 보고서가 성공적으로 생성되면 0
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--hex-artifact", type=Path, action="append", required=True)
     parser.add_argument("--rollback-artifact", type=Path, required=True)

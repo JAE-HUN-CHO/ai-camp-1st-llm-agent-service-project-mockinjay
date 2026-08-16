@@ -13,7 +13,15 @@ security = HTTPBearer()
 
 
 def get_request_user_id(request: Request) -> str:
-    """Return the JWT subject populated by AuthenticationMiddleware."""
+    """
+    요청 상태에서 인증된 사용자 ID를 가져옵니다.
+    
+    Returns:
+    	str: 인증된 사용자 ID
+    
+    Raises:
+    	HTTPException: 인증된 사용자 ID가 없으면 401 오류를 발생시킵니다.
+    """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         raise HTTPException(

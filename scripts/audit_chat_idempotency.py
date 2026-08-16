@@ -17,6 +17,12 @@ from app.db.context_manager import ContextManager  # noqa: E402
 
 
 async def audit() -> dict[str, object]:
+    """
+    클라이언트 메시지 ID 기반 대화 데이터의 멱등성 상태를 감사한다.
+    
+    Returns:
+    	dict[str, object]: 중복 그룹, 스키마 버전, 결정적 ID 문서 수와 감사 결과를 포함한 보고서
+    """
     manager = ContextManager()
     await manager.connect()
     try:
@@ -64,6 +70,12 @@ async def audit() -> dict[str, object]:
 
 
 def main() -> int:
+    """
+    감사 결과를 JSON으로 출력하고 중복 그룹 존재 여부에 따라 종료 코드를 반환합니다.
+    
+    Returns:
+    	int: 중복 사용자 메시지 ID 그룹이 있으면 1, 그렇지 않으면 0
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()

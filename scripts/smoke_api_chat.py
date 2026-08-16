@@ -29,12 +29,31 @@ class SmokeContractError(RuntimeError):
         status_code: int | None = None,
         content_type: str | None = None,
     ) -> None:
+        """계약 위반 오류를 생성하고 관련 HTTP 응답 메타데이터를 저장합니다.
+        
+        Parameters:
+        	message (str): 오류 메시지
+        	status_code (int | None): 관련 HTTP 상태 코드
+        	content_type (str | None): 관련 응답의 콘텐츠 유형
+        """
         super().__init__(message)
         self.status_code = status_code
         self.content_type = content_type
 
 
 def parse_sse_line(line: str) -> tuple[str, dict | None]:
+    """
+    SSE 데이터 라인을 분류하고 JSON 프레임을 파싱합니다.
+    
+    Parameters:
+    	line (str): 파싱할 SSE 데이터 라인
+    
+    Returns:
+    	tuple[str, dict | None]: 라인 분류와 파싱된 JSON 객체를 반환합니다. 분류는 `"ignored"`, `"done"`, `"frame"` 중 하나이며, JSON 프레임이 아닌 경우 데이터는 `None`입니다.
+    
+    Raises:
+    	ValueError: SSE 데이터가 JSON 객체가 아닌 경우 발생합니다.
+    """
     if not line.startswith("data:"):
         return "ignored", None
     data = line[5:].removeprefix(" ")
@@ -53,6 +72,15 @@ def serialize_stream_evidence(frames: list[dict]) -> str:
 
 
 async def run(args) -> int:
+    """
+    로컬 인증 채팅 서비스의 일반 및 스트리밍 응답 계약을 검증하고 결과 아티팩트를 저장합니다.
+    
+    Parameters:
+    	args: 기본 URL, 요청 시간 초과, 테스트 시나리오, 아티팩트 저장 경로를 포함하는 실행 인자입니다.
+    
+    Returns:
+    	int: 모든 계약 검증이 성공하면 0을 반환합니다.
+    """
     token = os.getenv("CAREGUIDE_SMOKE_TOKEN")
     if not token:
         raise RuntimeError("CAREGUIDE_SMOKE_TOKEN is required and must not be passed on argv")
@@ -292,6 +320,12 @@ async def run(args) -> int:
 
 
 def main() -> int:
+    """
+    명령줄 인자를 해석하고 채팅 API 스모크 테스트를 실행한 뒤 결과를 아티팩트로 기록합니다.
+    
+    Returns:
+    	int: 스모크 테스트의 종료 상태 코드
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--timeout", type=float, default=90.0)

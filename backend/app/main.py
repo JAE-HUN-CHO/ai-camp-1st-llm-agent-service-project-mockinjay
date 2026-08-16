@@ -45,7 +45,11 @@ logger = setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager"""
+    """
+    애플리케이션 시작 및 종료 시 필요한 런타임 리소스를 관리합니다.
+    
+    애플리케이션 상태와 데이터베이스를 초기화하고 알림 아웃박스 작업을 시작하며, 종료 시 실행 중인 작업과 외부 리소스를 정리합니다.
+    """
     logger.info("Application starting up...")
     app.state.stream_registry = StreamRegistry()
     app.state.agent_runtime = AgentRuntime()

@@ -40,11 +40,29 @@ class SendChatMessage:
         generator: ChatGenerator,
         safety_policy: ChatSafetyPolicy,
     ) -> None:
+        """채팅 메시지 생성에 필요한 저장소, 생성기 및 안전성 정책을 초기화합니다.
+        
+        Parameters:
+        	repository (ChatRepository): 채팅 메시지 저장소
+        	generator (ChatGenerator): 채팅 응답 생성기
+        	safety_policy (ChatSafetyPolicy): 질의 안전성 평가 정책
+        """
         self._repository = repository
         self._generator = generator
         self._safety_policy = safety_policy
 
     async def execute(self, command: ChatCommand) -> ChatGeneration:
+        """
+        쿼리를 안전성 정책에 따라 평가하고 채팅 응답을 생성합니다.
+        
+        차단된 쿼리에는 긴급 응답을 반환하며, 그 외의 응답은 대화 기록 저장을 시도합니다. 선택적 저장에 실패해도 생성된 응답을 반환하고 저장 상태를 결과에 표시합니다.
+        
+        Parameters:
+        	command (ChatCommand): 행위자, 쿼리, 프로필 및 선택적 클라이언트 메시지 식별자를 포함한 채팅 명령
+        
+        Returns:
+        	ChatGeneration: 생성된 답변, 출처, 메타데이터, 에이전트 유형 및 메시지 저장 성공 여부
+        """
         decision = self._safety_policy.evaluate(command.query)
         if decision.blocked:
             return ChatGeneration(
@@ -91,11 +109,27 @@ class StreamChatMessage:
         generator: ChatGenerator,
         safety_policy: ChatSafetyPolicy,
     ) -> None:
+        """채팅 메시지 생성에 필요한 저장소, 생성기 및 안전성 정책을 초기화합니다.
+        
+        Parameters:
+        	repository (ChatRepository): 채팅 메시지 저장소
+        	generator (ChatGenerator): 채팅 응답 생성기
+        	safety_policy (ChatSafetyPolicy): 질의 안전성 평가 정책
+        """
         self._repository = repository
         self._generator = generator
         self._safety_policy = safety_policy
 
     async def prepare(self, command: ChatCommand) -> PreparedChatStream:
+        """
+        채팅 스트리밍을 시작하기 위한 요청 상태를 준비합니다.
+        
+        Parameters:
+        	command (ChatCommand): 행위자, 질의, 프로필 및 선택적 클라이언트 메시지 식별자를 포함하는 채팅 명령
+        
+        Returns:
+        	PreparedChatStream: 안전성 평가 결과와 인증된 행위자 및 사용자 컨텍스트를 포함하는 스트리밍 준비 상태
+        """
         decision = self._safety_policy.evaluate(command.query)
         if decision.blocked:
             return PreparedChatStream(
@@ -114,6 +148,20 @@ class StreamChatMessage:
         *,
         is_cancelled: Callable[[], Awaitable[bool]] | None = None,
     ) -> AsyncIterator[ChatStreamEvent]:
+        """
+        채팅 응답 생성 과정을 스트리밍 이벤트로 전달합니다.
+        
+        안전성 차단 요청은 긴급 완료 이벤트로 처리하며, 그 외 요청은 생성기 이벤트를
+        전달하고 응답을 완료한 경우 채팅 기록을 저장합니다. 생성기 오류, 취소, 콘텐츠
+        없이 종료된 스트림 및 복구할 수 없는 저장 오류는 오류 이벤트로 나타냅니다.
+        
+        Parameters:
+        	prepared (PreparedChatStream): 인증 및 사용자 컨텍스트가 준비된 채팅 스트림 상태
+        	is_cancelled (Callable[[], Awaitable[bool]] | None): 스트림 취소 여부를 확인하는 비동기 콜백
+        
+        Returns:
+        	AsyncIterator[ChatStreamEvent]: 채팅 생성 상태와 콘텐츠를 나타내는 스트리밍 이벤트
+        """
         if prepared.emergency:
             yield ChatStreamEvent(
                 status="complete",

@@ -64,7 +64,14 @@ from app.features.chat.domain import (
 
 
 def _authorize_user(request: Request, requested_user_id: Optional[str]) -> str:
-    """Bind caller-supplied user filters to the authenticated JWT subject."""
+    """인증된 JWT 주체와 요청된 사용자 식별자를 확인합니다.
+    
+    Parameters:
+    	requested_user_id (Optional[str]): 요청에 포함된 사용자 식별자
+    
+    Returns:
+    	str: 인증된 사용자의 식별자
+    """
     current_user_id = get_request_user_id(request)
     require_user_match(requested_user_id, current_user_id)
     return current_user_id
@@ -101,7 +108,20 @@ async def _persist_chat_response(
     agent_type: str = "ollama_rag",
     client_message_id: str | None = None,
 ) -> None:
-    """Persist a direct Ollama response using the same history contract."""
+    """
+    직접 생성된 채팅 응답을 대화 기록에 저장하고 사용자 컨텍스트를 갱신합니다.
+    
+    Parameters:
+    	user_id (str): 대화를 저장할 사용자 식별자
+    	session_id (str): 대화를 저장할 세션 식별자
+    	room_id (str | None): 대화를 저장할 방 식별자
+    	query (str): 사용자의 원본 질문
+    	answer (str): 저장할 채팅 응답
+    	agent_type (str): 응답을 생성한 에이전트 유형
+    	client_message_id (str | None): 클라이언트가 부여한 메시지 식별자
+    
+    저장에 필요한 값이 없거나 대화 저장에 실패하면 현재 응답 처리를 중단하지 않습니다.
+    """
     if not (answer and user_id and session_id and query):
         return
     try:
@@ -126,6 +146,15 @@ async def _persist_chat_response(
 
 
 def _raise_hex_chat_error(error: ChatError) -> None:
+    """
+    도메인 채팅 오류를 적절한 HTTP 예외로 변환합니다.
+    
+    Parameters:
+    	error (ChatError): 변환할 채팅 도메인 오류
+    
+    Raises:
+    	HTTPException: 오류 유형에 해당하는 HTTP 상태 코드와 메시지를 포함합니다.
+    """
     if isinstance(error, ChatAccessDenied):
         raise HTTPException(status_code=403, detail="Access denied") from error
     if isinstance(error, (ChatRoomNotFound, ChatSessionNotFound)):
@@ -147,6 +176,21 @@ async def _hex_chat_message(
     profile: str,
     client_message_id: str | None,
 ) -> JSONResponse:
+    """
+    Hex Chat 사용 사례를 실행하고 생성된 답변과 메타데이터를 JSON 응답으로 반환합니다.
+    
+    Parameters:
+    	container (ChatContainer): Chat 실행 컨테이너
+    	query (str): 사용자의 채팅 질의
+    	user_id (str): 요청한 사용자의 식별자
+    	session_id (str): 채팅 세션 식별자
+    	room_id (str | None): 채팅방 식별자
+    	profile (str): 채팅 프로필
+    	client_message_id (str | None): 클라이언트가 지정한 메시지 식별자
+    
+    Returns:
+    	JSONResponse: 답변, 에이전트 유형, 출처 및 메타데이터를 포함한 JSON 응답
+    """
     use_case = container.send_chat_message
     if use_case is None:
         raise RuntimeError("hex Chat use case is not configured")
@@ -197,6 +241,25 @@ async def _prepare_hex_chat_stream(
     profile: str,
     client_message_id: str | None,
 ) -> StreamingResponse:
+    """
+    Hex 채팅 스트리밍 요청을 준비하고 SSE 응답을 생성합니다.
+    
+    Parameters:
+        request (Request): 클라이언트 연결 상태 확인에 사용할 요청 객체
+        container (ChatContainer): 스트리밍 채팅 실행 및 텔레메트리를 제공하는 컨테이너
+        query (str): 사용자가 보낸 채팅 질의
+        user_id (str): 채팅 요청을 수행하는 사용자 식별자
+        session_id (str): 채팅 세션 식별자
+        room_id (str | None): 채팅방 식별자
+        profile (str): 적용할 채팅 프로필
+        client_message_id (str | None): 중복 처리를 위한 클라이언트 메시지 식별자
+    
+    Returns:
+        StreamingResponse: 채팅 이벤트를 Server-Sent Events 형식으로 전달하는 응답
+    
+    Raises:
+        RuntimeError: 스트리밍 채팅 실행 사례가 구성되지 않은 경우
+    """
     use_case = container.stream_chat_message
     if use_case is None:
         raise RuntimeError("hex Chat stream use case is not configured")
@@ -233,6 +296,17 @@ async def _hex_chat_stream_events(
     container: ChatContainer,
     prepared: PreparedChatStream,
 ):
+    """
+    스트리밍 채팅 이벤트를 SSE 형식으로 전달하고 스트림 상태와 종료 텔레메트리를 관리합니다.
+    
+    Parameters:
+    	request (Request): 클라이언트 연결 상태와 스트림 레지스트리에 접근하기 위한 요청 객체
+    	container (ChatContainer): 스트리밍 채팅 유스케이스와 텔레메트리를 제공하는 컨테이너
+    	prepared (PreparedChatStream): 스트리밍 채팅 실행에 필요한 인증 및 요청 정보
+    
+    Yields:
+    	str: 채팅 이벤트 또는 스트림 종료를 나타내는 SSE 데이터
+    """
     use_case = container.stream_chat_message
     if use_case is None:
         raise RuntimeError("hex Chat stream use case is not configured")
@@ -253,6 +327,11 @@ async def _hex_chat_stream_events(
     terminal = "failure"
 
     async def is_cancelled() -> bool:
+        """스트리밍 세션의 취소 요청 또는 클라이언트 연결 종료 여부를 확인합니다.
+        
+        Returns:
+        	bool: 취소가 요청되었거나 클라이언트 연결이 종료되었으면 `True`, 그렇지 않으면 `False`.
+        """
         metadata = stream_registry.get(session_id, {})
         return bool(metadata.get("cancel_requested")) or await request.is_disconnected()
 
@@ -287,6 +366,24 @@ async def _direct_ollama_stream(
     room_id: str | None,
     client_message_id: str | None,
 ):
+    """
+    로컬 Ollama 서비스의 응답을 서버 전송 이벤트로 스트리밍합니다.
+    
+    Parameters:
+    	service: 스트리밍 응답을 생성하는 로컬 채팅 서비스
+    	context_system: 완료된 응답을 저장하고 후속 처리를 수행하는 컨텍스트 시스템
+    	container (ChatContainer): 텔레메트리를 기록하는 채팅 컨테이너
+    	query (str): 사용자의 채팅 요청
+    	profile (str): 채팅에 사용할 사용자 프로필
+    	user_context: 응답 생성에 사용할 사용자 컨텍스트
+    	user_id (str): 요청한 사용자 식별자
+    	session_id (str): 채팅 세션 식별자
+    	room_id (str | None): 채팅방 식별자
+    	client_message_id (str | None): 클라이언트가 제공한 메시지 식별자
+    
+    Yields:
+    	str: 스트리밍 데이터, 완료 또는 오류 상태, 마지막 스트림 종료 신호를 포함하는 SSE 형식 문자열
+    """
     accumulated = ""
     terminal_emitted = False
     completed = False
@@ -580,7 +677,18 @@ async def get_all_history(
 @router.post("/message")
 async def chat_message(request: Request):
     """
-    Main Chat Endpoint - Uses RouterAgent with streaming support
+    인증된 사용자의 채팅 메시지를 처리합니다.
+    
+    응급 안전 정책을 적용한 뒤 설정된 채팅 런타임을 통해 응답을 생성하며, 필요에 따라 JSON 응답 또는 Server-Sent Events 스트림으로 반환합니다. 처리된 대화는 세션 및 채팅방 정보와 함께 저장됩니다.
+    
+    Parameters:
+        request (Request): 채팅 요청과 인증 정보를 담은 FastAPI 요청 객체.
+    
+    Returns:
+        JSONResponse 또는 StreamingResponse: 생성된 답변이나 스트리밍 채팅 이벤트.
+    
+    Raises:
+        HTTPException: 요청 본문이 잘못되었거나 인증에 실패한 경우 400 또는 500 상태 코드로 발생합니다.
     """
     container = None
     try:
@@ -712,6 +820,11 @@ async def chat_message(request: Request):
         router_agent = runtime.router_agent
 
         async def event_generator():
+            """
+            라우터 에이전트의 채팅 스트림을 SSE 이벤트로 생성합니다.
+            
+            스트림 취소와 처리 오류를 이벤트로 알리고, 성공적으로 완료된 응답은 대화 기록에 저장한 뒤 종료 이벤트를 전송합니다.
+            """
             accumulated_response = ""
             final_agent_type = None
             completed = False
@@ -856,7 +969,14 @@ async def chat_message(request: Request):
 @router.post("/stream")
 async def chat_stream(request: Request):
     """
-    Streaming Chat Endpoint - Uses RouterAgent to handle complex intents with streaming
+    채팅 요청을 처리하고 Server-Sent Events 형식으로 응답을 스트리밍합니다.
+    
+    긴급 안전 정책에 의해 차단된 요청에는 고정된 긴급 응답을 보내며, 구성에 따라
+    Hex Chat, Ollama 또는 Router Agent를 사용합니다. 성공적으로 완료된 대화는 대화
+    기록에 저장됩니다.
+    
+    Returns:
+    	StreamingResponse: 채팅 이벤트와 스트림 종료 신호를 포함하는 SSE 응답
     """
     container = None
     try:
@@ -979,6 +1099,12 @@ async def chat_stream(request: Request):
         router_agent = runtime.router_agent
 
         async def event_generator():
+            """
+            라우터 에이전트의 응답을 SSE 이벤트로 변환하고 대화 기록을 저장합니다.
+            
+            Returns:
+            	str: 응답 청크, 완료 또는 오류 상태, 스트림 종료를 나타내는 SSE 이벤트
+            """
             accumulated_response = ""
             final_agent_type = None
             completed = False

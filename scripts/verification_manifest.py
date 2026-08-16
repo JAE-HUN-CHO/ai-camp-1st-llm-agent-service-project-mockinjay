@@ -100,6 +100,18 @@ def append_command(
     artifacts: list[str],
     cwd: Path | None = None,
 ) -> None:
+    """
+    검증 명령의 실행 결과를 매니페스트에 추가합니다.
+    
+    Parameters:
+    	artifact_dir (Path): 매니페스트를 저장할 산출물 디렉터리
+    	argv (list[str]): 실행한 명령과 인자
+    	exit_code (int): 명령의 종료 코드
+    	started_at (str): 명령 실행 시작 시각
+    	finished_at (str): 명령 실행 완료 시각
+    	artifacts (list[str]): 명령이 생성한 산출물 경로 목록
+    	cwd (Path | None): 명령이 실행된 디렉터리
+    """
     artifact_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = artifact_dir / "manifest.json"
     manifest = _validate_existing_manifest(artifact_dir)
@@ -142,6 +154,19 @@ def run_command(
     produced_artifacts: list[Path] | None = None,
     cwd: Path = ROOT,
 ) -> int:
+    """
+    명령을 실행하고 출력 및 생성된 산출물 정보를 검증 매니페스트에 기록합니다.
+    
+    Parameters:
+    	artifact_dir (Path): 결과 매니페스트와 산출물이 저장되는 디렉터리
+    	output (Path): 명령의 표준 출력과 표준 오류를 기록할 파일
+    	command (list[str]): 실행할 명령과 인자
+    	produced_artifacts (list[Path] | None): 명령이 생성해야 하는 추가 산출물 경로 목록
+    	cwd (Path): 명령을 실행할 저장소 내부 디렉터리
+    
+    Returns:
+    	int: 실행된 명령의 종료 코드
+    """
     artifact_dir = artifact_dir.resolve()
     output = output.resolve()
     try:
@@ -191,6 +216,11 @@ def run_command(
 
 
 def main() -> int:
+    """명령줄 인수를 해석하고 검증 명령을 실행합니다.
+    
+    Returns:
+    	int: 실행한 명령의 종료 코드
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

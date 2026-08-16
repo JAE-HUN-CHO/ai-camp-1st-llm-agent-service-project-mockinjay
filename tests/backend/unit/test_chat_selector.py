@@ -17,11 +17,15 @@ from app.bootstrap.container import (
 
 class Runtime:
     def __init__(self) -> None:
+        """
+        Runtime 상태를 초기화합니다.
+        """
         self.chat_service_reads = 0
         self.service = object()
 
     @property
     def chat_service(self):
+        """구성된 채팅 서비스를 반환하고 접근 횟수를 기록합니다."""
         self.chat_service_reads += 1
         return self.service
 

@@ -11,6 +11,15 @@ from smoke_common import write_json
 
 
 def _cases(path: Path) -> list[tuple[str, bool]]:
+    """
+    JUnit XML 파일에서 테스트 케이스 이름과 통과 여부를 추출합니다.
+    
+    Parameters:
+    	path (Path): 파싱할 JUnit XML 파일 경로
+    
+    Returns:
+    	list[tuple[str, bool]]: 각 테스트 케이스의 클래스명과 테스트명, 통과 여부를 담은 목록
+    """
     root = ET.parse(path).getroot()
     result = []
     for case in root.iter("testcase"):
@@ -23,6 +32,16 @@ def _cases(path: Path) -> list[tuple[str, bool]]:
 
 
 def _group(cases: list[tuple[str, bool]], fragments: tuple[str, ...]) -> dict[str, int]:
+    """
+    지정된 문자열 조각을 포함하는 테스트 케이스를 선택하고 결과를 집계합니다.
+    
+    Parameters:
+    	cases (list[tuple[str, bool]]): 테스트 케이스 이름과 통과 여부의 목록
+    	fragments (tuple[str, ...]): 테스트 케이스 이름을 검색할 문자열 조각
+    
+    Returns:
+    	dict[str, int]: 선택된 테스트의 전체 수, 통과 수, 실패 수를 담은 딕셔너리
+    """
     selected = [(name, passed) for name, passed in cases if any(fragment in name for fragment in fragments)]
     return {
         "total": len(selected),
@@ -32,6 +51,12 @@ def _group(cases: list[tuple[str, bool]], fragments: tuple[str, ...]) -> dict[st
 
 
 def main() -> int:
+    """
+    JUnit 테스트 결과를 검증하고 안전성 요약을 JSON 파일로 저장합니다.
+    
+    Returns:
+    	int: 모든 필수 테스트 조건을 충족하면 0, 그렇지 않으면 1
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--unit-junit", type=Path, required=True)
     parser.add_argument("--integration-junit", type=Path, required=True)

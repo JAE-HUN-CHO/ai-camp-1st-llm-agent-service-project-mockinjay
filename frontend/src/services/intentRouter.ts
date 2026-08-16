@@ -15,6 +15,11 @@ import {
   type ChatStreamFrame,
 } from './chatStreamContract';
 
+/**
+ * 클라이언트 메시지에 사용할 고유 식별자를 생성합니다.
+ *
+ * @returns 생성된 UUID
+ */
 function createClientMessageId(): string {
   return globalThis.crypto.randomUUID();
 }
@@ -109,7 +114,11 @@ function addMedicalDisclaimer(content: string, intents: IntentCategory[]): strin
 }
 
 /**
- * 백엔드 API 호출
+ * 지정된 에이전트로 백엔드에 질의를 보내 응답 내용을 가져옵니다.
+ *
+ * @param agent - `router`인 경우 자동 에이전트 선택을 요청합니다.
+ * @returns 백엔드의 응답 내용
+ * @throws 백엔드 요청이 실패한 경우
  */
 async function callBackendAgent(
   query: string,
@@ -151,23 +160,15 @@ export interface StreamCallOptions {
 }
 
 /**
- * 백엔드 스트리밍 API를 호출하고 의도 정보를 추출합니다.
- * Calls backend streaming API and extracts intent information.
+ * 백엔드 스트리밍 API를 호출하여 응답을 실시간으로 전달하고 라우팅 결과를 수집합니다.
  *
- * 실시간으로 응답 청크를 받아 콜백 함수로 전달합니다.
- * Receives response chunks in real-time and passes them to callback function.
- *
- * @param query - 사용자 질문 (User query)
- * @param agent - 사용할 에이전트 타입 (Agent type to use)
- * @param onChunk - 각 청크를 받을 때마다 호출되는 콜백 함수
- *                  Callback function called for each chunk
- * @param onError - 에러 발생 시 호출되는 콜백 함수 (선택)
- *                  Optional callback function for errors
- * @param options - 추가 옵션 (세션ID, 사용자ID, 방ID, 프로필)
- *                  Additional options (sessionId, userId, roomId, userProfile)
- * @param signal - 취소 시그널 (AbortSignal)
- * @returns 감지된 에이전트 목록과 의도 카테고리
- *          Detected agents list and intent categories
+ * @param query - 사용자 질문
+ * @param agent - 요청에 사용할 에이전트 유형
+ * @param onChunk - 수신한 응답 내용과 스트림 상태를 전달하는 콜백
+ * @param onError - 요청 또는 스트림 처리 중 오류가 발생할 때 호출할 선택적 콜백
+ * @param options - 세션, 사용자, 방, 프로필 및 클라이언트 메시지 ID 설정
+ * @returns 감지된 에이전트, 의도 범주 및 긴급 응답 여부
+ * @throws 백엔드 요청, SSE 프레임 파싱 또는 스트림 완료 검증에 실패한 경우
  */
 export async function callBackendAgentStream(
   query: string,
@@ -347,25 +348,14 @@ function mapAgentsToIntents(agents: AgentType[]): IntentCategory[] {
 }
 
 /**
- * 스트리밍 메인 라우터 함수 (간소화됨)
- * Main streaming router function (simplified).
+ * 백엔드 RouterAgent를 통해 질의를 스트리밍 방식으로 처리합니다.
  *
- * 백엔드 RouterAgent가 의도를 분류하고 처리합니다.
- * Backend RouterAgent classifies intents and handles processing.
- *
- * 프론트엔드는 응급 상황만 즉시 체크하고, 나머지는 백엔드로 전달합니다.
- * Frontend only checks emergency situations immediately, and forwards the rest to backend.
- *
- * @param query - 사용자 질문 (User query)
- * @param onChunk - 스트리밍 청크를 받을 콜백 함수
- *                  Callback function to receive streaming chunks
- * @param onError - 에러 처리 콜백 함수 (선택)
- *                  Optional error handling callback
- * @param options - 스트리밍 옵션 또는 사용자 프로필 (하위 호환성)
- *                  Streaming options or user profile (backward compatible)
- * @param signal - 취소 시그널 (AbortSignal)
- * @returns 라우터 응답 객체 (의도, 에이전트, 컨텐츠 등)
- *          Router response object (intents, agents, content, etc.)
+ * @param query - 사용자 질문
+ * @param onChunk - 스트리밍 콘텐츠와 완료 여부를 전달받는 콜백
+ * @param onError - 스트리밍 오류를 전달받는 선택적 콜백
+ * @param options - 세션, 사용자 및 스트리밍 관련 옵션
+ * @param signal - 요청 취소에 사용하는 AbortSignal
+ * @returns 스트리밍 콘텐츠, 감지된 의도와 에이전트, 신뢰도 및 응급 상태를 포함한 라우터 응답
  */
 export async function routeQueryStream(
   query: string,

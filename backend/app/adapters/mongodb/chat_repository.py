@@ -24,14 +24,38 @@ class MongoChatRepository:
     """Adapt the existing context/session stores without changing schemas."""
 
     def __init__(self, context_system: Any) -> None:
+        """채팅 컨텍스트 시스템을 저장하고 백그라운드 작업 추적을 초기화합니다.
+        
+        Parameters:
+        	context_system (Any): 채팅 컨텍스트와 데이터베이스 관리자를 제공하는 시스템
+        """
         self._context_system = context_system
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     @property
     def _manager(self) -> Any:
+        """컨텍스트 시스템의 데이터베이스 관리자를 제공합니다.
+        
+        Returns:
+        	Any: 컨텍스트 시스템에 연결된 데이터베이스 관리자
+        """
         return self._context_system.context_engineer.db_manager
 
     async def authorize_actor(self, actor: ActorContext) -> ActorContext:
+        """
+        액터의 사용자·방·세션 접근 권한을 검증하고 정규화된 컨텍스트를 반환합니다.
+        
+        Parameters:
+            actor (ActorContext): 사용자, 방, 세션 식별자를 포함한 액터 컨텍스트
+        
+        Returns:
+            ActorContext: 기본값이 보완된 정규화된 액터 컨텍스트
+        
+        Raises:
+            ChatAccessDenied: 사용자 인증 정보가 없거나 세션 소유권 또는 방 일치 검증에 실패한 경우
+            ChatRoomNotFound: 지정한 방을 찾을 수 없거나 사용자가 소유하지 않은 경우
+            ChatSessionNotFound: 지정한 세션을 찾을 수 없는 경우
+        """
         if not actor.user_id:
             raise ChatAccessDenied("authenticated actor is required")
 
@@ -78,12 +102,30 @@ class MongoChatRepository:
         )
 
     async def get_user_context(self, actor: ActorContext) -> Mapping[str, object]:
+        """
+        사용자에 대한 컨텍스트 정보를 조회합니다.
+        
+        Parameters:
+            actor (ActorContext): 컨텍스트를 조회할 사용자 정보
+        
+        Returns:
+            Mapping[str, object]: 사용자의 컨텍스트 매핑 또는 유효한 매핑이 없을 때 빈 매핑
+        """
         context = await self._context_system.context_engineer.get_user_context(
             actor.user_id
         )
         return context if isinstance(context, Mapping) else {}
 
     async def save_message(self, message: ChatMessage) -> None:
+        """
+        메시지를 저장하고 사용자 컨텍스트 업데이트를 예약합니다.
+        
+        Raises:
+            ChatAccessDenied: 액터의 접근 권한이 없는 경우.
+            ChatRoomNotFound: 지정된 채팅방을 찾을 수 없는 경우.
+            ChatSessionNotFound: 지정된 세션을 찾을 수 없는 경우.
+            ChatPersistenceError: 메시지 저장 중 예기치 않은 오류가 발생한 경우.
+        """
         try:
             # Revalidate immediately before the write so a room deletion or
             # owner mismatch during generation cannot create an unauthorized

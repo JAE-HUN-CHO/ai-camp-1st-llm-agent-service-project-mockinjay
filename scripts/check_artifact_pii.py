@@ -13,6 +13,14 @@ PATTERN = SENSITIVE_PATTERN
 
 
 def main() -> int:
+    """
+    명령줄 인자로 지정한 아티팩트 디렉터리에서 민감 정보 패턴을 검사하고 결과를 출력합니다.
+    
+    JSON 출력 경로가 지정되면 검사 결과를 해당 파일에 기록합니다.
+    
+    Returns:
+    	int: 검사 성공 시 0, 디렉터리가 없거나 검사할 파일이 없거나 일치 항목이 발견되면 1
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("artifact_dir", type=Path)
     parser.add_argument("--json-output", type=Path)

@@ -47,6 +47,12 @@ REQUIRED = {
 
 
 def main() -> int:
+    """
+    API 라우트 계약을 검증하고 검사 결과에 해당하는 종료 코드를 반환합니다.
+    
+    Returns:
+    	int: 모든 필수 라우트와 메서드가 등록되고 폐기된 라우트 및 승인되지 않은 경로가 없으면 0, 그렇지 않으면 1
+    """
     failures: list[str] = []
     for path, methods in REQUIRED.items():
         missing = methods - route_methods(path)

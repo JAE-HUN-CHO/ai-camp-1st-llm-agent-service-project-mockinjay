@@ -27,11 +27,28 @@ from app.features.chat.domain import (
 
 class Repository:
     def __init__(self, *, denied: bool = False) -> None:
+        """
+        저장소 테스트 이중 객체를 초기화합니다.
+        
+        Parameters:
+        	denied (bool): 권한 부여를 거부할지 여부
+        """
         self.denied = denied
         self.calls = 0
         self.saved: list[ChatMessage] = []
 
     async def authorize_actor(self, actor: ActorContext) -> ActorContext:
+        """요청된 행위자의 채팅 접근을 승인하고 세션 정보가 보완된 컨텍스트를 반환합니다.
+        
+        Parameters:
+        	actor (ActorContext): 접근을 승인할 행위자의 컨텍스트
+        
+        Returns:
+        	ActorContext: 세션 정보가 보완된 행위자 컨텍스트
+        
+        Raises:
+        	ChatAccessDenied: 행위자의 접근이 거부된 경우
+        """
         self.calls += 1
         if self.denied:
             raise ChatAccessDenied("cross-user")
@@ -42,19 +59,46 @@ class Repository:
         )
 
     async def get_user_context(self, _actor: ActorContext):
+        """
+        사용자 컨텍스트를 빈 사전으로 제공합니다.
+        
+        Returns:
+        	dict: 빈 사용자 컨텍스트
+        """
         return {}
 
     async def save_message(self, message: ChatMessage) -> None:
+        """메시지를 저장합니다.
+        
+        Parameters:
+        	message (ChatMessage): 저장할 채팅 메시지
+        """
         self.saved.append(message)
 
 
 class Generator:
     def __init__(self, *, timeout: bool = False, stream_error: bool = False) -> None:
+        """
+        생성기 테스트 대역의 오류 동작을 설정합니다.
+        
+        Parameters:
+        	timeout (bool): 일반 생성 요청에서 타임아웃을 발생시킬지 여부
+        	stream_error (bool): 스트리밍 요청에서 제공자 오류를 발생시킬지 여부
+        """
         self.timeout = timeout
         self.stream_error = stream_error
         self.calls = 0
 
     async def generate(self, _query, *, profile, user_context) -> ChatGeneration:
+        """
+        채팅 질의를 처리해 고정된 HEX 응답을 생성합니다.
+        
+        Raises:
+            ChatProviderTimeout: 제공자 타임아웃이 설정된 경우.
+            
+        Returns:
+            생성된 답변, 출처 및 제공자 메타데이터.
+        """
         self.calls += 1
         if self.timeout:
             raise ChatProviderTimeout("timeout")
@@ -65,6 +109,17 @@ class Generator:
         )
 
     async def stream(self, _query, *, profile, user_context) -> AsyncIterator[ChatStreamEvent]:
+        """
+        채팅 응답을 처리 상태와 텍스트 조각 이벤트로 스트리밍합니다.
+        
+        Parameters:
+        	_query: 스트리밍할 질의
+        	profile: 생성에 사용할 프로필
+        	user_context: 사용자 컨텍스트
+        
+        Yields:
+        	ChatStreamEvent: 처리 상태 또는 생성된 텍스트 조각 이벤트
+        """
         self.calls += 1
         yield ChatStreamEvent("processing", "progress", "ollama_rag")
         yield ChatStreamEvent("streaming", "hex ", "ollama_rag")
@@ -74,6 +129,16 @@ class Generator:
 
 
 def app_with(repository: Repository, generator: Generator) -> FastAPI:
+    """
+    HEX 채팅 계약 테스트에 사용할 FastAPI 애플리케이션을 구성합니다.
+    
+    Parameters:
+    	repository (Repository): 채팅 권한 확인과 메시지 저장에 사용할 저장소 테스트 이중 객체
+    	generator (Generator): 채팅 응답 생성과 스트리밍을 수행할 생성기 테스트 이중 객체
+    
+    Returns:
+    	FastAPI: 인증 미들웨어와 채팅 라우터가 등록된 테스트용 애플리케이션
+    """
     application = FastAPI()
     application.state.context_system = object()
     telemetry = ChatTelemetry(ChatImplementation.HEX)
@@ -94,6 +159,16 @@ def app_with(repository: Repository, generator: Generator) -> FastAPI:
 
     @application.middleware("http")
     async def authenticate(request, call_next):
+        """
+        요청을 `user-a` 사용자로 인증하고 다음 미들웨어 또는 핸들러로 전달합니다.
+        
+        Parameters:
+        	request: 인증할 HTTP 요청
+        	call_next: 요청 처리를 이어갈 다음 호출 대상
+        
+        Returns:
+        	call_next가 반환하는 응답
+        """
         request.state.user_id = "user-a"
         return await call_next(request)
 

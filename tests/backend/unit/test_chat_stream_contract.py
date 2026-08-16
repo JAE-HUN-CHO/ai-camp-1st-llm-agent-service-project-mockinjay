@@ -20,6 +20,15 @@ class _FakeContextManager:
         self.saved: list[dict] = []
 
     async def get_user_context(self, _user_id: str) -> dict:
+        """
+        사용자의 컨텍스트 정보를 가져옵니다.
+        
+        Parameters:
+        	_user_id (str): 컨텍스트를 조회할 사용자 식별자
+        
+        Returns:
+        	dict: 빈 사용자 컨텍스트
+        """
         return {}
 
     async def save_conversation(
@@ -32,6 +41,12 @@ class _FakeContextManager:
         room_id: str | None = None,
         client_message_id: str | None = None,
     ) -> None:
+        """
+        대화 내용을 저장 기록에 추가합니다.
+        
+        Parameters:
+            client_message_id (str | None): 저장할 클라이언트 메시지 식별자입니다.
+        """
         saved = {
             "user_id": user_id,
             "session_id": session_id,

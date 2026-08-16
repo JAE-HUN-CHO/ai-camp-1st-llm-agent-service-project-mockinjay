@@ -31,6 +31,7 @@ def test_chat_v1_fixture_freezes_routes_media_types_and_all_observed_statuses() 
 
 
 def test_error_done_and_done_without_terminal_are_not_success_scenarios() -> None:
+    """오류 또는 필수 종료 신호가 누락된 시나리오가 성공으로 처리되지 않는지 검증합니다."""
     contract = json.loads(FIXTURE.read_text(encoding="utf-8"))
     scenarios = {item["name"]: item for item in contract["scenarios"]}
 

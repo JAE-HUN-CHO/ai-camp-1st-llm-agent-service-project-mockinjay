@@ -34,7 +34,7 @@ class ContextManager:
             logger.info(f"✅ Context Manager connected: {self.db_name}")
 
     async def close(self):
-        """Close connection"""
+        """MongoDB 클라이언트 연결을 종료합니다."""
         if self.client:
             self.client.close()
             logger.info("Context Manager connection closed")
@@ -50,19 +50,19 @@ class ContextManager:
         client_message_id: str = None,
     ) -> bool:
         """
-        Save a single conversation turn to history.
-
+        대화 한 턴을 대화 기록에 저장합니다.
+        
         Args:
             user_id: 사용자 ID
             session_id: 세션 ID
-            agent_type: 에이전트 타입
+            agent_type: 에이전트 유형
             user_input: 사용자 입력
             agent_response: 에이전트 응답
-            room_id: 채팅방 ID (선택사항)
-            client_message_id: 클라이언트가 재시도 동안 재사용하는 선택적 ID
-
+            room_id: 채팅방 ID. 지정하지 않으면 세션 ID를 사용합니다.
+            client_message_id: 재시도 시 중복 저장을 방지하기 위해 클라이언트가 재사용하는 메시지 ID
+        
         Returns:
-            새 문서를 만들었으면 True, 동일 client_message_id 재시도면 False.
+            새 대화 문서가 저장되었으면 True, 동일한 사용자와 클라이언트 메시지 ID로 이미 저장된 문서가 있으면 False
         """
         if self.db is None:
             await self.connect()
@@ -99,7 +99,14 @@ class ContextManager:
 
     async def get_recent_conversations(self, user_id: str, limit: int = 5) -> List[Dict]:
         """
-        Get recent conversations for a user across all agents.
+        사용자의 모든 에이전트 대화 중 최근 기록을 시간순으로 조회합니다.
+        
+        Parameters:
+        	user_id (str): 대화를 조회할 사용자 ID
+        	limit (int): 반환할 최대 대화 수
+        
+        Returns:
+        	List[Dict]: 오래된 대화부터 정렬된 대화 기록 목록
         """
         if self.db is None:
             await self.connect()

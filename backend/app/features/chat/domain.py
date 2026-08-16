@@ -53,6 +53,12 @@ class ChatStreamEvent:
     attributes: Mapping[str, object] = field(default_factory=dict)
 
     def as_payload(self) -> dict[str, object]:
+        """
+        스트림 이벤트를 직렬화 가능한 페이로드로 변환합니다.
+        
+        Returns:
+        	dict[str, object]: 이벤트 속성에 상태와 설정된 콘텐츠, 에이전트 유형, 오류를 포함한 페이로드
+        """
         payload: dict[str, object] = dict(self.attributes)
         payload["status"] = self.status
         if self.content:
