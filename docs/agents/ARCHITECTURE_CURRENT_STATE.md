@@ -18,14 +18,14 @@
 | ADR-013 owner 승인 기록 | run `20260816T004558Z`, worktree fingerprint `db41dc55c9387f22f27153e64f904982974ffba8948179fd78911a84aca1f56f` | Accepted 전환과 Phase 2 Chat 범위 승인 evidence |
 | Phase 2 Chat 고정 gate | Git `0d435fc48d35d1650fddd4375746f0e74e63c320`, run `20260816T044829Z` | frozen v1, 저장 멱등성, hex 5회 REST/SSE canary, legacy rollback evidence; fingerprint는 manifest가 authoritative |
 | Phase 3A Health Records 고정 gate | Git `12199ec324efa1f47ccfa3f78e45fbe18b6e9085`, run `20260816T132213Z` | active REST v1/schema 보존, owner isolation, hex 실제 HTTP와 selector-unset legacy rollback; fingerprint는 manifest가 authoritative |
-| Phase 3B Health Profile 고정 gate | Git `ce5c08999ec6b15387a57d0636c64ce8bf669539`, run `20260816T171606Z` | active MyPage REST v1/`health_profiles` schema 보존, legacy/hex 실제 HTTP, owner isolation, invalid selector fail-closed evidence; fingerprint는 manifest가 authoritative |
+| Phase 3B Health Profile 고정 gate | Git `20d714a6b2bafd0d9b3ca97a66940b5f22a57404`, run `20260816T173056Z` | active MyPage REST v1/`health_profiles` schema 보존, legacy/hex 실제 HTTP, owner isolation, invalid selector fail-closed evidence; fingerprint는 manifest가 authoritative |
 
 다섯 run의 manifest는 각각
 `logs/verification/fda93b9dbb8107ecbffa593041c9417f822a6688/20260815T143102Z/manifest.json`과
 `logs/verification/fda93b9dbb8107ecbffa593041c9417f822a6688/20260816T004558Z/manifest.json`,
 `logs/verification/0d435fc48d35d1650fddd4375746f0e74e63c320/20260816T044829Z/manifest.json`,
 `logs/verification/12199ec324efa1f47ccfa3f78e45fbe18b6e9085/20260816T132213Z/manifest.json`,
-`logs/verification/ce5c08999ec6b15387a57d0636c64ce8bf669539/20260816T171606Z/manifest.json`에 있다.
+`logs/verification/20d714a6b2bafd0d9b3ca97a66940b5f22a57404/20260816T173056Z/manifest.json`에 있다.
 `logs/`는 git-ignored 로컬 evidence이므로 Git SHA만으로 dirty-worktree 실행을 재현했다고 간주하지
 않고, 반드시 worktree fingerprint까지 함께 대조한다. 이후 PR head의 정적/단위 회귀는 별도 gate이며
 이 장시간 HTTP run을 같은 SHA에서 다시 실행했다는 뜻이 아니다.
@@ -210,7 +210,7 @@ fake adapter 단위 테스트, 로컬 MongoDB 명시적 integration, import gate
 실제 GET·PUT·null/unset·422·cross-user HTTP와 schema/index audit를 한 manifest로 묶는다. 최종 수치는
 backend unit 285, Mongo integration 8, frontend 32 files/432 tests이며 건강값과 JWT는 artifact에
 저장하지 않고 body/owner ID hash·length·status만 남긴다. exact argv와 worktree fingerprint는
-`20260816T171606Z/manifest.json`을 기준으로 한다. Health Profile에는 provider port가 없고 검증
+`20260816T173056Z/manifest.json`을 기준으로 한다. Health Profile에는 provider port가 없고 검증
 환경의 Ollama·hosted credential을 제거했으며 import gate가 이를 보강한다. 따라서 hosted provider
 호출 0은 packet capture 실측값이 아니라 해당 구조·runtime 설정에서 파생한 값으로 표시한다.
 
