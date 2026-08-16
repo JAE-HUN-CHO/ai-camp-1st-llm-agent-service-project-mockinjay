@@ -22,17 +22,21 @@ from app.features.chat.domain import ChatGeneration, ChatMessage, ChatStreamEven
 
 
 class ChatRepository(Protocol):
+    """Authorize Chat ownership and persist completed turns."""
+
     async def authorize_actor(self, actor: ActorContext) -> ActorContext:
-        """Return an owner-bound actor or fail closed."""
+        """Return an owner-bound actor or fail closed before any model call."""
 
     async def get_user_context(self, actor: ActorContext) -> Mapping[str, object]:
-        """Load only context belonging to the authorized actor."""
+        """Load context belonging only to the already-authorized actor."""
 
     async def save_message(self, message: ChatMessage) -> None:
-        """Persist a completed turn after revalidating ownership."""
+        """Persist a completed turn after revalidating ownership at write time."""
 
 
 class ChatGenerator(Protocol):
+    """Generate grounded responses through the configured local provider."""
+
     async def generate(
         self,
         query: str,
@@ -40,7 +44,7 @@ class ChatGenerator(Protocol):
         profile: str,
         user_context: Mapping[str, object],
     ) -> ChatGeneration:
-        """Generate one grounded local response."""
+        """Generate one response without depending on HTTP transport types."""
 
     def stream(
         self,
@@ -49,4 +53,4 @@ class ChatGenerator(Protocol):
         profile: str,
         user_context: Mapping[str, object],
     ) -> AsyncIterator[ChatStreamEvent]:
-        """Yield provider-neutral frames without transport sentinels."""
+        """Yield provider-neutral frames; the inbound adapter owns ``[DONE]``."""

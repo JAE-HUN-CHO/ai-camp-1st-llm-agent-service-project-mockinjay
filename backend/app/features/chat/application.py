@@ -19,6 +19,8 @@ from app.features.chat.ports import ChatGenerator, ChatRepository
 
 @dataclass(frozen=True, slots=True)
 class ChatCommand:
+    """Carry an actor-bound Chat request into the application layer."""
+
     actor: ActorContext
     query: str
     profile: str = "general"
@@ -27,6 +29,8 @@ class ChatCommand:
 
 @dataclass(frozen=True, slots=True)
 class PreparedChatStream:
+    """Hold a safety-blocked or owner-authorized request without HTTP state."""
+
     command: ChatCommand
     actor: ActorContext
     user_context: Mapping[str, object]
@@ -50,6 +54,8 @@ def accumulate_chat_stream_content(
 
 
 class SendChatMessage:
+    """Apply safety and ownership gates before non-streaming generation."""
+
     def __init__(
         self,
         repository: ChatRepository,
@@ -61,6 +67,13 @@ class SendChatMessage:
         self._safety_policy = safety_policy
 
     async def execute(self, command: ChatCommand) -> ChatGeneration:
+        """Execute one request and persist the completed turn when possible.
+
+        Emergency requests return the Phase-0 response without repository or
+        provider calls. Non-emergency requests authorize ownership before
+        loading context or invoking the local generator.
+        """
+
         decision = self._safety_policy.evaluate(command.query)
         if decision.blocked:
             return ChatGeneration(
@@ -101,6 +114,8 @@ class SendChatMessage:
 
 
 class StreamChatMessage:
+    """Prepare and execute a provider-neutral Chat event stream."""
+
     def __init__(
         self,
         repository: ChatRepository,
@@ -112,6 +127,12 @@ class StreamChatMessage:
         self._safety_policy = safety_policy
 
     async def prepare(self, command: ChatCommand) -> PreparedChatStream:
+        """Apply safety before authorization and owner-scoped context loading.
+
+        A blocked emergency request returns ``emergency=True`` without calling
+        the repository. Only non-emergency requests are owner-authorized.
+        """
+
         decision = self._safety_policy.evaluate(command.query)
         if decision.blocked:
             return PreparedChatStream(
@@ -130,6 +151,13 @@ class StreamChatMessage:
         *,
         is_cancelled: Callable[[], Awaitable[bool]] | None = None,
     ) -> AsyncIterator[ChatStreamEvent]:
+        """Yield terminal-aware events and persist only successful content.
+
+        ``error`` and ``cancelled`` are terminal failures. A provider EOF with
+        accumulated content is normalized to ``complete``; an empty EOF is an
+        ``error``. The HTTP adapter, not this use case, appends ``[DONE]``.
+        """
+
         if prepared.emergency:
             yield ChatStreamEvent(
                 status="complete",

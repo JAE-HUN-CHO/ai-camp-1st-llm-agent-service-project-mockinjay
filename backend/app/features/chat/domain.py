@@ -20,6 +20,8 @@ ChatSafetyPolicy: TypeAlias = EmergencySafetyPolicy
 
 @dataclass(frozen=True, slots=True)
 class ChatRoom:
+    """Identify an owner-bound room and its optional backing session."""
+
     room_id: str
     owner_id: str
     session_id: str | None = None
@@ -27,6 +29,8 @@ class ChatRoom:
 
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
+    """Represent one authorized, completed turn ready for persistence."""
+
     actor: ActorContext
     query: str
     answer: str
@@ -37,6 +41,8 @@ class ChatMessage:
 
 @dataclass(frozen=True, slots=True)
 class ChatGeneration:
+    """Return a provider-neutral result for a non-streaming Chat request."""
+
     answer: str
     sources: tuple[Mapping[str, object], ...] = ()
     metadata: Mapping[str, object] = field(default_factory=dict)
@@ -46,6 +52,8 @@ class ChatGeneration:
 
 @dataclass(frozen=True, slots=True)
 class ChatStreamEvent:
+    """Carry one provider-neutral frame without transport sentinels."""
+
     status: str
     content: str = ""
     agent_type: str | None = None
@@ -53,6 +61,8 @@ class ChatStreamEvent:
     attributes: Mapping[str, object] = field(default_factory=dict)
 
     def as_payload(self) -> dict[str, object]:
+        """Build the frozen v1 SSE payload while omitting empty fields."""
+
         payload: dict[str, object] = dict(self.attributes)
         payload["status"] = self.status
         if self.content:
@@ -69,24 +79,24 @@ class ChatError(Exception):
 
 
 class ChatAccessDenied(ChatError):
-    pass
+    """Reject a request that is not bound to the owning actor."""
 
 
 class ChatRoomNotFound(ChatError):
-    pass
+    """Report a missing room without disclosing another owner's room."""
 
 
 class ChatSessionNotFound(ChatError):
-    pass
+    """Report a missing session after owner-scoped authorization."""
 
 
 class ChatProviderUnavailable(ChatError):
-    pass
+    """Report an unavailable local Chat provider."""
 
 
 class ChatProviderTimeout(ChatProviderUnavailable):
-    pass
+    """Report that the local Chat provider exceeded its time limit."""
 
 
 class ChatPersistenceError(ChatError):
-    pass
+    """Report that an authorized completed turn could not be persisted."""
