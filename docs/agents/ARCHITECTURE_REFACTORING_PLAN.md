@@ -1,6 +1,7 @@
 # CareGuide 아키텍처 리팩토링 실행 계획
 
 **작성일:** 2026-08-15
+**최종 갱신일:** 2026-08-16
 **상태:** Phase 0~2 verified; Phase 3 이후 별도 승인 필요
 **전제:** 현재 API·MongoDB·Ollama·Parlant 계약을 보존하는 점진적 strangler refactor
 
