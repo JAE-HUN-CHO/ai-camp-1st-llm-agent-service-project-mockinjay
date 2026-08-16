@@ -393,7 +393,8 @@ export async function routeQueryStream(
       ['NON_MEDICAL', 'ILLEGAL_REQUEST', 'MEDICAL_INFO', 'DIET_INFO', 'RESEARCH',
        'WELFARE_INFO', 'HEALTH_RECORD', 'LEARNING', 'POLICY', 'CHIT_CHAT'].includes(i)
     );
-  } catch (_error) {
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') throw error;
     // 폴백: 응급 키워드만 체크하여 기본 응답
     const fallbackContent = `죄송합니다. 백엔드 서버와 통신 중 오류가 발생했습니다.
 
