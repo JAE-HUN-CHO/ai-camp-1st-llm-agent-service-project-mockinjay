@@ -32,6 +32,7 @@ class _FakeRepository:
                 hospital="Synthetic Clinic",
                 creatinine=1.2,
                 gfr=62.0,
+                memo="initial",
             )
         }
         self.calls: list[tuple[str, str]] = []
@@ -56,6 +57,7 @@ class _FakeRepository:
     async def create(self, owner_id: str, draft: HealthRecordDraft) -> HealthRecord:
         self.calls.append(("create", owner_id))
         record = HealthRecord(record_id="record-2", owner_id=owner_id, **draft.as_fields())
+        self.write_attempts.append((owner_id, record.owner_id))
         self.writes.append((owner_id, record.owner_id))
         self.records[record.record_id] = record
         return record
@@ -146,6 +148,6 @@ async def test_cross_user_update_and_retry_delete_fail_closed() -> None:
     with pytest.raises(HealthRecordNotFound):
         await DeleteHealthRecord(repository).execute(other_actor, "record-1")
 
-    assert repository.records["record-1"].memo is None
-    assert repository.unauthorized_write_attempts == 1
+    assert repository.records["record-1"].memo == "initial"
+    assert repository.unauthorized_write_attempts == 2
     assert repository.unauthorized_writes == 0

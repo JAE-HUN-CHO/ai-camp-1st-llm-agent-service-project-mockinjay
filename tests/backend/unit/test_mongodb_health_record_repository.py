@@ -20,12 +20,12 @@ class _Cursor:
         self.documents = documents
         self.sort_call: tuple[str, int] | None = None
 
-    def sort(self, field: str, direction: int) -> "_Cursor":
+    def sort(self, field: str, direction: int) -> _Cursor:
         self.sort_call = (field, direction)
         self.documents.sort(key=lambda item: str(item[field]), reverse=direction == -1)
         return self
 
-    def __aiter__(self) -> "_Cursor":
+    def __aiter__(self) -> _Cursor:
         self.index = 0
         return self
 

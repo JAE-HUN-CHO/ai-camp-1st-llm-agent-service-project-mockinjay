@@ -329,7 +329,7 @@ def run(args: argparse.Namespace) -> int:
     append_command(
         artifact_dir,
         argv=server_argv,
-        exit_code=shutdown.exit_code,
+        exit_code=0 if result == "pass" else 1,
         started_at=server_started_at,
         finished_at=utc_now(),
         artifacts=[

@@ -31,12 +31,12 @@ class _Cursor:
     def __init__(self, documents: list[dict[str, object]]) -> None:
         self._documents = documents
 
-    def sort(self, field: str, direction: int) -> "_Cursor":
+    def sort(self, field: str, direction: int) -> _Cursor:
         reverse = direction == -1
         self._documents.sort(key=lambda document: str(document[field]), reverse=reverse)
         return self
 
-    def __aiter__(self) -> "_Cursor":
+    def __aiter__(self) -> _Cursor:
         self._index = 0
         return self
 
@@ -138,8 +138,8 @@ def _client(
     return TestClient(app)
 
 
-def _assert_record_response(response) -> None:
-    assert response.status_code == 200
+def _assert_record_response(response, route_key: str) -> None:
+    assert response.status_code == FIXTURE["routes"][route_key]["status"]
     assert response.headers["content-type"].startswith(FIXTURE["content_type"])
     assert sorted(response.json()) == FIXTURE["record_keys"]
 
@@ -149,13 +149,13 @@ def test_frozen_health_records_v1_crud_contract(monkeypatch, implementation: str
     collection = _Collection()
     client = _client(monkeypatch, collection, implementation=implementation)
 
-    listed = client.get("/api/health-records/")
+    listed = client.get(FIXTURE["route_prefix"] + FIXTURE["routes"]["list"]["path"])
     assert listed.status_code == FIXTURE["routes"]["list"]["status"]
     assert len(listed.json()) == 1
     assert sorted(listed.json()[0]) == FIXTURE["record_keys"]
 
     created = client.post(
-        "/api/health-records/",
+        FIXTURE["route_prefix"] + FIXTURE["routes"]["create"]["path"],
         json={
             "date": "2026-08-17",
             "hospital": "Synthetic Clinic",
@@ -163,17 +163,18 @@ def test_frozen_health_records_v1_crud_contract(monkeypatch, implementation: str
             "gfr": 64.0,
         },
     )
-    _assert_record_response(created)
+    _assert_record_response(created, "create")
 
     updated = client.put(
-        f"/api/health-records/{RECORD_ID}", json={"memo": None, "gfr": 63.0}
+        FIXTURE["route_prefix"] + FIXTURE["routes"]["update"]["path"].replace("{record_id}", RECORD_ID),
+        json={"memo": None, "gfr": 63.0}
     )
-    _assert_record_response(updated)
+    _assert_record_response(updated, "update")
     assert updated.json()["memo"] is None
     assert updated.json()["gfr"] == 63.0
     assert updated.json()["date"] == "2026-08-16"
 
-    deleted = client.delete(f"/api/health-records/{RECORD_ID}")
+    deleted = client.delete(FIXTURE["route_prefix"] + FIXTURE["routes"]["delete"]["path"].replace("{record_id}", RECORD_ID))
     assert deleted.status_code == FIXTURE["routes"]["delete"]["status"]
     assert deleted.json() == FIXTURE["delete_payload"]
 
