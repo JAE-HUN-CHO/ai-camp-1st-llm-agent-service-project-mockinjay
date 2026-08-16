@@ -602,8 +602,20 @@ async def get_all_history(
 
 @router.post("/message")
 async def chat_message(request: Request):
-    """
-    Main Chat Endpoint - Uses RouterAgent with streaming support
+    """Handle the frozen v1 ``POST /api/chat/message`` contract.
+
+    A prepared non-streaming path returns the established JSON payload. The
+    legacy RouterAgent compatibility path may return ``text/event-stream``.
+    Validation, authentication, ownership, and provider failures that occur
+    before streaming starts remain JSON HTTP errors. Once an SSE response has
+    started, ``error`` or ``cancelled`` is the terminal business outcome and
+    ``[DONE]`` only marks transport termination.
+
+    Raises:
+        HTTPException: For invalid input (400), authentication (401), ownership
+            (403), missing owner-scoped resources (404), local provider
+            unavailability or timeout (503/504), or an unexpected failure
+            before response headers (500).
     """
     container = None
     try:
@@ -880,8 +892,19 @@ async def chat_message(request: Request):
 
 @router.post("/stream")
 async def chat_stream(request: Request):
-    """
-    Streaming Chat Endpoint - Uses RouterAgent to handle complex intents with streaming
+    """Handle the frozen v1 ``POST /api/chat/stream`` SSE contract.
+
+    Successful preparation returns ``text/event-stream`` and preserves the
+    observed progress and terminal status vocabulary. ``complete`` or
+    ``success`` is a successful terminal frame; ``error`` or ``cancelled`` is
+    a failed terminal frame. ``[DONE]`` follows stream cleanup but never turns
+    a preceding failure, or a stream without a success terminal, into success.
+
+    Raises:
+        HTTPException: For invalid input (400), authentication (401), ownership
+            (403), missing owner-scoped resources (404), local provider
+            unavailability or timeout (503/504), or an unexpected failure
+            before response headers (500).
     """
     container = None
     try:
