@@ -7,6 +7,17 @@ import type { IntentCategory } from '../types';
 import { INTENT_CLASSIFICATIONS } from '../types';
 import { env } from '../config/env';
 import { getAccessToken } from '../shared/auth/token';
+import {
+  applyChatStreamFrame,
+  applyChatTransportDone,
+  assertChatStreamSucceeded,
+  createChatStreamState,
+  type ChatStreamFrame,
+} from './chatStreamContract';
+
+function createClientMessageId(): string {
+  return globalThis.crypto.randomUUID();
+}
 
 export type AgentType = 'medical_welfare' | 'nutrition' | 'research_paper' | 'router';
 
@@ -28,13 +39,13 @@ export interface RouterResponse {
 /**
  * 백엔드 스트리밍 응답 형식
  */
-export interface BackendStreamChunk {
+export interface BackendStreamChunk extends ChatStreamFrame {
   /** 응답 내용 */
   content?: string;
   answer?: string;
   response?: string;
   /** 스트리밍 상태 */
-  status?: 'streaming' | 'processing' | 'complete' | 'new_message';
+  status?: ChatStreamFrame['status'];
   /** 에이전트 타입 */
   agent_type?: string;
   /** 메타데이터 (의도 정보 포함) */
@@ -114,6 +125,7 @@ async function callBackendAgent(
       query: query,
       agent_type: agent === 'router' ? 'auto' : agent,
       session_id: 'default',
+      client_message_id: createClientMessageId(),
     }),
   });
 
@@ -135,6 +147,7 @@ export interface StreamCallOptions {
   userId?: string;
   roomId?: string;
   userProfile?: 'general' | 'patient' | 'researcher';
+  clientMessageId?: string;
 }
 
 /**
@@ -169,6 +182,7 @@ export async function callBackendAgentStream(
   let userId: string | undefined;
   let roomId: string | undefined;
   let userProfile: 'general' | 'patient' | 'researcher' = 'general';
+  let clientMessageId = createClientMessageId();
 
   if (typeof options === 'string') {
     userProfile = options;
@@ -177,6 +191,7 @@ export async function callBackendAgentStream(
     userId = options.userId;
     roomId = options.roomId;
     userProfile = options.userProfile || 'general';
+    clientMessageId = options.clientMessageId || clientMessageId;
   }
 
   const authToken = getAccessToken();
@@ -200,6 +215,7 @@ export async function callBackendAgentStream(
         user_id: userId,
         room_id: roomId,
         user_profile: userProfile,
+        client_message_id: clientMessageId,
       }),
       signal,
     });
@@ -214,12 +230,11 @@ export async function callBackendAgentStream(
     }
 
     const decoder = new TextDecoder();
-    let accumulatedContent = '';
+    let streamState = createChatStreamState();
     let detectedAgents: AgentType[] = [];
     let detectedIntents: IntentCategory[] = [];
     let isEmergency = false;
     let sseBuffer = '';
-    let terminalReceived = false;
 
     const processEvent = (frame: string): boolean => {
       const dataLines = frame
@@ -230,7 +245,8 @@ export async function callBackendAgentStream(
 
       const data = dataLines.join('\n');
       if (data === '[DONE]') {
-        terminalReceived = true;
+        streamState = applyChatTransportDone(streamState);
+        assertChatStreamSucceeded(streamState);
         return true;
       }
 
@@ -240,7 +256,13 @@ export async function callBackendAgentStream(
       } catch (error) {
         throw new Error('Invalid SSE JSON frame', { cause: error });
       }
-      if (parsed.error) throw new Error(parsed.error);
+      streamState = applyChatStreamFrame(streamState, parsed);
+      if (streamState.terminal === 'error') {
+        throw new Error(streamState.error || 'Chat stream failed');
+      }
+      if (streamState.terminal === 'cancelled') {
+        throw new Error(streamState.error || 'Chat stream cancelled');
+      }
 
       isEmergency = isEmergency || parsed.is_emergency === true;
       if (parsed.metadata?.routed_to && parsed.metadata.routed_to.length > 0) {
@@ -267,17 +289,8 @@ export async function callBackendAgentStream(
       }
 
       const content = parsed.content || parsed.answer || parsed.response || '';
-      if (content) {
-        if (parsed.status === 'streaming') {
-          accumulatedContent += content;
-        } else if (parsed.status === 'new_message') {
-          accumulatedContent = accumulatedContent
-            ? `${accumulatedContent}\n\n${content}`
-            : content;
-        } else {
-          accumulatedContent = content;
-        }
-        onChunk(accumulatedContent, false, parsed);
+      if (content && parsed.status !== 'processing' && parsed.status !== 'synthesizing') {
+        onChunk(streamState.content, false, parsed);
       }
       return false;
     };
@@ -288,13 +301,11 @@ export async function callBackendAgentStream(
       if (done) {
         sseBuffer += decoder.decode();
         if (sseBuffer.trim() && processEvent(sseBuffer.replace(/\r\n/g, '\n'))) {
-          onChunk(accumulatedContent, true);
+          onChunk(streamState.content, true);
           return { agents: detectedAgents, intents: detectedIntents, isEmergency };
         }
-        if (!terminalReceived) {
-          throw new Error('Chat stream ended before [DONE]');
-        }
-        onChunk(accumulatedContent, true);
+        assertChatStreamSucceeded(streamState);
+        onChunk(streamState.content, true);
         break;
       }
 
@@ -305,7 +316,7 @@ export async function callBackendAgentStream(
         const frame = sseBuffer.slice(0, boundary);
         sseBuffer = sseBuffer.slice(boundary + 2);
         if (processEvent(frame)) {
-          onChunk(accumulatedContent, true);
+          onChunk(streamState.content, true);
           return { agents: detectedAgents, intents: detectedIntents, isEmergency };
         }
         boundary = sseBuffer.indexOf('\n\n');
@@ -369,54 +380,30 @@ export async function routeQueryStream(
   let backendIntents: IntentCategory[] = [];
   let isEmergency = false;
 
-  try {
-    // 백엔드 스트리밍 호출 (의도 정보 추출)
-    const result = await callBackendAgentStream(
-      query,
-      'router', // 항상 router로 시작 (자동 분류)
-      (content, isComplete) => {
-        finalContent = content;
-        onChunk(content, isComplete);
-      },
-      onError,
-      options,
-      signal
-    );
-    const { agents, intents } = result;
-    isEmergency = result.isEmergency;
+  // A terminal error, cancellation, EOF, or transport-only [DONE] remains a
+  // failure. ChatPage owns the explicit RESPONSE_GENERATION_FAILED bubble.
+  const result = await callBackendAgentStream(
+    query,
+    'router', // 항상 router로 시작 (자동 분류)
+    (content, isComplete) => {
+      finalContent = content;
+      onChunk(content, isComplete);
+    },
+    onError,
+    options,
+    signal
+  );
+  const { agents, intents } = result;
+  isEmergency = result.isEmergency;
 
-    // 타입 안전성을 위해 필터링
-    backendAgents = agents.filter((a): a is AgentType =>
-      ['medical_welfare', 'nutrition', 'research_paper', 'router'].includes(a)
-    );
-    backendIntents = intents.filter((i): i is IntentCategory =>
-      ['NON_MEDICAL', 'ILLEGAL_REQUEST', 'MEDICAL_INFO', 'DIET_INFO', 'RESEARCH',
-       'WELFARE_INFO', 'HEALTH_RECORD', 'LEARNING', 'POLICY', 'CHIT_CHAT'].includes(i)
-    );
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') throw error;
-    // 폴백: 응급 키워드만 체크하여 기본 응답
-    const fallbackContent = `죄송합니다. 백엔드 서버와 통신 중 오류가 발생했습니다.
-
-**가능한 원인:**
-- 백엔드 서버가 실행 중이 아닐 수 있습니다
-- 네트워크 연결 문제일 수 있습니다
-
-백엔드 서버를 확인해주세요: http://localhost:8000
-
-응급 상황이라면 즉시 119에 연락하거나 가까운 병원을 방문하세요.`;
-
-    onChunk(fallbackContent, true);
-
-    return {
-      content: fallbackContent,
-      intents: ['CHIT_CHAT'],
-      agents: [],
-      confidence: 0.0,
-      isDirectResponse: true,
-      isEmergency: false,
-    };
-  }
+  // 타입 안전성을 위해 필터링
+  backendAgents = agents.filter((a): a is AgentType =>
+    ['medical_welfare', 'nutrition', 'research_paper', 'router'].includes(a)
+  );
+  backendIntents = intents.filter((i): i is IntentCategory =>
+    ['NON_MEDICAL', 'ILLEGAL_REQUEST', 'MEDICAL_INFO', 'DIET_INFO', 'RESEARCH',
+     'WELFARE_INFO', 'HEALTH_RECORD', 'LEARNING', 'POLICY', 'CHIT_CHAT'].includes(i)
+  );
 
   // 3. Medical Disclaimer 추가 (필요 시)
   const finalIntents: IntentCategory[] = backendIntents.length > 0 ? backendIntents : ['CHIT_CHAT'];

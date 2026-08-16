@@ -8,6 +8,13 @@ import { useIdleTimer } from '../hooks/useIdleTimer';
 import { env } from '../config/env';
 import { getAccessToken } from '../shared/auth/token';
 import { getCSRFToken } from '../utils/security';
+import {
+  applyChatStreamFrame,
+  applyChatTransportDone,
+  assertChatStreamSucceeded,
+  createChatStreamState,
+  type ChatStreamFrame,
+} from '../services/chatStreamContract';
 
 interface Message {
   id: string;
@@ -152,8 +159,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
     // Create new AbortController for this request
     abortControllerRef.current = new AbortController();
 
+    const clientMessageId = globalThis.crypto.randomUUID();
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: clientMessageId,
       role: 'user',
       content: input,
       timestamp: new Date(),
@@ -179,6 +187,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
         session_id: sessionId,
         agent_type: 'auto',
         user_profile: selectedProfile,
+        client_message_id: clientMessageId,
       };
 
       const response = await fetch(`${env.apiBaseUrl}/api/chat/stream`, {
@@ -212,6 +221,37 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
       let done = false;
       let buffer = '';
       let firstMessageReceived = false;
+      let streamState = createChatStreamState();
+
+      const updateAssistantContent = (content: string) => {
+        firstMessageReceived = true;
+        const capturedId = currentBotMessageId;
+        setMessages((prev) => prev.map(msg =>
+          msg.id === capturedId ? { ...msg, content } : msg
+        ));
+      };
+
+      const processSseData = (dataStr: string) => {
+        if (dataStr === '[DONE]') {
+          streamState = applyChatTransportDone(streamState);
+          assertChatStreamSucceeded(streamState);
+          done = true;
+          return;
+        }
+
+        const data = JSON.parse(dataStr) as ChatStreamFrame;
+        const previousContent = streamState.content;
+        streamState = applyChatStreamFrame(streamState, data);
+        if (streamState.terminal === 'error') {
+          throw new Error(streamState.error || t.common.error);
+        }
+        if (streamState.terminal === 'cancelled') {
+          throw new Error(streamState.error || 'Chat stream cancelled');
+        }
+        if (streamState.content !== previousContent) {
+          updateAssistantContent(streamState.content);
+        }
+      };
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
@@ -230,91 +270,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
               const trimmedLine = line.trim();
               if (trimmedLine.startsWith('data: ')) {
                 const dataStr = trimmedLine.slice(6);
-
-                if (dataStr === '[DONE]') {
-                  done = true;
-                  break;
-                }
-
-                try {
-                  const data = JSON.parse(dataStr);
-                  if (data.status === 'error' || data.error) {
-                    throw new Error(data.error || t.common.error);
-                  }
-                  let newContent = '';
-
-                  // Check all possible content fields
-                  if (data.content) {
-                    newContent = data.content;
-                  } else if (data.answer) {
-                    newContent = data.answer;
-                  } else if (data.response) {
-                    newContent = data.response;
-                  }
-
-                  // Get status from backend (streaming, new_message, complete, etc.)
-                  const messageStatus = data.status;
-                  if (newContent && messageStatus !== 'processing') {
-                    if (messageStatus === 'complete') {
-                      // Router fallbacks emit a complete snapshot after partial
-                      // events; replace the bubble to avoid duplicated text.
-                      firstMessageReceived = true;
-                      const capturedContent = newContent;
-                      const capturedId = currentBotMessageId;
-                      setMessages((prev) => prev.map(msg =>
-                        msg.id === capturedId ? { ...msg, content: capturedContent } : msg
-                      ));
-                    } else if (!firstMessageReceived) {
-                      // First message: update the placeholder
-                      // 첫 번째 메시지: 플레이스홀더 업데이트
-                      firstMessageReceived = true;
-                      const capturedContent = newContent;
-                      const capturedId = currentBotMessageId;
-                      setMessages((prev) => {
-                        return prev.map(msg =>
-                          msg.id === capturedId
-                            ? { ...msg, content: capturedContent }
-                            : msg
-                        );
-                      });
-                    } else if (messageStatus === 'new_message') {
-                      // new_message status: append with line break to current bubble
-                      // new_message 상태: 현재 버블에 줄바꿈 추가 후 붙이기
-                      const capturedContent = newContent;
-                      const capturedId = currentBotMessageId;
-                      setMessages((prev) =>
-                        prev.map(msg =>
-                          msg.id === capturedId
-                            ? { ...msg, content: msg.content + '\n\n---\n\n' + capturedContent }
-                            : msg
-                        )
-                      );
-                    } else {
-                      // Streaming fragments belong to the same assistant bubble.
-                      const capturedContent = newContent;
-                      const capturedId = currentBotMessageId;
-                      setMessages((prev) =>
-                        prev.map(msg =>
-                          msg.id === capturedId
-                            ? { ...msg, content: msg.content + capturedContent }
-                            : msg
-                        )
-                      );
-                    }
-                  }
-                } catch (e) {
-                  console.error('SSE frame parsing failed');
-                  const errorMessage = e instanceof Error ? e.message : t.common.error;
-                  firstMessageReceived = true;
-                  const capturedId = currentBotMessageId;
-                  setMessages((prev) =>
-                    prev.map(msg =>
-                      msg.id === capturedId
-                        ? { ...msg, content: errorMessage }
-                        : msg
-                    )
-                  );
-                }
+                processSseData(dataStr);
               }
             }
             if (done) break;
@@ -329,29 +285,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
           const trimmedLine = line.trim();
           if (trimmedLine.startsWith('data: ')) {
             const dataStr = trimmedLine.slice(6);
-            if (dataStr !== '[DONE]') {
-              try {
-                const data = JSON.parse(dataStr);
-                const newContent = data.content || data.answer || data.response;
-                if (newContent && !firstMessageReceived) {
-                  const capturedContent = newContent;
-                  const capturedId = currentBotMessageId;
-                  firstMessageReceived = true;
-                  setMessages((prev) =>
-                    prev.map(msg =>
-                      msg.id === capturedId
-                        ? { ...msg, content: capturedContent }
-                        : msg
-                    )
-                  );
-                }
-              } catch {
-                console.error('SSE buffer parsing failed');
-              }
-            }
+            processSseData(dataStr);
           }
         }
       }
+
+      assertChatStreamSucceeded(streamState);
 
       // Remove empty placeholder if no messages received
       if (!firstMessageReceived) {

@@ -19,6 +19,7 @@ sys.path.insert(0, str(backend_path))
 from app.db.connection import Database, check_connection, init_legacy_collections
 from app.db.indexes import create_indexes
 from app.features.chat.runtime import StreamRegistry
+from app.bootstrap.container import build_chat_container
 from app.services.agent_runtime import AgentRuntime
 from app.core.context_system import ContextSystem
 from app.features.research.runtime import ResearchRuntime
@@ -49,6 +50,10 @@ async def lifespan(app: FastAPI):
     app.state.stream_registry = StreamRegistry()
     app.state.agent_runtime = AgentRuntime()
     app.state.context_system = ContextSystem()
+    app.state.chat_container = build_chat_container(
+        context_system=app.state.context_system,
+        agent_runtime=app.state.agent_runtime,
+    )
     app.state.research_runtime = ResearchRuntime()
     # Initialize MongoDB connection
     await Database.connect()

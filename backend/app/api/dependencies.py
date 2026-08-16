@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
@@ -8,18 +7,9 @@ from app.db.connection import get_users_collection
 from app.config import settings
 from bson import ObjectId
 from bson.errors import InvalidId
+from app.core.actor import ActorContext
 
 security = HTTPBearer()
-
-
-@dataclass(frozen=True, slots=True)
-class ActorContext:
-    """Trusted request actor and the resources already bound to that actor."""
-
-    user_id: str
-    room_id: str | None = None
-    session_id: str | None = None
-    health_record_id: str | None = None
 
 
 def get_request_user_id(request: Request) -> str:
