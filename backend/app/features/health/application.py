@@ -1,9 +1,12 @@
-"""Owner-scoped CRUD use cases for the Phase 3A Health Records slice."""
+"""Owner-scoped use cases for the approved Health vertical slices."""
 
 from __future__ import annotations
 
 from app.core.actor import ActorContext
 from app.features.health.domain import (
+    HealthProfile,
+    HealthProfileAccessDenied,
+    HealthProfilePatch,
     HealthRecord,
     HealthRecordAccessDenied,
     HealthRecordDraft,
@@ -11,7 +14,31 @@ from app.features.health.domain import (
     HealthRecordNotFound,
     HealthRecordPatch,
 )
-from app.features.health.ports import HealthRecordRepository
+from app.features.health.ports import HealthProfileRepository, HealthRecordRepository
+
+
+def _profile_owner_id(actor: ActorContext) -> str:
+    if not actor.user_id:
+        raise HealthProfileAccessDenied("authenticated actor is required")
+    return actor.user_id
+
+
+class GetHealthProfile:
+    def __init__(self, repository: HealthProfileRepository) -> None:
+        self._repository = repository
+
+    async def execute(self, actor: ActorContext) -> HealthProfile:
+        return await self._repository.get_for_owner(_profile_owner_id(actor))
+
+
+class UpdateHealthProfile:
+    def __init__(self, repository: HealthProfileRepository) -> None:
+        self._repository = repository
+
+    async def execute(
+        self, actor: ActorContext, patch: HealthProfilePatch
+    ) -> HealthProfile:
+        return await self._repository.upsert_for_owner(_profile_owner_id(actor), patch)
 
 
 def _owner_id(actor: ActorContext) -> str:

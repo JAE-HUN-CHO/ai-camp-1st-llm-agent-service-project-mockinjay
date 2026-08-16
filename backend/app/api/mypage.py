@@ -9,7 +9,18 @@ import logging
 from datetime import datetime
 
 from app.services.auth import get_current_user
+from app.bootstrap.container import (
+    HealthProfileContainer,
+    get_health_profile_container,
+)
+from app.core.actor import ActorContext
 from app.db.connection import db
+from app.features.health.domain import (
+    HealthProfile,
+    HealthProfileAccessDenied,
+    HealthProfilePatch,
+    HealthProfilePersistenceError,
+)
 from app.models.mypage import (
     UserProfileResponse,
     UserProfileUpdateRequest,
@@ -24,7 +35,6 @@ from app.models.mypage import (
 )
 from app.services.mypage import (
     ProfileService,
-    HealthService,
     PreferencesService,
     BookmarkService,
     PointsService,
@@ -36,7 +46,6 @@ router = APIRouter(prefix="/api/mypage", tags=["mypage"])
 
 # Initialize services
 profile_service = ProfileService()
-health_service = HealthService()
 preferences_service = PreferencesService()
 bookmark_service = BookmarkService()
 points_service = PointsService()
@@ -72,28 +81,99 @@ async def update_user_profile(
 # Health Profile Endpoints
 # ============================================================================
 
+
+def _health_profile_response(profile: HealthProfile) -> dict[str, object]:
+    conditions = list(profile.conditions)
+    return {
+        "userId": profile.owner_id,
+        "conditions": conditions,
+        "healthConditions": conditions,
+        "allergies": list(profile.allergies),
+        "dietaryRestrictions": list(profile.dietary_restrictions),
+        "age": profile.age,
+        "gender": profile.gender,
+        "updatedAt": profile.updated_at,
+    }
+
+
+def _health_profile_patch(update: HealthProfileUpdateRequest) -> HealthProfilePatch:
+    return HealthProfilePatch(
+        {
+            "conditions": update.conditions,
+            "allergies": update.allergies,
+            "dietary_restrictions": update.dietaryRestrictions,
+            "age": update.age,
+            "gender": update.gender,
+        }
+    )
+
+
+def _translate_health_profile_error(
+    error: Exception, operation: str
+) -> HTTPException:
+    if isinstance(error, HTTPException):
+        return error
+    if isinstance(error, HealthProfileAccessDenied):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if isinstance(error, HealthProfilePersistenceError):
+        detail = (
+            "건강 프로필 조회 중 오류가 발생했습니다"
+            if operation == "get"
+            else "건강 프로필 수정 중 오류가 발생했습니다"
+        )
+        return HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail
+        )
+    raise error
+
 @router.get("/health-profile", response_model=HealthProfileResponse)
-async def get_health_profile(current_user: dict = Depends(get_current_user)):
+async def get_health_profile(
+    current_user: dict = Depends(get_current_user),
+    container: HealthProfileContainer = Depends(get_health_profile_container),
+):
     """Get current user's health profile"""
-    user_id = str(current_user["_id"])
-    return await health_service.get_health_profile(user_id)
+    operation = "get"
+    actor = ActorContext(user_id=str(current_user["_id"]))
+    try:
+        if container.is_hex:
+            if container.get_health_profile is None:
+                raise RuntimeError("Health Profile hex container is incomplete")
+            profile = await container.get_health_profile.execute(actor)
+        else:
+            if container.legacy is None:
+                raise RuntimeError("Health Profile legacy container is incomplete")
+            profile = await container.legacy.get(actor)
+        container.telemetry.record(operation, "success")
+        return _health_profile_response(profile)
+    except Exception as error:
+        container.telemetry.record(operation, "failure")
+        raise _translate_health_profile_error(error, operation) from None
 
 
 @router.put("/health-profile", response_model=HealthProfileResponse)
 async def update_health_profile(
     health_update: HealthProfileUpdateRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    container: HealthProfileContainer = Depends(get_health_profile_container),
 ):
     """Update current user's health profile"""
-    user_id = str(current_user["_id"])
-    return await health_service.update_health_profile(
-        user_id,
-        conditions=health_update.conditions,
-        allergies=health_update.allergies,
-        dietary_restrictions=health_update.dietaryRestrictions,
-        age=health_update.age,
-        gender=health_update.gender
-    )
+    operation = "update"
+    actor = ActorContext(user_id=str(current_user["_id"]))
+    patch = _health_profile_patch(health_update)
+    try:
+        if container.is_hex:
+            if container.update_health_profile is None:
+                raise RuntimeError("Health Profile hex container is incomplete")
+            profile = await container.update_health_profile.execute(actor, patch)
+        else:
+            if container.legacy is None:
+                raise RuntimeError("Health Profile legacy container is incomplete")
+            profile = await container.legacy.update(actor, patch)
+        container.telemetry.record(operation, "success")
+        return _health_profile_response(profile)
+    except Exception as error:
+        container.telemetry.record(operation, "failure")
+        raise _translate_health_profile_error(error, operation) from None
 
 
 # ============================================================================

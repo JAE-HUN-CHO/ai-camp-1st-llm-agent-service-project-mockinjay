@@ -1,10 +1,81 @@
-"""Framework-independent Health Record values for the Phase 3A slice."""
+"""Framework-independent values for the approved Health vertical slices."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from types import MappingProxyType
 from typing import Mapping
+
+
+MUTABLE_HEALTH_PROFILE_FIELDS = (
+    "conditions",
+    "allergies",
+    "dietary_restrictions",
+    "age",
+    "gender",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HealthProfile:
+    """One owner-scoped document in the existing ``health_profiles`` collection."""
+
+    owner_id: str
+    conditions: tuple[str, ...] = ()
+    allergies: tuple[str, ...] = ()
+    dietary_restrictions: tuple[str, ...] = ()
+    age: int | None = None
+    gender: str | None = None
+    updated_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "conditions", tuple(self.conditions))
+        object.__setattr__(self, "allergies", tuple(self.allergies))
+        object.__setattr__(
+            self, "dietary_restrictions", tuple(self.dietary_restrictions)
+        )
+
+    @classmethod
+    def empty(cls, owner_id: str) -> HealthProfile:
+        return cls(owner_id=owner_id)
+
+    def as_fields(self) -> dict[str, object]:
+        return {
+            "conditions": self.conditions,
+            "allergies": self.allergies,
+            "dietary_restrictions": self.dietary_restrictions,
+            "age": self.age,
+            "gender": self.gender,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class HealthProfilePatch:
+    """Preserve v1 behavior: omitted and explicit-null values do not overwrite."""
+
+    fields: Mapping[str, object]
+
+    def __post_init__(self) -> None:
+        unknown = set(self.fields) - set(MUTABLE_HEALTH_PROFILE_FIELDS)
+        if unknown:
+            raise ValueError("health profile patch contains unsupported fields")
+        object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
+
+    def as_persisted_fields(self) -> dict[str, object]:
+        return {key: value for key, value in self.fields.items() if value is not None}
+
+
+class HealthProfileError(Exception):
+    """Base failure translated by the MyPage inbound adapter."""
+
+
+class HealthProfileAccessDenied(HealthProfileError):
+    pass
+
+
+class HealthProfilePersistenceError(HealthProfileError):
+    pass
 
 
 OPTIONAL_HEALTH_RECORD_FIELDS = (
