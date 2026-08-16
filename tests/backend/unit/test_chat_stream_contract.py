@@ -41,8 +41,6 @@ class _FakeContextManager:
 
     @property
     def db(self):
-        manager = self
-
         class _Collection:
             async def find_one(self, query):
                 if query.get("room_id") == "room-1" and query.get("user_id") == "user-1":
