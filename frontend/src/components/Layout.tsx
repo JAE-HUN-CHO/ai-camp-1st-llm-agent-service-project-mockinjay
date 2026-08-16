@@ -11,9 +11,6 @@ const Layout: React.FC = () => {
   const { isAuthenticated, logout, user } = useAuth();
   const location = useLocation();
 
-  console.log('Layout render - isAuthenticated:', isAuthenticated);
-  console.log('Layout render - user:', user);
-
   const isActive = (path: string) => location.pathname === path;
 
   const navLinkClass = (path: string) => clsx(

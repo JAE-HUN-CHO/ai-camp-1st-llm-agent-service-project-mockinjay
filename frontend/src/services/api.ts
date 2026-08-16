@@ -19,7 +19,7 @@ const api = axios.create({
 // Request interceptor - Add authorization token and CSRF protection
 api.interceptors.request.use(
   (config) => {
-    // Get token from secure storage (memory-first, then localStorage)
+    // Get the memory-only access token.
     const token = getAccessToken();
 
     if (token && config.headers) {
@@ -319,19 +319,9 @@ export async function createChatRoom(
       metadata,
     });
     return mapBackendRoomToFrontend(response.data.data as unknown as BackendRoomResponse);
-  } catch (error) {
-    console.error('Failed to create chat room:', error);
-    // Fallback to client-side generation for offline support
-    const now = new Date().toISOString();
-    return {
-      id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-      title: roomName || 'AI 대화',
-      agent_type: 'auto',
-      message_count: 0,
-      created_at: now,
-      updated_at: now,
-      user_id: userId,
-    };
+  } catch {
+    console.error('Failed to create chat room');
+    throw new Error('채팅방을 안전하게 생성하지 못했습니다.');
   }
 }
 
@@ -375,10 +365,9 @@ export async function createRoomWithSession(
       parlant_session_id: data.parlant_session_id,
       parlant_customer_id: data.parlant_customer_id,
     };
-  } catch (error) {
-    console.error('Failed to create room with session:', error);
-    // Fallback to basic room creation (session will be created lazily)
-    return createChatRoom(userId, roomName, { ...metadata, agent_type: agentType });
+  } catch {
+    console.error('Failed to create room with session');
+    throw new Error('Parlant 세션과 채팅방을 생성하지 못했습니다.');
   }
 }
 
@@ -404,8 +393,8 @@ export async function getChatRooms(
     });
     const response = await api.get<BackendRoomsListResponse>(`/api/rooms?${params.toString()}`);
     return (response.data.data.rooms || []).map(mapBackendRoomToFrontend);
-  } catch (error) {
-    console.error('Failed to fetch chat rooms:', error);
+  } catch {
+    console.error('Failed to fetch chat rooms');
     // Return empty array on error (offline fallback)
     return [];
   }
@@ -422,8 +411,8 @@ export async function getChatRoom(roomId: string): Promise<ChatRoomData | null> 
   try {
     const response = await api.get<{ message: string; data: BackendRoomResponse }>(`/api/rooms/${roomId}`);
     return mapBackendRoomToFrontend(response.data.data);
-  } catch (error) {
-    console.error('Failed to fetch chat room:', error);
+  } catch {
+    console.error('Failed to fetch chat room');
     return null;
   }
 }
@@ -460,8 +449,8 @@ export async function updateChatRoom(
       updated_at: response.data.data.updated_at,
       user_id: userId,
     };
-  } catch (error) {
-    console.error('Failed to update chat room:', error);
+  } catch {
+    console.error('Failed to update chat room');
     return null;
   }
 }
@@ -479,8 +468,8 @@ export async function deleteChatRoom(roomId: string, userId: string): Promise<bo
     const params = new URLSearchParams({ user_id: userId });
     await api.delete(`/api/rooms/${roomId}?${params.toString()}`);
     return true;
-  } catch (error) {
-    console.error('Failed to delete chat room:', error);
+  } catch {
+    console.error('Failed to delete chat room');
     return false;
   }
 }
@@ -519,8 +508,8 @@ export async function getRoomHistory(
       count: response.data.data.total,
       conversations: response.data.data.conversations,
     };
-  } catch (error) {
-    console.error('Failed to fetch room history:', error);
+  } catch {
+    console.error('Failed to fetch room history');
     return { count: 0, conversations: [] };
   }
 }
@@ -563,8 +552,8 @@ export async function getTerms(): Promise<TermsData | null> {
       return response.data.terms;
     }
     return null;
-  } catch (error) {
-    console.error('Failed to fetch terms:', error);
+  } catch {
+    console.error('Failed to fetch terms');
     return null;
   }
 }
@@ -751,8 +740,8 @@ export async function getHealthProfile(): Promise<HealthProfile | null> {
   try {
     const response = await api.get<HealthProfile>('/api/mypage/health-profile');
     return response.data;
-  } catch (error) {
-    console.error('Failed to fetch health profile:', error);
+  } catch {
+    console.error('Failed to fetch health profile');
     return null;
   }
 }
@@ -765,7 +754,7 @@ export async function updateHealthProfile(data: HealthProfileUpdateData): Promis
     const response = await api.put<HealthProfile>('/api/mypage/health-profile', data);
     return response.data;
   } catch (error) {
-    console.error('Failed to update health profile:', error);
+    console.error('Failed to update health profile');
     throw error;
   }
 }

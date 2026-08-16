@@ -25,3 +25,21 @@ def test_sensitive_fields_are_redacted_before_emission() -> None:
     assert "patient@example.com" not in record.getMessage()
     assert "secret-token" not in record.getMessage()
     assert record.getMessage().count("<redacted>") == 4
+
+
+def test_pii_canaries_and_bearer_tokens_are_redacted() -> None:
+    record = logging.LogRecord(
+        name="careguide",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="health-canary-ckd3 patient@example.com Bearer eyJhbGciOiJIUzI1NiJ9.abc.sig",
+        args=(),
+        exc_info=None,
+    )
+
+    SensitiveDataFilter().filter(record)
+    emitted = record.getMessage()
+    assert "health-canary" not in emitted
+    assert "patient@example.com" not in emitted
+    assert "eyJhbGci" not in emitted

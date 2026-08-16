@@ -1,22 +1,33 @@
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatRooms } from '../useChatRooms';
+
+vi.mock('../../services/api', () => ({
+  createRoomWithSession: vi.fn(async (_userId, agentType, _profile, title) => ({
+    id: `room-${title}`,
+    title,
+    agent_type: agentType,
+    message_count: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })),
+}));
 
 const create = async (result: ReturnType<typeof renderHook<typeof useChatRooms>>['result'], title: string) => {
   let room;
-  await act(async () => { room = await result.current.createRoom({ title }); });
+  await act(async () => { room = await result.current.createRoom({ title }, 'user-1'); });
   return room!;
 };
 
 describe('useChatRooms', () => {
   beforeEach(() => localStorage.clear());
 
-  it('creates and persists a room while selecting it as current', async () => {
+  it('creates an authenticated in-memory room while selecting it as current', async () => {
     const { result } = renderHook(() => useChatRooms());
     const room = await create(result, 'Test Room');
     expect(result.current.rooms).toHaveLength(1);
     expect(result.current.currentRoomId).toBe(room.id);
-    expect(JSON.parse(localStorage.getItem('careguide_chat_rooms')!)[0].title).toBe('Test Room');
+    expect(localStorage.getItem('careguide_chat_rooms')).toBeNull();
   });
 
   it('updates, pins, archives, and removes a room', async () => {
@@ -44,11 +55,10 @@ describe('useChatRooms', () => {
     expect(result.current.filterRooms({ searchQuery: 'message' })).toHaveLength(1);
   });
 
-  it('loads serialized rooms and supports clearing all state', () => {
-    const now = new Date().toISOString();
-    localStorage.setItem('careguide_chat_rooms', JSON.stringify([{ id: 'saved', title: 'Saved', agentType: 'auto', messageCount: 0, createdAt: now, updatedAt: now }]));
+  it('does not restore serialized rooms and supports clearing all state', () => {
+    localStorage.setItem('careguide_chat_rooms', '[{"title":"health-canary"}]');
     const { result } = renderHook(() => useChatRooms());
-    expect(result.current.rooms[0].title).toBe('Saved');
+    expect(result.current.rooms).toEqual([]);
     act(() => result.current.clearAllRooms());
     expect(result.current.rooms).toEqual([]);
     expect(result.current.currentRoomId).toBeNull();

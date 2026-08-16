@@ -46,12 +46,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setLastActivityTime(now);
     setSessionStartTime(now);
 
-    // localStorage에 세션 정보 저장
-    localStorage.setItem('careGuideSessionId', newSessionId);
-    localStorage.setItem('careGuideSessionStart', now.toString());
-    localStorage.setItem('careGuideLastActivity', now.toString());
-
-    console.log('Session started:', newSessionId);
   }, []);
 
   /**
@@ -64,12 +58,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setLastActivityTime(null);
     setSessionStartTime(null);
 
-    // localStorage에서 세션 정보 제거
-    localStorage.removeItem('careGuideSessionId');
-    localStorage.removeItem('careGuideSessionStart');
-    localStorage.removeItem('careGuideLastActivity');
-
-    console.log('Session ended');
   }, []);
 
   /**
@@ -80,36 +68,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (isSessionActive) {
       const now = Date.now();
       setLastActivityTime(now);
-      localStorage.setItem('careGuideLastActivity', now.toString());
     }
   }, [isSessionActive]);
-
-  /**
-   * 컴포넌트 마운트 시 기존 세션 복구
-   * Restores existing session on component mount
-   */
-  useEffect(() => {
-    const savedSessionId = localStorage.getItem('careGuideSessionId');
-    const savedSessionStart = localStorage.getItem('careGuideSessionStart');
-    const savedLastActivity = localStorage.getItem('careGuideLastActivity');
-
-    if (savedSessionId && savedSessionStart && savedLastActivity) {
-      const sessionAge = Date.now() - parseInt(savedLastActivity);
-
-      // 30분 이내의 세션만 복구
-      if (sessionAge < SESSION_TIMEOUT_MS) {
-        setSessionId(savedSessionId);
-        setIsSessionActive(true);
-        setSessionStartTime(parseInt(savedSessionStart));
-        setLastActivityTime(parseInt(savedLastActivity));
-        console.log('Session restored:', savedSessionId);
-      } else {
-        // 만료된 세션 정리
-        endSession();
-        console.log('Expired session cleared');
-      }
-    }
-  }, [endSession]);
 
   /**
    * 인증 상태 변경 감지
@@ -136,7 +96,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const inactiveTime = Date.now() - lastActivityTime;
 
       if (inactiveTime > SESSION_TIMEOUT_MS) {
-        console.log('Session timeout - logging out');
         endSession();
         logout();
       }

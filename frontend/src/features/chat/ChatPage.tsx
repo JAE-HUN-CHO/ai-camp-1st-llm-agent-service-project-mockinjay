@@ -33,8 +33,8 @@ import { routeQueryStream, type AgentType, type StreamCallOptions } from '../../
 import { getChatHistoryBySession, getUserProfile } from '../../services/api';
 import { createSession, analyzeNutrition } from '../../services/dietCareApi';
 import {
+  getPublishedUserProfile,
   isUserProfile,
-  USER_PROFILE_STORAGE_KEY,
   type UserProfile,
 } from '../../utils/profileSync';
 
@@ -119,26 +119,20 @@ const ChatPageEnhanced: React.FC = () => {
       const profile = await getUserProfile();
       if (profileRevision.current !== requestRevision) return;
       if (profile?.profile) {
-        localStorage.setItem(USER_PROFILE_STORAGE_KEY, profile.profile);
         applyProfile(profile.profile);
       } else {
-        applyProfile(localStorage.getItem(USER_PROFILE_STORAGE_KEY));
+        applyProfile(getPublishedUserProfile());
       }
     };
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === USER_PROFILE_STORAGE_KEY) applyProfile(event.newValue);
-    };
     const handleProfileChanged = (event: Event) => {
       applyProfile((event as CustomEvent<string>).detail);
     };
 
     void loadProfile();
-    window.addEventListener('storage', handleStorage);
     window.addEventListener('careguide:profile-changed', handleProfileChanged);
     return () => {
       cancelled = true;
-      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('careguide:profile-changed', handleProfileChanged);
     };
   }, [user?.id]);
@@ -369,8 +363,8 @@ const ChatPageEnhanced: React.FC = () => {
       }
 
       setIsSessionExpired(false);
-    } catch (error) {
-      console.error('Failed to restore history:', error);
+    } catch (_error) {
+      setMessagesByRoom((prev) => ({ ...prev, [currentRoomId]: [] }));
     } finally {
       setIsRestoringHistory(false);
     }
@@ -523,11 +517,7 @@ const ChatPageEnhanced: React.FC = () => {
             setStreamingContent(content);
           },
           // onError callback
-          (error) => {
-            if (error.name !== 'AbortError') {
-              console.error('Stream error:', error);
-            }
-          },
+          (_error) => undefined,
           // Options with sessionId = roomId for proper room separation
           streamOptions
         );
@@ -556,11 +546,9 @@ const ChatPageEnhanced: React.FC = () => {
     } catch (error) {
       // Don't show error for user-cancelled requests
       if ((error as Error).name === 'AbortError') {
-        console.log('Request was cancelled');
         return;
       }
 
-      console.error('Error sending message:', error);
       const errorMessage: ChatMessage = {
         id: assistantMessageId,
         role: 'assistant',

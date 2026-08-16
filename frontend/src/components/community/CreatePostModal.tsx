@@ -5,7 +5,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Image, Loader2 } from 'lucide-react';
 import { createPost, uploadImage } from '../../services/communityApi';
-import { storage, getAnonymousId } from '../../utils/storage';
+import { getAnonymousId } from '../../utils/storage';
+import { useAuth } from '../../contexts/AuthContext';
 import type { PostType } from '../../types/community';
 
 interface CreatePostModalProps {
@@ -19,6 +20,7 @@ interface CreatePostModalProps {
 const MAX_IMAGES = 5;
 
 const CreatePostModal: React.FC<CreatePostModalProps> = ({ isOpen, onClose, onSuccess, language }) => {
+  const { isAuthenticated } = useAuth();
   // Form state
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -32,7 +34,7 @@ const CreatePostModal: React.FC<CreatePostModalProps> = ({ isOpen, onClose, onSu
   const [error, setError] = useState<string | null>(null);
 
   // Check if user is logged in
-  const isLoggedIn = !!storage.get('careguide_token');
+  const isLoggedIn = isAuthenticated;
 
   // Translations
   const t = {

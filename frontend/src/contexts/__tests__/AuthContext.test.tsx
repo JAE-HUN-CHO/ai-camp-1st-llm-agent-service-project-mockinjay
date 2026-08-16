@@ -33,27 +33,19 @@ describe('AuthContext', () => {
     expect(result.current.isAuthenticated).toBe(false);
   });
 
-  it('loads user and token from localStorage on mount', () => {
-    const mockUser = {
-      id: '1',
-      username: 'testuser',
-      email: 'test@example.com',
-    };
-    const mockToken = 'test-token-123';
-
-    localStorage.setItem('careguide_user', JSON.stringify(mockUser));
-    localStorage.setItem('careguide_token', mockToken);
-
+  it('deletes legacy credentials instead of restoring them', () => {
+    localStorage.setItem('careguide_user', '{"email":"pii-canary@example.com"}');
+    localStorage.setItem('careguide_token', 'token-canary');
     const { result } = renderHook(() => useAuth(), {
       wrapper: AuthProvider,
     });
-
-    expect(result.current.user).toEqual(mockUser);
-    expect(result.current.token).toBe(mockToken);
-    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.user).toBeNull();
+    expect(result.current.token).toBeNull();
+    expect(localStorage.getItem('careguide_user')).toBeNull();
+    expect(localStorage.getItem('careguide_token')).toBeNull();
   });
 
-  it('logs in successfully and stores credentials', async () => {
+  it('logs in successfully and keeps credentials out of localStorage', async () => {
     const mockResponse = {
       data: {
         access_token: 'new-token-123',
@@ -78,10 +70,8 @@ describe('AuthContext', () => {
     expect(result.current.token).toBe('new-token-123');
     expect(result.current.user).toEqual(mockResponse.data.user);
     expect(result.current.isAuthenticated).toBe(true);
-    expect(localStorage.getItem('careguide_token')).toBe('new-token-123');
-    expect(localStorage.getItem('careguide_user')).toBe(
-      JSON.stringify(mockResponse.data.user)
-    );
+    expect(localStorage.getItem('careguide_token')).toBeNull();
+    expect(localStorage.getItem('careguide_user')).toBeNull();
   });
 
   it('handles login failure', async () => {
@@ -134,31 +124,6 @@ describe('AuthContext', () => {
     expect(result.current.isAuthenticated).toBe(false);
     expect(localStorage.getItem('careguide_token')).toBeNull();
     expect(localStorage.getItem('careguide_user')).toBeNull();
-  });
-
-  it('updates user profile', () => {
-    const mockUser = {
-      id: '1',
-      username: 'testuser',
-      email: 'test@example.com',
-      profile: 'general' as const,
-    };
-    const mockToken = 'test-token-123';
-
-    localStorage.setItem('careguide_user', JSON.stringify(mockUser));
-    localStorage.setItem('careguide_token', mockToken);
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: AuthProvider,
-    });
-
-    act(() => {
-      result.current.updateProfile('patient');
-    });
-
-    expect(result.current.user?.profile).toBe('patient');
-    const storedUser = JSON.parse(localStorage.getItem('careguide_user') || '{}');
-    expect(storedUser.profile).toBe('patient');
   });
 
   it('throws error when useAuth is used outside AuthProvider', () => {

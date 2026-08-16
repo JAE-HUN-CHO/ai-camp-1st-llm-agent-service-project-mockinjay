@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ChatInterface from '../ChatInterface';
 import { AuthProvider } from '../../contexts/AuthContext';
 import { AppProvider } from '../../contexts/AppContext';
+import { secureTokenStorage } from '../../utils/security';
 
 // Mock the API
 vi.mock('../../services/api', () => ({
@@ -31,6 +32,7 @@ describe('ChatInterface', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    secureTokenStorage.clear();
   });
 
   describe('Profile Selector', () => {
@@ -96,7 +98,7 @@ describe('ChatInterface', () => {
     });
 
     it('forwards auth and CSRF headers to the real stream endpoint', async () => {
-      localStorage.setItem('careguide_token', 'test-token');
+      secureTokenStorage.set('test-token', { memoryOnly: true });
       const mockFetch = vi.fn().mockResolvedValue({
         body: {
           getReader: () => ({

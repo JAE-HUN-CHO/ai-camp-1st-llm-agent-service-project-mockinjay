@@ -51,34 +51,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
-  /**
-   * 컴포넌트 마운트 시 로컬 스토리지에서 인증 정보를 로드합니다.
-   * Loads authentication information from local storage on component mount.
-   *
-   * 저장된 토큰이 있으면 자동으로 로그인 상태를 복원합니다.
-   * Automatically restores login state if saved token exists.
-   */
+  /** Remove credentials left by pre-Phase-0 builds. Auth is memory-only. */
   useEffect(() => {
-    // 스토리지에서 토큰 로드 (Load token from storage)
-    const savedToken = storage.get<string>('careguide_token');
-    const savedUser = storage.get<User>('careguide_user');
-
-    console.log('AuthContext initialization');
-    console.log('Saved token:', savedToken);
-    console.log('Saved user:', savedUser);
-
-    if (savedToken && savedUser) {
-      // 인증 상태 복원 (Restore authentication state)
-      setToken(savedToken);
-      setUser(savedUser);
-
-      // axios 기본 헤더 설정 (Set axios default header)
-      api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
-
-      console.log('AuthContext state set successfully');
-    } else {
-      console.log('No saved credentials found');
-    }
+    storage.remove('careguide_token');
+    storage.remove('careguide_token_expiry');
+    storage.remove('careguide_user');
   }, []);
 
   /**
@@ -106,34 +83,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         },
       });
 
-      console.log('Login response:', response.data);
-
       const { access_token, user: userData } = response.data;
-
-      console.log('Extracted token:', access_token);
-      console.log('Extracted user:', userData);
 
       // 상태 및 로컬 스토리지에 인증 정보 저장
       // Save auth info to state and local storage
       setToken(access_token);
       setUser(userData);
 
-      // 보안 토큰 저장소 사용 (메모리 + localStorage 이중 저장)
-      // Use secure token storage (memory + localStorage dual storage)
+      // Tokens and user PII remain in memory only.
       secureTokenStorage.set(access_token, {
-        // 24시간 후 만료 (백엔드 토큰 만료와 동기화 권장)
-        // Expires in 24 hours (sync with backend token expiry recommended)
+        memoryOnly: true,
         expiresIn: 24 * 60 * 60 * 1000,
       });
-      storage.set('careguide_user', userData);
 
       // axios 기본 헤더에 토큰 설정 (모든 API 요청에 자동 포함)
       // Set token in axios default header (automatically included in all API requests)
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
-      console.log('Login successful - State updated');
     } catch (error: any) {
-      console.error('Login error:', error);
       throw new Error(error.response?.data?.detail || '로그인에 실패했습니다');
     }
   };
@@ -179,8 +146,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { access_token, user: userData } = response.data;
         setToken(access_token);
         setUser(userData);
-        storage.set('careguide_token', access_token);
-        storage.set('careguide_user', userData);
+        secureTokenStorage.set(access_token, {
+          memoryOnly: true,
+          expiresIn: 24 * 60 * 60 * 1000,
+        });
         api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       } else {
         // 토큰이 없으면 수동으로 로그인 필요
@@ -188,7 +157,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await login(data.email, data.password);
       }
     } catch (error: any) {
-      console.error('Signup error:', error);
       throw new Error(error.response?.data?.detail || '회원가입에 실패했습니다');
     }
   };
@@ -205,8 +173,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(null);
     setToken(null);
 
-    // 보안 토큰 저장소 클리어 (메모리 + localStorage)
-    // Clear secure token storage (memory + localStorage)
+    // Clear the memory-only credential.
     secureTokenStorage.clear();
 
     // CSRF 토큰 리셋 (새 세션 시작을 위해)
@@ -231,15 +198,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Clear sessionStorage completely
     try {
       sessionStorage.clear();
-    } catch (error) {
-      console.warn('Could not clear sessionStorage:', error);
+    } catch (_error) {
+      void _error;
     }
 
     // axios 헤더에서 Authorization 토큰 제거
     // Remove Authorization token from axios headers
     delete api.defaults.headers.common['Authorization'];
 
-    console.log('Logout complete - all local data cleared');
   };
 
   /**
@@ -264,11 +230,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         localStorage.removeItem(key);
       });
 
-      if (keysToRemove.length > 0) {
-        console.log(`Cleared ${keysToRemove.length} careguide_ items from localStorage`);
-      }
-    } catch (error) {
-      console.warn('Could not clear careguide data from localStorage:', error);
+    } catch (_error) {
+      void _error;
     }
   };
 
@@ -295,21 +258,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // 로컬 상태 업데이트 (Update local state)
         const updatedUser = { ...user, profile };
         setUser(updatedUser);
-        storage.set('careguide_user', updatedUser);
         publishUserProfile(profile);
 
         // 세션 초기화하여 새 Parlant 고객 태그로 세션 생성 유도
         // Clear session to force new Parlant session with updated profile tag
         storage.remove('careguide_session_id');
 
-        console.log(`Profile updated to: ${profile}`);
-      } catch (error) {
-        console.error('Failed to update profile on server:', error);
+      } catch (_error) {
         // 서버 업데이트 실패해도 로컬 상태는 업데이트 (UX 개선)
         // Update local state even if server update fails (better UX)
         const updatedUser = { ...user, profile };
         setUser(updatedUser);
-        storage.set('careguide_user', updatedUser);
         publishUserProfile(profile);
       }
     }
@@ -323,9 +282,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * Only considers authenticated when both token and user info exist.
    */
   const isAuthenticated = useMemo(() => {
-    const result = !!token && !!user;
-    console.log('isAuthenticated computed:', result, '| token:', !!token, '| user:', !!user);
-    return result;
+    return !!token && !!user;
   }, [token, user]);
 
   return (

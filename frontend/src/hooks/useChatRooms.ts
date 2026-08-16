@@ -2,43 +2,13 @@
  * useChatRooms Hook
  * 채팅 방 관리 훅
  *
- * Manages chat room state, localStorage persistence, and CRUD operations.
- * 채팅 방 상태, localStorage 지속성, CRUD 작업을 관리합니다.
+ * Manages in-memory chat room metadata and CRUD operations.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { ChatRoom, StoredRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
+import { useState, useCallback, useMemo } from 'react';
+import type { ChatRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
 import type { AgentType } from '../services/intentRouter';
 import { createRoomWithSession } from '../services/api';
-
-const ROOMS_STORAGE_KEY = 'careguide_chat_rooms' as const;
-const CURRENT_ROOM_KEY = 'careguide_current_room' as const;
-
-/**
- * Convert StoredRoom to ChatRoom (deserialize)
- * StoredRoom을 ChatRoom으로 변환 (역직렬화)
- */
-function deserializeRoom(stored: StoredRoom): ChatRoom {
-  return {
-    ...stored,
-    lastMessageTime: stored.lastMessageTime ? new Date(stored.lastMessageTime) : undefined,
-    createdAt: new Date(stored.createdAt),
-    updatedAt: new Date(stored.updatedAt),
-  };
-}
-
-/**
- * Convert ChatRoom to StoredRoom (serialize)
- * ChatRoom을 StoredRoom으로 변환 (직렬화)
- */
-function serializeRoom(room: ChatRoom): StoredRoom {
-  return {
-    ...room,
-    lastMessageTime: room.lastMessageTime?.toISOString(),
-    createdAt: room.createdAt.toISOString(),
-    updatedAt: room.updatedAt.toISOString(),
-  };
-}
 
 /**
  * Generate a title based on agent type
@@ -56,58 +26,8 @@ function generateRoomTitle(agentType: AgentType | 'auto'): string {
 }
 
 export function useChatRooms() {
-  // Load rooms from localStorage
-  // localStorage에서 방 로드
-  const [rooms, setRooms] = useState<ChatRoom[]>(() => {
-    try {
-      const saved = localStorage.getItem(ROOMS_STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed: StoredRoom[] = JSON.parse(saved);
-          return parsed.map(deserializeRoom);
-        } catch (e) {
-          console.error('Error parsing chat rooms:', e);
-        }
-      }
-    } catch (e) {
-      console.warn('Could not access localStorage for chat rooms:', e);
-    }
-    return [];
-  });
-
-  const [currentRoomId, setCurrentRoomId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(CURRENT_ROOM_KEY) || null;
-    } catch (e) {
-      console.warn('Could not access localStorage for current room:', e);
-      return null;
-    }
-  });
-
-  // Save rooms to localStorage whenever they change
-  // 방이 변경될 때마다 localStorage에 저장
-  useEffect(() => {
-    try {
-      const serialized = rooms.map(serializeRoom);
-      localStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(serialized));
-    } catch (e) {
-      console.warn('Could not save chat rooms to localStorage:', e);
-    }
-  }, [rooms]);
-
-  // Save current room ID
-  // 현재 방 ID 저장
-  useEffect(() => {
-    try {
-      if (currentRoomId) {
-        localStorage.setItem(CURRENT_ROOM_KEY, currentRoomId);
-      } else {
-        localStorage.removeItem(CURRENT_ROOM_KEY);
-      }
-    } catch (e) {
-      console.warn('Could not save current room ID to localStorage:', e);
-    }
-  }, [currentRoomId]);
+  const [rooms, setRooms] = useState<ChatRoom[]>([]);
+  const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
 
   /**
    * Create a new chat room with Parlant session (async)
@@ -127,11 +47,7 @@ export function useChatRooms() {
       const agentType = options.agentType || 'auto';
       const title = options.title || generateRoomTitle(agentType);
 
-      // Parlant agents that need proactive session creation
-      const parlantAgents = ['medical_welfare', 'research_paper'];
-      const needsParlantSession = parlantAgents.includes(agentType) && userId;
-
-      if (needsParlantSession && userId) {
+      if (userId) {
         try {
           // Call backend API to create room with Parlant session
           // 백엔드 API를 호출하여 Parlant 세션과 함께 방 생성
@@ -158,34 +74,12 @@ export function useChatRooms() {
           setRooms((prev) => [newRoom, ...prev]);
           setCurrentRoomId(newRoom.id);
 
-          console.log(
-            `✅ Created room with Parlant session: ${newRoom.id} -> ${newRoom.parlantSessionId}`
-          );
-
           return newRoom;
-        } catch (error) {
-          console.error('Failed to create room with session, falling back to local:', error);
-          // Fall through to local creation
+        } catch (_error) {
+          throw new Error('채팅방을 안전하게 생성하지 못했습니다. 다시 시도해주세요.');
         }
       }
-
-      // Fallback: Create room locally (for non-Parlant agents or when API fails)
-      // 폴백: 로컬에서 방 생성 (Parlant가 아닌 에이전트 또는 API 실패 시)
-      const newRoom: ChatRoom = {
-        id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-        title,
-        agentType,
-        messageCount: 0,
-        createdAt: now,
-        updatedAt: now,
-        isPinned: false,
-        isArchived: false,
-      };
-
-      setRooms((prev) => [newRoom, ...prev]);
-      setCurrentRoomId(newRoom.id);
-
-      return newRoom;
+      throw new Error('인증된 사용자만 채팅방을 생성할 수 있습니다.');
     },
     []
   );

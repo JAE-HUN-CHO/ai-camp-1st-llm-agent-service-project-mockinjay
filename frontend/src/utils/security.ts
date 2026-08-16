@@ -6,8 +6,6 @@
  * Provides security features like CSRF protection, XSS prevention, token management.
  */
 
-import { STORAGE_KEYS } from '../config/constants';
-import { storage } from './storage';
 
 // ============================================================
 // CSRF Protection
@@ -177,7 +175,7 @@ export const secureTokenStorage = {
    * Stores a token.
    */
   set(token: string, options: TokenStorageOptions = {}): void {
-    const { memoryOnly = false, expiresIn } = options;
+    const { expiresIn } = options;
 
     memoryToken = token;
 
@@ -185,14 +183,6 @@ export const secureTokenStorage = {
       tokenExpiry = Date.now() + expiresIn;
     }
 
-    // localStorage 저장 (옵션)
-    // localStorage storage (optional)
-    if (!memoryOnly) {
-      storage.set(STORAGE_KEYS.TOKEN, token);
-      if (expiresIn) {
-        storage.set(STORAGE_KEYS.TOKEN_EXPIRY, tokenExpiry);
-      }
-    }
   },
 
   /**
@@ -212,23 +202,6 @@ export const secureTokenStorage = {
       return memoryToken;
     }
 
-    // localStorage 폴백
-    // localStorage fallback
-    const storedToken = storage.get<string>(STORAGE_KEYS.TOKEN);
-    const storedExpiry = storage.get<number>(STORAGE_KEYS.TOKEN_EXPIRY);
-
-    if (storedToken) {
-      if (storedExpiry && Date.now() > storedExpiry) {
-        this.clear();
-        return null;
-      }
-      // 메모리에 복원
-      // Restore to memory
-      memoryToken = storedToken;
-      tokenExpiry = storedExpiry ?? null;
-      return storedToken;
-    }
-
     return null;
   },
 
@@ -239,8 +212,6 @@ export const secureTokenStorage = {
   clear(): void {
     memoryToken = null;
     tokenExpiry = null;
-    storage.remove(STORAGE_KEYS.TOKEN);
-    storage.remove(STORAGE_KEYS.TOKEN_EXPIRY);
   },
 
   /**

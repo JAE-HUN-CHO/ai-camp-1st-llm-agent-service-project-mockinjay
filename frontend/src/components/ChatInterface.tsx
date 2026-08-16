@@ -49,8 +49,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
         const newSessionId = response.data.session_id;
         setSessionId(newSessionId);
         setMessages([]);
-      } catch (error) {
-        console.error('Failed to initialize session:', error);
+      } catch {
+        console.error('Failed to initialize chat session');
       }
     };
     initSession();
@@ -119,8 +119,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
         setIsSessionExpired(false);
         resetIdleTimer(); // Reset idle timer after restoration
       }
-    } catch (error) {
-      console.error('Failed to restore chat history:', error);
+    } catch {
+      console.error('Failed to restore chat history');
     } finally {
       setIsRestoringHistory(false);
     }
@@ -207,28 +207,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
 
       if (!response.body) throw new Error('No response body');
 
-      console.log('🚀 SSE stream started, response status:', response.status);
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let done = false;
       let buffer = '';
-      let messageCount = 0;
       let firstMessageReceived = false;
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
-        console.log('📥 SSE chunk received, done:', doneReading, 'value length:', value?.length);
         done = doneReading;
 
         if (value) {
           const chunkValue = decoder.decode(value, { stream: true });
           buffer += chunkValue;
-          console.log('📄 Buffer content (first 200 chars):', buffer.substring(0, 200));
-
           // SSE messages are separated by \n\n, so split properly
           const messages = buffer.split('\n\n');
-          console.log('📨 Split messages count:', messages.length);
           buffer = messages.pop() || ''; // Keep incomplete message in buffer
 
           for (const message of messages) {
@@ -248,15 +241,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                   if (data.status === 'error' || data.error) {
                     throw new Error(data.error || t.common.error);
                   }
-                  console.log('🔍 SSE parsed data:', {
-                    hasContent: !!data.content,
-                    hasAnswer: !!data.answer,
-                    hasResponse: !!data.response,
-                    status: data.status,
-                    agent_type: data.agent_type,
-                    answerPreview: data.answer?.substring(0, 100)
-                  });
-
                   let newContent = '';
 
                   // Check all possible content fields
@@ -270,12 +254,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
 
                   // Get status from backend (streaming, new_message, complete, etc.)
                   const messageStatus = data.status;
-                  console.log('📝 newContent set:', newContent ? newContent.substring(0, 100) : '(empty)', 'status:', messageStatus);
-
                   if (newContent && messageStatus !== 'processing') {
-                    messageCount++;
-                    console.log('✅ Processing message #', messageCount, 'firstMessageReceived:', firstMessageReceived, 'status:', messageStatus);
-
                     if (messageStatus === 'complete') {
                       // Router fallbacks emit a complete snapshot after partial
                       // events; replace the bubble to avoid duplicated text.
@@ -291,9 +270,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                       firstMessageReceived = true;
                       const capturedContent = newContent;
                       const capturedId = currentBotMessageId;
-                      console.log('📤 Updating placeholder message id:', capturedId);
                       setMessages((prev) => {
-                        console.log('📤 setMessages called, prev length:', prev.length);
                         return prev.map(msg =>
                           msg.id === capturedId
                             ? { ...msg, content: capturedContent }
@@ -305,7 +282,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                       // new_message 상태: 현재 버블에 줄바꿈 추가 후 붙이기
                       const capturedContent = newContent;
                       const capturedId = currentBotMessageId;
-                      console.log('📤 Appending new_message with line break to:', capturedId);
                       setMessages((prev) =>
                         prev.map(msg =>
                           msg.id === capturedId
@@ -325,11 +301,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                         )
                       );
                     }
-                  } else {
-                    console.log('⚠️ newContent is empty, skipping message update');
                   }
                 } catch (e) {
-                  console.error('SSE parse error:', e, 'dataStr:', dataStr?.substring(0, 200));
+                  console.error('SSE frame parsing failed');
                   const errorMessage = e instanceof Error ? e.message : t.common.error;
                   firstMessageReceived = true;
                   const capturedId = currentBotMessageId;
@@ -371,8 +345,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
                     )
                   );
                 }
-              } catch (e) {
-                console.error('SSE buffer parse error:', e);
+              } catch {
+                console.error('SSE buffer parsing failed');
               }
             }
           }
@@ -386,13 +360,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = () => {
     } catch (error: any) {
       // Don't show error if request was aborted (user cancelled)
       if (error.name === 'AbortError') {
-        console.log('Request was cancelled');
         // Remove the placeholder message for cancelled request
         setMessages((prev) => prev.filter(msg => msg.id !== currentBotMessageId));
         return;
       }
 
-      console.error('Failed to send message:', error);
+      console.error('Failed to send chat message');
       const errorMessage = error instanceof Error && error.message ? error.message : t.common.error;
       setMessages((prev) =>
         prev.map(msg =>

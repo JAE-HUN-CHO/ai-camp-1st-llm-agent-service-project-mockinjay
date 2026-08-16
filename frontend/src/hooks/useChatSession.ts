@@ -38,8 +38,8 @@ export function useChatSession(roomId: string | null) {
       // Backend returns SuccessResponse format: { message, data: { session_id, ... } }
       const newSessionId = response.data.data?.session_id || response.data.session_id;
       setSessionId(newSessionId);
-    } catch (error) {
-      console.error('Failed to initialize session:', error);
+    } catch {
+      console.error('Failed to initialize chat session');
     }
   }, [roomId, user?.id]);
 
@@ -165,8 +165,8 @@ export function useChatSession(roomId: string | null) {
 
           setIsSessionExpired(false);
         }
-      } catch (error) {
-        console.error('Failed to restore chat history:', error);
+      } catch {
+        console.error('Failed to restore chat history');
       } finally {
         setIsRestoringHistory(false);
       }
@@ -198,8 +198,8 @@ export function useChatSession(roomId: string | null) {
 
       setIsSessionExpired(false);
       return newSessionId;
-    } catch (error) {
-      console.error('Failed to create new session:', error);
+    } catch {
+      console.error('Failed to create new chat session');
       return null;
     }
   }, [user?.id, roomId]);
