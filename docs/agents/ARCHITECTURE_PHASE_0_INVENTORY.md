@@ -2,6 +2,8 @@
 
 **Status:** Phase 0 evidence used to accept ADR-013
 **Base snapshot:** `fda93b9dbb8107ecbffa593041c9417f822a6688`
+**Post-gate evidence:** run `20260815T143102Z`, worktree fingerprint
+`d5f1f73380f1f107e6ed2861032fc89b929f32553e5fe5ee3145a85fa45dfb04`
 **Canonical runtime:** `frontend/` → `backend/app/main.py:app` → local Ollama/local Docker MongoDB
 
 This document records the implementation found by reading the accepted ADRs and
@@ -9,6 +11,10 @@ then re-checking the registered FastAPI graph, Python imports, entrypoints and t
 The machine-readable full route list is produced by
 `scripts/inventory_architecture.py`; it contained 137 registered routes at the
 Phase 0 baseline. Generated JSON is stored in the verification run directory.
+The local manifest is
+`logs/verification/fda93b9dbb8107ecbffa593041c9417f822a6688/20260815T143102Z/manifest.json`.
+Because `logs/` is ignored, this inventory identifies the verified dirty worktree by base SHA, run ID,
+and fingerprint together; it does not claim that the base commit alone contains the post-gate state.
 
 ## Route → service/runtime → schema/storage → test inventory
 
