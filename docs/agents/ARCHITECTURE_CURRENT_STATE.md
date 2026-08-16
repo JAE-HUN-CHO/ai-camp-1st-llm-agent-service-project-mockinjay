@@ -140,6 +140,15 @@ Phase 0 이전 baseline 확인과 Phase 0~1 이후 검증을 섞어 읽지 않�
 정적 검사 첫 네 행은 당시 console 결과이며 영구 artifact가 없다. Runtime 세 행은 위
 `20260815T143102Z` manifest와 그 하위 HTTP/runtime artifact에 보관돼 있다.
 
+백엔드 테스트 루트는 마이그레이션과 legacy 회귀 보존을 위해 의도적으로 병존하며,
+Phase 0~1에서는 통합하거나 이동하지 않는다.
+
+| 테스트 루트 | 역할 | 실행 명령 |
+|---|---|---|
+| `tests/backend/unit/` | Phase 0~1 안전·계약·검증 도구의 격리 단위 회귀 | `PYTHONPATH=backend .venv/bin/python -m pytest -q tests/backend/unit` |
+| `tests/backend/integration/` | 로컬 Docker MongoDB를 사용하는 명시적 통합 경계 | `docker compose up -d mongodb` 후 `PYTHONPATH=backend .venv/bin/python -m dotenv run -- .venv/bin/python -m pytest -q -m integration tests/backend/integration` |
+| `backend/tests/` | 기존 API·서비스 회귀를 보존하는 legacy suite | `PYTHONPATH=backend .venv/bin/python -m pytest -q backend/tests` |
+
 | 검증 | 결과 | 의미 |
 |---|---|---|
 | `cd frontend && npm run build` | 통과 | TypeScript compile 및 Vite production bundle 생성; 보관 artifact 없음 |
@@ -150,6 +159,13 @@ Phase 0 이전 baseline 확인과 Phase 0~1 이후 검증을 섞어 읽지 않�
 | Welfare Parlant HTTP | 통과 | agent `4hPpdzxCVh` / customer `m7nF36INaJ` / session `DD7f32DV9K` / response event `6cZ9XjGzf0` |
 | hosted LLM provider | 호출 0 | 최종 승인 run의 manifest/runtime log 기준 |
 | 전체 핵심 API·브라우저 흐름 | 미완료 | Phase 2 Chat 이외의 실제 사용자 여정은 아직 범위 밖 |
+
+2026-08-16 CodeRabbit 후속 수정은 기존 Phase 0 runtime manifest를 대체하지 않는
+PR console 검증이다. 해당 worktree에서 `tests/backend/unit`은 161 passed(54 warnings),
+명시적 Mongo integration은 4 passed(26 warnings), frontend는 31 files/416 tests passed,
+build 통과, lint 0 errors/65 warnings였다. 변경 Python Ruff, architecture dependency gate,
+15개 normative 문서 링크, `git diff --check`가 통과했고 보존된 runtime artifact 37개에서
+PII pattern은 0건이었다.
 
 `tasks/plan.md`와 `tasks/todo.md`의 체크리스트는 계획 문서이며, 체크되지 않은 항목을 실행 증거로 간주하지 않는다.
 

@@ -89,7 +89,7 @@ User → POST /api/chat/stream
 `RouterAgent → AgentManager → five capability` is a compatibility fallback. A future
 `SendChatMessage` that always routes intents is a behavior migration, not a description of current behavior.
 
-### 2. Research search (rate-limited)
+### 2. Research search
 
 ```text
 User → POST /api/trends/{temporal|geographic|compare|papers|mesh|summarize|translate}
