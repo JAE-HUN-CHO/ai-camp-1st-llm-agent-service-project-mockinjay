@@ -21,6 +21,7 @@ Process-isolated Parlant Adapters/Workers** 구조로 점진적으로 전환한�
 
 Project owner는 Option B를 승인했다. 이 승인은 Phase 2 Chat vertical slice만 다음 실행
 범위로 허용하며, Phase 3 이후 구현은 각 phase의 별도 범위 확인 전까지 승인하지 않는다.
+Phase 2 완료 기록은 이 승인 경계를 넓히지 않으며 Phase 3는 여전히 startable하지 않다.
 
 1. `domain.md`의 단일 CKD bounded context를 유지한다.
 2. `app/features`를 기능별 vertical slice의 migration anchor로 사용하되 현재 placeholder와 실제 wiring을 구분한다.
@@ -183,4 +184,6 @@ worker 분리는 embedding/ingestion/enrichment/notification retry 같은 장시
 1. [x] Project owner가 ADR-013을 Accepted로 승인했다.
 2. [x] Phase 0 inventory와 owner/capability/selector mapping을 기록했다.
 3. [x] `ARCHITECTURE_REFACTORING_PLAN.md` Phase 0~1을 실행·검증했다.
-4. [ ] 승인된 다음 범위인 Phase 2 Chat vertical slice를 별도 실행한다.
+4. [x] 승인된 Phase 2 Chat vertical slice를 별도 실행하고
+   `logs/verification/0d435fc48d35d1650fddd4375746f0e74e63c320/20260816T044829Z/manifest.json`에 고정한다.
+5. [ ] Phase 3 Health는 Project owner의 별도 범위 승인 전 실행하지 않는다.
