@@ -472,8 +472,9 @@ def is_emergency_query(query: str) -> bool:
     Returns:
         True if emergency keywords detected
     """
-    query_lower = query.lower()
-    return any(keyword.lower() in query_lower for keyword in EMERGENCY_KEYWORDS)
+    from app.core.emergency_safety import emergency_safety_policy
+
+    return emergency_safety_policy.evaluate(query).blocked
 
 def get_intent_metadata() -> Dict[str, Any]:
     """

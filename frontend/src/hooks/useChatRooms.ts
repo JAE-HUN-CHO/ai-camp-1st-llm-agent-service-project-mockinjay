@@ -2,43 +2,13 @@
  * useChatRooms Hook
  * 채팅 방 관리 훅
  *
- * Manages chat room state, localStorage persistence, and CRUD operations.
- * 채팅 방 상태, localStorage 지속성, CRUD 작업을 관리합니다.
+ * Manages in-memory chat room metadata and CRUD operations.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { ChatRoom, StoredRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import type { ChatRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
 import type { AgentType } from '../services/intentRouter';
-import { createRoomWithSession } from '../services/api';
-
-const ROOMS_STORAGE_KEY = 'careguide_chat_rooms' as const;
-const CURRENT_ROOM_KEY = 'careguide_current_room' as const;
-
-/**
- * Convert StoredRoom to ChatRoom (deserialize)
- * StoredRoom을 ChatRoom으로 변환 (역직렬화)
- */
-function deserializeRoom(stored: StoredRoom): ChatRoom {
-  return {
-    ...stored,
-    lastMessageTime: stored.lastMessageTime ? new Date(stored.lastMessageTime) : undefined,
-    createdAt: new Date(stored.createdAt),
-    updatedAt: new Date(stored.updatedAt),
-  };
-}
-
-/**
- * Convert ChatRoom to StoredRoom (serialize)
- * ChatRoom을 StoredRoom으로 변환 (직렬화)
- */
-function serializeRoom(room: ChatRoom): StoredRoom {
-  return {
-    ...room,
-    lastMessageTime: room.lastMessageTime?.toISOString(),
-    createdAt: room.createdAt.toISOString(),
-    updatedAt: room.updatedAt.toISOString(),
-  };
-}
+import { createRoomWithSession, getChatRooms, type ChatRoomData } from '../services/api';
 
 /**
  * Generate a title based on agent type
@@ -55,59 +25,69 @@ function generateRoomTitle(agentType: AgentType | 'auto'): string {
   return titles[agentType] || 'AI 대화';
 }
 
-export function useChatRooms() {
-  // Load rooms from localStorage
-  // localStorage에서 방 로드
-  const [rooms, setRooms] = useState<ChatRoom[]>(() => {
-    try {
-      const saved = localStorage.getItem(ROOMS_STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed: StoredRoom[] = JSON.parse(saved);
-          return parsed.map(deserializeRoom);
-        } catch (e) {
-          console.error('Error parsing chat rooms:', e);
-        }
-      }
-    } catch (e) {
-      console.warn('Could not access localStorage for chat rooms:', e);
-    }
-    return [];
-  });
+function mapApiRoom(room: ChatRoomData): ChatRoom {
+  const createdAt = new Date(room.created_at);
+  const updatedAt = new Date(room.updated_at || room.last_activity || room.created_at);
+  return {
+    id: room.id || room.room_id || '',
+    title: room.title || room.room_name || 'AI 대화',
+    agentType: (room.agent_type as AgentType) || 'auto',
+    lastMessage: room.last_message,
+    lastMessageTime: room.last_message_time ? new Date(room.last_message_time) : undefined,
+    messageCount: room.message_count || 0,
+    createdAt,
+    updatedAt,
+    isPinned: room.is_pinned || false,
+    isArchived: room.is_archived || false,
+    parlantSessionId: room.parlant_session_id,
+    parlantCustomerId: room.parlant_customer_id,
+  };
+}
 
-  const [currentRoomId, setCurrentRoomId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(CURRENT_ROOM_KEY) || null;
-    } catch (e) {
-      console.warn('Could not access localStorage for current room:', e);
-      return null;
-    }
-  });
+export function useChatRooms(authenticatedUserId?: string, authenticatedProfile = 'general') {
+  const [rooms, setRooms] = useState<ChatRoom[]>([]);
+  const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
+  const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [hydrationAttempt, setHydrationAttempt] = useState(0);
+  const isHydrated = Boolean(authenticatedUserId && hydratedUserId === authenticatedUserId);
+  const activeUserIdRef = useRef(authenticatedUserId);
+  const activeProfileRef = useRef(authenticatedProfile);
+  const hydratedUserIdRef = useRef(hydratedUserId);
+  activeUserIdRef.current = authenticatedUserId;
+  activeProfileRef.current = authenticatedProfile;
+  hydratedUserIdRef.current = hydratedUserId;
 
-  // Save rooms to localStorage whenever they change
-  // 방이 변경될 때마다 localStorage에 저장
   useEffect(() => {
-    try {
-      const serialized = rooms.map(serializeRoom);
-      localStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(serialized));
-    } catch (e) {
-      console.warn('Could not save chat rooms to localStorage:', e);
+    let cancelled = false;
+    if (!authenticatedUserId) {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setRooms([]);
+        setCurrentRoomId(null);
+        setHydratedUserId(null);
+        hydratedUserIdRef.current = null;
+        setHydrationError(null);
+      });
+      return () => { cancelled = true; };
     }
-  }, [rooms]);
 
-  // Save current room ID
-  // 현재 방 ID 저장
-  useEffect(() => {
-    try {
-      if (currentRoomId) {
-        localStorage.setItem(CURRENT_ROOM_KEY, currentRoomId);
-      } else {
-        localStorage.removeItem(CURRENT_ROOM_KEY);
-      }
-    } catch (e) {
-      console.warn('Could not save current room ID to localStorage:', e);
-    }
-  }, [currentRoomId]);
+    void getChatRooms(authenticatedUserId)
+      .then((serverRooms) => {
+        if (cancelled || activeUserIdRef.current !== authenticatedUserId) return;
+        const restored = serverRooms.map(mapApiRoom).filter((room) => room.id);
+        setRooms(restored);
+        setCurrentRoomId(restored[0]?.id || null);
+        hydratedUserIdRef.current = authenticatedUserId;
+        setHydratedUserId(authenticatedUserId);
+        setHydrationError(null);
+      })
+      .catch(() => {
+        if (cancelled || activeUserIdRef.current !== authenticatedUserId) return;
+        setHydrationError('채팅방을 불러오지 못했습니다. 다시 시도해주세요.');
+      });
+    return () => { cancelled = true; };
+  }, [authenticatedUserId, hydrationAttempt]);
 
   /**
    * Create a new chat room with Parlant session (async)
@@ -120,18 +100,19 @@ export function useChatRooms() {
   const createRoom = useCallback(
     async (
       options: CreateRoomOptions = {},
-      userId?: string,
-      profile: string = 'general'
+      userId: string | undefined = authenticatedUserId,
+      profile: string = authenticatedProfile
     ): Promise<ChatRoom> => {
       const now = new Date();
       const agentType = options.agentType || 'auto';
       const title = options.title || generateRoomTitle(agentType);
 
-      // Parlant agents that need proactive session creation
-      const parlantAgents = ['medical_welfare', 'research_paper'];
-      const needsParlantSession = parlantAgents.includes(agentType) && userId;
-
-      if (needsParlantSession && userId) {
+      if (
+        userId
+        && userId === activeUserIdRef.current
+        && hydratedUserIdRef.current === userId
+        && profile === activeProfileRef.current
+      ) {
         try {
           // Call backend API to create room with Parlant session
           // 백엔드 API를 호출하여 Parlant 세션과 함께 방 생성
@@ -141,6 +122,14 @@ export function useChatRooms() {
             profile,
             title
           );
+
+          if (
+            activeUserIdRef.current !== userId
+            || hydratedUserIdRef.current !== userId
+            || activeProfileRef.current !== profile
+          ) {
+            throw new Error('사용자 또는 프로필이 변경되어 방 생성을 취소했습니다.');
+          }
 
           const newRoom: ChatRoom = {
             id: roomData.id || roomData.room_id || `room_${Date.now()}`,
@@ -158,36 +147,14 @@ export function useChatRooms() {
           setRooms((prev) => [newRoom, ...prev]);
           setCurrentRoomId(newRoom.id);
 
-          console.log(
-            `✅ Created room with Parlant session: ${newRoom.id} -> ${newRoom.parlantSessionId}`
-          );
-
           return newRoom;
-        } catch (error) {
-          console.error('Failed to create room with session, falling back to local:', error);
-          // Fall through to local creation
+        } catch (_error) {
+          throw new Error('채팅방을 안전하게 생성하지 못했습니다. 다시 시도해주세요.');
         }
       }
-
-      // Fallback: Create room locally (for non-Parlant agents or when API fails)
-      // 폴백: 로컬에서 방 생성 (Parlant가 아닌 에이전트 또는 API 실패 시)
-      const newRoom: ChatRoom = {
-        id: `room_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-        title,
-        agentType,
-        messageCount: 0,
-        createdAt: now,
-        updatedAt: now,
-        isPinned: false,
-        isArchived: false,
-      };
-
-      setRooms((prev) => [newRoom, ...prev]);
-      setCurrentRoomId(newRoom.id);
-
-      return newRoom;
+      throw new Error('채팅방 초기화가 완료된 뒤 다시 시도해주세요.');
     },
-    []
+    [authenticatedProfile, authenticatedUserId]
   );
 
   /**
@@ -298,14 +265,16 @@ export function useChatRooms() {
    * 현재 방 가져오기
    */
   const currentRoom = useMemo(() => {
+    if (!isHydrated) return null;
     return rooms.find((room) => room.id === currentRoomId) || null;
-  }, [rooms, currentRoomId]);
+  }, [isHydrated, rooms, currentRoomId]);
 
   /**
    * Filter rooms based on criteria
    * 기준에 따라 방 필터링
    */
   const filterRooms = useCallback((options: RoomFilterOptions = {}): ChatRoom[] => {
+    if (!isHydrated) return [];
     return rooms.filter((room) => {
       // Filter by agent type
       // 에이전트 타입으로 필터링
@@ -336,13 +305,14 @@ export function useChatRooms() {
 
       return true;
     });
-  }, [rooms]);
+  }, [isHydrated, rooms]);
 
   /**
    * Sort rooms (pinned first, then by last activity)
    * 방 정렬 (고정된 방 먼저, 그 다음 최근 활동순)
    */
   const sortedRooms = useMemo(() => {
+    if (!isHydrated) return [];
     return [...rooms].sort((a, b) => {
       // Pinned rooms come first
       // 고정된 방이 먼저
@@ -355,7 +325,7 @@ export function useChatRooms() {
       const bTime = b.lastMessageTime || b.updatedAt;
       return bTime.getTime() - aTime.getTime();
     });
-  }, [rooms]);
+  }, [isHydrated, rooms]);
 
   /**
    * Get rooms excluding archived ones
@@ -365,12 +335,19 @@ export function useChatRooms() {
     return sortedRooms.filter((room) => !room.isArchived);
   }, [sortedRooms]);
 
+  const retryHydration = useCallback(() => {
+    setHydrationError(null);
+    setHydrationAttempt((attempt) => attempt + 1);
+  }, []);
+
   return {
     // State
     rooms: sortedRooms,
     activeRooms,
     currentRoom,
-    currentRoomId,
+    currentRoomId: isHydrated ? currentRoomId : null,
+    isHydrated,
+    hydrationError,
 
     // Actions
     createRoom,
@@ -383,5 +360,6 @@ export function useChatRooms() {
     clearAllRooms,
     setCurrentRoomId,
     filterRooms,
+    retryHydration,
   };
 }

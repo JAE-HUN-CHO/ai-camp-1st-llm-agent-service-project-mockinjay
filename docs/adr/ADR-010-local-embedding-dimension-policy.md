@@ -1,6 +1,6 @@
 # ADR-010: Local Embedding Dimension Compatibility
 
-- **Status:** Proposed
+- **Status:** Superseded by ADR-011
 - **Date:** 2026-08-11
 - **Related:** ADR-005, ADR-009
 

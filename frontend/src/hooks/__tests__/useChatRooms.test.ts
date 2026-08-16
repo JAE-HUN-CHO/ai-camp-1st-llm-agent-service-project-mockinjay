@@ -1,26 +1,45 @@
-import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatRooms } from '../useChatRooms';
+import { createRoomWithSession, getChatRooms } from '../../services/api';
+
+vi.mock('../../services/api', () => ({
+  createRoomWithSession: vi.fn(async (_userId, agentType, _profile, title) => ({
+    id: `room-${title}`,
+    title,
+    agent_type: agentType,
+    message_count: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })),
+  getChatRooms: vi.fn(async () => []),
+}));
 
 const create = async (result: ReturnType<typeof renderHook<typeof useChatRooms>>['result'], title: string) => {
   let room;
-  await act(async () => { room = await result.current.createRoom({ title }); });
+  await waitFor(() => expect(result.current.isHydrated).toBe(true));
+  await act(async () => { room = await result.current.createRoom({ title }, 'user-1'); });
   return room!;
 };
 
 describe('useChatRooms', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(getChatRooms).mockReset();
+    vi.mocked(getChatRooms).mockResolvedValue([]);
+    vi.mocked(createRoomWithSession).mockClear();
+  });
 
-  it('creates and persists a room while selecting it as current', async () => {
-    const { result } = renderHook(() => useChatRooms());
+  it('creates an authenticated in-memory room while selecting it as current', async () => {
+    const { result } = renderHook(() => useChatRooms('user-1'));
     const room = await create(result, 'Test Room');
     expect(result.current.rooms).toHaveLength(1);
     expect(result.current.currentRoomId).toBe(room.id);
-    expect(JSON.parse(localStorage.getItem('careguide_chat_rooms')!)[0].title).toBe('Test Room');
+    expect(localStorage.getItem('careguide_chat_rooms')).toBeNull();
   });
 
   it('updates, pins, archives, and removes a room', async () => {
-    const { result } = renderHook(() => useChatRooms());
+    const { result } = renderHook(() => useChatRooms('user-1'));
     const room = await create(result, 'Original');
     act(() => result.current.updateRoom(room.id, { title: 'Updated' }));
     act(() => result.current.togglePinRoom(room.id));
@@ -32,7 +51,7 @@ describe('useChatRooms', () => {
   });
 
   it('updates message metadata and filters active rooms', async () => {
-    const { result } = renderHook(() => useChatRooms());
+    const { result } = renderHook(() => useChatRooms('user-1'));
     const first = await create(result, 'Medical');
     const second = await create(result, 'Nutrition');
     const timestamp = new Date('2026-01-01T00:00:00Z');
@@ -44,13 +63,74 @@ describe('useChatRooms', () => {
     expect(result.current.filterRooms({ searchQuery: 'message' })).toHaveLength(1);
   });
 
-  it('loads serialized rooms and supports clearing all state', () => {
-    const now = new Date().toISOString();
-    localStorage.setItem('careguide_chat_rooms', JSON.stringify([{ id: 'saved', title: 'Saved', agentType: 'auto', messageCount: 0, createdAt: now, updatedAt: now }]));
-    const { result } = renderHook(() => useChatRooms());
-    expect(result.current.rooms[0].title).toBe('Saved');
+  it('does not restore serialized rooms and supports clearing all state', async () => {
+    localStorage.setItem('careguide_chat_rooms', '[{"title":"health-canary"}]');
+    const { result } = renderHook(() => useChatRooms('user-1'));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+    expect(result.current.rooms).toEqual([]);
     act(() => result.current.clearAllRooms());
     expect(result.current.rooms).toEqual([]);
     expect(result.current.currentRoomId).toBeNull();
+  });
+
+  it('hydrates authenticated rooms from the server after remount', async () => {
+    vi.mocked(getChatRooms).mockResolvedValueOnce([{
+      id: 'persisted-room',
+      title: 'Persisted',
+      agent_type: 'research_paper',
+      message_count: 2,
+      created_at: '2026-08-15T00:00:00Z',
+      updated_at: '2026-08-15T01:00:00Z',
+    }]);
+
+    const { result } = renderHook(() => useChatRooms('user-1', 'patient'));
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
+
+    expect(getChatRooms).toHaveBeenCalledWith('user-1');
+    expect(result.current.isHydrated).toBe(true);
+    expect(result.current.rooms[0]).toMatchObject({
+      id: 'persisted-room',
+      title: 'Persisted',
+      messageCount: 2,
+    });
+    expect(result.current.currentRoomId).toBe('persisted-room');
+  });
+
+  it('keeps prior rooms hidden while a new user is hydrating', async () => {
+    let finishSecondHydration: (() => void) | undefined;
+    vi.mocked(getChatRooms)
+      .mockResolvedValueOnce([{
+        id: 'user-one-room',
+        title: 'Private room',
+        agent_type: 'research_paper',
+        message_count: 1,
+        created_at: '2026-08-15T00:00:00Z',
+      }])
+      .mockImplementationOnce(() => new Promise<[]>((resolve) => {
+        finishSecondHydration = () => resolve([]);
+      }));
+
+    const { result, rerender } = renderHook(
+      ({ userId }) => useChatRooms(userId),
+      { initialProps: { userId: 'user-1' } },
+    );
+    await waitFor(() => expect(result.current.rooms).toHaveLength(1));
+
+    rerender({ userId: 'user-2' });
+    expect(result.current.isHydrated).toBe(false);
+    expect(result.current.rooms).toEqual([]);
+    expect(result.current.currentRoom).toBeNull();
+
+    await act(async () => finishSecondHydration?.());
+  });
+
+  it('does not treat a failed room request as an empty hydrated result', async () => {
+    vi.mocked(getChatRooms).mockRejectedValueOnce(new Error('network unavailable'));
+    const { result } = renderHook(() => useChatRooms('user-1'));
+
+    await waitFor(() => expect(result.current.hydrationError).not.toBeNull());
+    expect(result.current.isHydrated).toBe(false);
+    expect(result.current.rooms).toEqual([]);
+    expect(createRoomWithSession).not.toHaveBeenCalled();
   });
 });

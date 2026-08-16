@@ -16,6 +16,7 @@ class _Context:
     def __init__(self):
         self.saved = []
         self.db_manager = self
+        self.model_calls = 0
 
     async def get_user_context(self, _user_id):
         return {}
@@ -28,7 +29,11 @@ class _Context:
 
 
 class _Service:
+    def __init__(self):
+        self.calls = 0
+
     async def generate(self, query, *, profile, user_context):
+        self.calls += 1
         assert query == "혈압 관리"
         assert profile == "patient"
         return {
@@ -38,6 +43,7 @@ class _Service:
         }
 
     async def stream(self, query, *, profile, user_context):
+        self.calls += 1
         yield {"status": "processing", "content": "검색 중"}
         yield {"status": "streaming", "content": "실제 "}
         yield {"status": "streaming", "content": "스트림"}
@@ -46,7 +52,9 @@ class _Service:
 def _app(context):
     app = FastAPI()
     app.state.context_system = SimpleNamespace(
-        session_manager=SimpleNamespace(get_session=lambda _session_id: None),
+        session_manager=SimpleNamespace(
+            get_session=lambda session_id: {"session_id": session_id, "user_id": "user-1"}
+        ),
         context_engineer=context,
     )
 
@@ -92,3 +100,41 @@ def test_stream_uses_application_ollama_service(monkeypatch):
     assert '"content": "실제 "' in response.text
     assert response.text.endswith("data: [DONE]\n\n")
     assert context.saved[0][3:5] == ("혈압 관리", "실제 스트림")
+
+
+def test_emergency_message_blocks_model_and_context_calls(monkeypatch):
+    context = _Context()
+    service = _Service()
+    runtime = SimpleNamespace(chat_service=service)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(_app(context)) as client:
+        response = client.post(
+            "/api/chat/message",
+            json={"query": "숨이 안 쉬어져요", "session_id": "s1"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["metadata"]["is_emergency"] is True
+    assert service.calls == 0
+    assert context.saved == []
+
+
+def test_emergency_stream_blocks_model_and_emits_terminal_then_done(monkeypatch):
+    context = _Context()
+    service = _Service()
+    runtime = SimpleNamespace(chat_service=service)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(_app(context)) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={"query": "극단적 선택을 할까 생각 중이에요", "session_id": "s1"},
+        )
+
+    assert response.status_code == 200
+    assert '"status": "complete"' in response.text
+    assert '"is_emergency": true' in response.text
+    assert response.text.endswith("data: [DONE]\n\n")
+    assert service.calls == 0
+    assert context.saved == []

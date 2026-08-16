@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { deletePost } from '../../services/communityApi';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import type { PostCard as PostCardType, PostType } from '../../types/community';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface PostCardProps {
   post: PostCardType;
@@ -19,17 +20,11 @@ interface PostCardProps {
 
 const PostCardComponent: React.FC<PostCardProps> = ({ post, onClick, onDelete, language }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  // Safe localStorage access with fallback
-  let currentUserId: string | null = null;
-  try {
-    currentUserId = localStorage.getItem('userId');
-  } catch (error) {
-    console.warn('Could not access localStorage for userId:', error);
-  }
-  const isAuthor = currentUserId === post.userId;
+  const isAuthor = user?.id === post.userId;
 
   // Format date to relative time (Korean timezone)
   const formatTimeAgo = (dateString: string): string => {

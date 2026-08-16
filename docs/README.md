@@ -69,6 +69,17 @@ npm run dev
 
 ## 문서
 
+- 현재 아키텍처 읽기 순서:
+  [기준선](./agents/DOCUMENT_CONSISTENCY_MATRIX.md) →
+  [도메인](./agents/domain.md)과 [Accepted ADR](./adr/README.md) →
+  [현재 상태](./agents/ARCHITECTURE_CURRENT_STATE.md) →
+  [갭 분석](./agents/ARCHITECTURE_GAP_ANALYSIS.md) →
+  [소프트웨어 공학 근거 정렬](./agents/ARCHITECTURE_REFERENCE_ALIGNMENT.md) →
+  [Accepted ADR-013](./adr/ADR-013-feature-first-hexagonal-modular-monolith.md)과
+  [목표 설계](./agents/ARCHITECTURE_REFACTORING_DESIGN.md) →
+  [실행 계획](./agents/ARCHITECTURE_REFACTORING_PLAN.md) →
+  [실행 프롬프트](./agents/ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md) →
+  [10개 관점 재검증](./agents/ARCHITECTURE_MULTI_AGENT_REVIEW.md)
 - [기술 명세](./project-plans/tech-spec.md)
 - [통합 가이드](./integration-guide.md)
 - 개별 개발 계획: [jk](./project-plans/jk-plan.md), [jh](./project-plans/jh-plan.md), [Yj](./project-plans/Yj-plan.md), [ch](./project-plans/ch-plan.md)

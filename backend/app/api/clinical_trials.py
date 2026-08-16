@@ -29,6 +29,7 @@ ollama_client: Optional[OllamaClient] = None
 _trials_cache = {}
 _translation_cache = {}  # Key: text hash -> {translation, timestamp}
 CACHE_TTL = 3600  # Cache for 1 hour
+CACHE_CONTRACT_VERSION = "source-faithful-v2"
 
 
 async def get_persistent_cache(cache_key: str) -> Optional[Dict[str, Any]]:
@@ -75,7 +76,7 @@ async def set_persistent_cache(cache_key: str, data: Any) -> None:
 
 
 def get_ollama_client() -> OllamaClient:
-    """Return the single local client used for clinical-trial summaries."""
+    """Return the single local client used only for faithful translation."""
     global ollama_client
     if ollama_client is None:
         ollama_client = OllamaClient()
@@ -96,7 +97,7 @@ def get_cache_key(
     status: Optional[str] = None,
 ) -> str:
     """Generate cache key for trial list"""
-    return f"{condition}:{status or 'all'}:{page}:{page_size}"
+    return f"{CACHE_CONTRACT_VERSION}:{condition}:{status or 'all'}:{page}:{page_size}"
 
 
 def is_cache_valid(timestamp: float) -> bool:
@@ -180,9 +181,9 @@ class ClinicalTrialListRequest(BaseModel):
 
 
 class ClinicalTrialDetailRequest(BaseModel):
-    """Request for clinical trial detail with AI summary"""
+    """Request for source-backed clinical trial detail and faithful translation."""
     nct_id: str = Field(..., description="NCT ID of the trial")
-    language: str = Field(default="ko", description="Summary language (ko/en)")
+    language: str = Field(default="ko", pattern="^(ko|en)$", description="Translation language")
 
 
 # ==================== Helper Functions ====================
@@ -286,7 +287,7 @@ async def translate_to_korean(text: str) -> str:
         return text
 
     # Mongo is the shared cache; the process cache remains a fast local tier.
-    persistent_key = f"translation:{get_text_hash(text)}"
+    persistent_key = f"translation:{CACHE_CONTRACT_VERSION}:{get_text_hash(text)}"
     cached = await get_persistent_cache(persistent_key)
     if cached:
         set_cached_translation(text, cached)
@@ -303,10 +304,18 @@ async def translate_to_korean(text: str) -> str:
         response = await client.chat.completions.create(
             model="qwen3.6:27b-mlx",
             messages=[
-                {"role": "system", "content": "You are a professional medical translator. Translate the following English text to Korean. Maintain medical terminology accuracy. Only output the Korean translation without any additional explanation."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate the supplied ClinicalTrials.gov field from English to Korean "
+                        "faithfully. Do not summarize, infer, interpret, recommend, add clinical "
+                        "significance, or omit information. Preserve identifiers, numbers and "
+                        "uncertainty. Output only the translation."
+                    ),
+                },
                 {"role": "user", "content": text}
             ],
-            temperature=0.3,
+            temperature=0.0,
             max_tokens=2000
         )
         translation = response.choices[0].message.content.strip()
@@ -316,8 +325,8 @@ async def translate_to_korean(text: str) -> str:
         await set_persistent_cache(persistent_key, translation)
 
         return translation
-    except Exception as e:
-        logger.error(f"Translation error: {e}")
+    except Exception:
+        logger.error("Faithful clinical-trial translation failed", exc_info=True)
         return text  # Return original text if translation fails
 
 
@@ -343,6 +352,7 @@ async def parse_trial_data(study: Dict[str, Any], translate: bool = False) -> Di
         eligibility_criteria = eligibility.get("eligibilityCriteria", "")
         study_type = design.get("studyType", "")
         overall_status = status.get("overallStatus", "")
+        condition_names = conditions.get("conditions", [])
 
         # Translate if requested
         if translate:
@@ -359,6 +369,7 @@ async def parse_trial_data(study: Dict[str, Any], translate: bool = False) -> Di
                 study_type = await translate_to_korean(study_type)
             if overall_status:
                 overall_status = await translate_to_korean(overall_status)
+            condition_names = [await translate_to_korean(item) for item in condition_names]
 
         return {
             "nctId": identification.get("nctId", ""),
@@ -369,7 +380,7 @@ async def parse_trial_data(study: Dict[str, Any], translate: bool = False) -> Di
             "studyType": study_type,
             "briefSummary": brief_summary,
             "detailedDescription": detailed_description,
-            "conditions": conditions.get("conditions", []),
+            "conditions": condition_names,
             "enrollment": design.get("enrollmentInfo", {}).get("count", 0),
             "startDate": status.get("startDateStruct", {}).get("date", ""),
             "completionDate": status.get("completionDateStruct", {}).get("date", ""),
@@ -385,68 +396,6 @@ async def parse_trial_data(study: Dict[str, Any], translate: bool = False) -> Di
     except Exception as e:
         logger.error(f"Error parsing trial data: {e}", exc_info=True)
         return {}
-
-
-async def generate_ai_summary(trial_data: Dict[str, Any], language: str = "ko") -> str:
-    """
-    Generate a clinical-trial summary using local Ollama
-    """
-    try:
-        # Prepare content for summarization
-        content = f"""
-Clinical Trial Information:
-Title: {trial_data.get('title', '')}
-Status: {trial_data.get('status', '')}
-Phase: {trial_data.get('phase', '')}
-Study Type: {trial_data.get('studyType', '')}
-Conditions: {', '.join(trial_data.get('conditions', []))}
-Brief Summary: {trial_data.get('briefSummary', '')}
-Detailed Description: {trial_data.get('detailedDescription', '')}
-Eligibility Criteria: {trial_data.get('eligibilityCriteria', '')}
-Enrollment: {trial_data.get('enrollment', 0)} participants
-"""
-
-        # Create prompt based on language
-        if language == "ko":
-            system_prompt = """당신은 의료 전문가를 위한 임상시험 요약 전문가입니다.
-주어진 임상시험 정보를 한국어로 명확하고 이해하기 쉽게 요약해주세요.
-다음 섹션을 포함해야 합니다:
-1. 연구 개요 (2-3문장)
-2. 주요 목적
-3. 대상 환자
-4. 참여 조건
-5. 임상적 의의"""
-        else:
-            system_prompt = """You are a clinical trial summary expert for medical professionals.
-Please provide a clear and concise summary of the given clinical trial information.
-Include the following sections:
-1. Study Overview (2-3 sentences)
-2. Primary Objective
-3. Target Patients
-4. Eligibility
-5. Clinical Significance"""
-
-        # Call the local Ollama model
-        client = get_ollama_client()
-        if client is None:
-            return "AI 요약을 생성할 수 없습니다." if language == "ko" else "Unable to generate AI summary."
-
-        response = await client.chat.completions.create(
-            model="qwen3.6:27b-mlx",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
-
-        summary = response.choices[0].message.content
-        return summary
-
-    except Exception as e:
-        logger.error(f"Error generating AI summary: {e}", exc_info=True)
-        return "AI 요약을 생성할 수 없습니다." if language == "ko" else "Unable to generate AI summary."
 
 
 # ==================== API Endpoints ====================
@@ -499,7 +448,7 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
         # into dozens of sequential 27B-model calls, leaving the UI spinner
         # visible for minutes. The list card can render the authoritative
         # ClinicalTrials.gov text directly; the detail endpoint performs the
-        # AI translation/summary after the user selects a trial.
+        # Field-by-field translation is deferred until the user selects a trial.
         studies = data.get("studies", [])
         trials = []
 
@@ -548,13 +497,14 @@ async def get_clinical_trials(request: ClinicalTrialListRequest) -> Dict[str, An
 
 
 @router.post("/detail")
-async def get_trial_detail_with_summary(request: ClinicalTrialDetailRequest) -> Dict[str, Any]:
+async def get_trial_detail(request: ClinicalTrialDetailRequest) -> Dict[str, Any]:
     """
-    Get detailed information about a specific clinical trial with AI-generated summary
+    Return ClinicalTrials.gov source fields and an optional faithful translation.
 
     Returns:
-        - Full trial details
-        - AI-generated summary in requested language
+        - Original source fields
+        - Faithful field-by-field translation, without interpretation
+        - Source URL and medical disclaimer
     """
     try:
         logger.info(f"Clinical trial detail request: {request.nct_id}")
@@ -562,24 +512,35 @@ async def get_trial_detail_with_summary(request: ClinicalTrialDetailRequest) -> 
         # Fetch trial detail
         data = await fetch_trial_detail(request.nct_id)
 
-        # Parse trial data with Korean translation
+        # Preserve the provider text and translate the same fields separately.
         study = data.get("protocolSection", {})
-        trial_data = await parse_trial_data({"protocolSection": study}, translate=True)
-
-        # Generate AI summary
-        ai_summary = await generate_ai_summary(trial_data, request.language)
+        source_trial = await parse_trial_data({"protocolSection": study}, translate=False)
+        translated_trial = (
+            await parse_trial_data({"protocolSection": study}, translate=True)
+            if request.language == "ko"
+            else source_trial
+        )
 
         return {
             "status": "success",
-            "trial": trial_data,
-            "aiSummary": ai_summary,
-            "generatedAt": datetime.now().isoformat()
+            "trial": source_trial,
+            "translation": translated_trial,
+            "source": {
+                "provider": "ClinicalTrials.gov",
+                "url": f"https://clinicaltrials.gov/study/{request.nct_id}",
+            },
+            "informationOnly": True,
+            "disclaimer": (
+                "공개 임상시험 정보를 제공하며 개인의 적합성, 참여 자격, 치료 효과를 "
+                "판단하거나 추천하지 않습니다. 참여 여부는 담당 의료진 및 시험기관과 상담하세요."
+            ),
+            "retrievedAt": datetime.now().isoformat(),
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in get_trial_detail_with_summary: {e}", exc_info=True)
+        logger.error("Clinical-trial detail request failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -617,7 +578,7 @@ async def health_check():
             "status": "healthy",
             "service": "clinical_trials_api",
             "clinicalTrialsGov": api_status,
-            "aiSummary": "ollama"
+            "detailContract": "source_and_faithful_translation_only",
         }
     except Exception as e:
         logger.error(f"Health check error: {e}")

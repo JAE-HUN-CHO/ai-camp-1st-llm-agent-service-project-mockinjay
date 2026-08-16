@@ -162,8 +162,8 @@ export const HealthProfileModal: React.FC<HealthProfileModalProps> = ({
         weight: basicInfo.weight,
       });
       onClose();
-    } catch (error) {
-      console.error('Failed to save health profile:', error);
+    } catch {
+      console.error('Failed to save health profile');
     } finally {
       setIsSubmitting(false);
     }

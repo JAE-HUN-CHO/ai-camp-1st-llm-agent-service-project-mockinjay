@@ -33,8 +33,8 @@ import { routeQueryStream, type AgentType, type StreamCallOptions } from '../../
 import { getChatHistoryBySession, getUserProfile } from '../../services/api';
 import { createSession, analyzeNutrition } from '../../services/dietCareApi';
 import {
+  getPublishedUserProfile,
   isUserProfile,
-  USER_PROFILE_STORAGE_KEY,
   type UserProfile,
 } from '../../utils/profileSync';
 
@@ -54,7 +54,11 @@ const ChatPageEnhanced: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
   const [chatProfile, setChatProfile] = useState<UserProfile>(user?.profile || 'general');
+  const [profileHydratedUserId, setProfileHydratedUserId] = useState<string | null>(null);
+  const [defaultRoomCreationKey, setDefaultRoomCreationKey] = useState<string | null>(null);
   const profileRevision = useRef(0);
+  const defaultRoomCreationRef = useRef<string | null>(null);
+  const defaultRoomAttemptedKeyRef = useRef<string | null>(null);
 
   // Sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -73,12 +77,17 @@ const ChatPageEnhanced: React.FC = () => {
     clearAllRooms,
     setCurrentRoomId,
     rooms,
-  } = useChatRooms();
+    isHydrated,
+    hydrationError,
+    retryHydration,
+  } = useChatRooms(user?.id, chatProfile);
 
   // Stream state
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeUserIdRef = useRef(user?.id);
+  activeUserIdRef.current = user?.id;
 
   // Messages state (keyed by room ID)
   // Chat content is restored from backend history; never persist health data in
@@ -96,6 +105,7 @@ const ChatPageEnhanced: React.FC = () => {
 
   // Refs
   const initialMessageProcessed = useRef(false);
+  const initialMessageSendRef = useRef<((message: string) => Promise<void>) | null>(null);
 
   // Page visibility animation
   const [pageVisible, setPageVisible] = useState(false);
@@ -107,6 +117,7 @@ const ChatPageEnhanced: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    const activeUserId = user?.id;
     const applyProfile = (value: string | null) => {
       if (!cancelled && isUserProfile(value)) {
         profileRevision.current += 1;
@@ -115,33 +126,38 @@ const ChatPageEnhanced: React.FC = () => {
     };
 
     const loadProfile = async () => {
+      if (!activeUserId) return;
       const requestRevision = profileRevision.current;
-      const profile = await getUserProfile();
-      if (profileRevision.current !== requestRevision) return;
-      if (profile?.profile) {
-        localStorage.setItem(USER_PROFILE_STORAGE_KEY, profile.profile);
-        applyProfile(profile.profile);
-      } else {
-        applyProfile(localStorage.getItem(USER_PROFILE_STORAGE_KEY));
+      try {
+        const profile = await getUserProfile();
+        if (profileRevision.current !== requestRevision) return;
+        if (profile?.profile) {
+          applyProfile(profile.profile);
+        } else {
+          applyProfile(getPublishedUserProfile());
+        }
+      } catch {
+        applyProfile(getPublishedUserProfile());
+      } finally {
+        if (!cancelled) setProfileHydratedUserId(activeUserId);
       }
     };
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === USER_PROFILE_STORAGE_KEY) applyProfile(event.newValue);
-    };
     const handleProfileChanged = (event: Event) => {
       applyProfile((event as CustomEvent<string>).detail);
     };
 
     void loadProfile();
-    window.addEventListener('storage', handleStorage);
     window.addEventListener('careguide:profile-changed', handleProfileChanged);
     return () => {
       cancelled = true;
-      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('careguide:profile-changed', handleProfileChanged);
     };
   }, [user?.id]);
+
+  const isRoomCreationReady = Boolean(
+    user?.id && isHydrated && profileHydratedUserId === user.id
+  );
 
   // Current agent type based on route
   const isMedicalWelfare = location.pathname === ROUTES.CHAT_MEDICAL_WELFARE;
@@ -177,42 +193,52 @@ const ChatPageEnhanced: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Handle initial message from MainPage
-  useEffect(() => {
-    const state = location.state as LocationState | null;
-    if (state?.initialMessage && !initialMessageProcessed.current) {
-      setInput(state.initialMessage);
-      initialMessageProcessed.current = true;
-
-      // Auto-send after 500ms
-      const timer = setTimeout(() => {
-        handleSend();
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [location.state]);
-
   // Create default room if none exists
   useEffect(() => {
     const initializeDefaultRoom = async () => {
+      if (!user?.id || !isRoomCreationReady) return;
       if (rooms.length === 0) {
-        await createRoom({ agentType: getCurrentAgentType() });
+        const capturedUserId = user.id;
+        const creationKey = `${capturedUserId}:${chatProfile}:${getCurrentAgentType()}`;
+        if (
+          defaultRoomCreationRef.current
+          || defaultRoomAttemptedKeyRef.current === creationKey
+        ) return;
+        defaultRoomCreationRef.current = creationKey;
+        defaultRoomAttemptedKeyRef.current = creationKey;
+        setDefaultRoomCreationKey(creationKey);
+        try {
+          await createRoom(
+            { agentType: getCurrentAgentType() },
+            capturedUserId,
+            chatProfile,
+          );
+        } catch {
+          // The hook rejects stale user/profile results and hydration failures.
+        } finally {
+          if (defaultRoomCreationRef.current === creationKey) {
+            defaultRoomCreationRef.current = null;
+          }
+          setDefaultRoomCreationKey((current) => current === creationKey ? null : current);
+        }
       } else if (!currentRoomId && rooms.length > 0) {
         setCurrentRoomId(rooms[0].id);
       }
     };
-    initializeDefaultRoom();
-  }, [rooms.length, currentRoomId, createRoom, getCurrentAgentType, setCurrentRoomId]);
+    void initializeDefaultRoom();
+  }, [rooms, currentRoomId, createRoom, defaultRoomCreationKey, getCurrentAgentType, setCurrentRoomId, user?.id, chatProfile, isRoomCreationReady]);
 
-  // Cleanup on unmount or route change
+  // Cleanup on unmount, route change, or authenticated actor transition.
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+      setStreamingContent('');
     };
-  }, [location.pathname]);
+  }, [location.pathname, user?.id]);
 
   /**
    * Toggle sidebar
@@ -236,6 +262,12 @@ const ChatPageEnhanced: React.FC = () => {
    */
   const handleSelectRoom = useCallback(
     (roomId: string) => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setIsStreaming(false);
+      setStreamingContent('');
       setCurrentRoomId(roomId);
       setIsSessionExpired(false);
     },
@@ -247,12 +279,13 @@ const ChatPageEnhanced: React.FC = () => {
    * 새 방 생성 처리
    */
   const handleCreateRoom = useCallback(async () => {
+    if (!isRoomCreationReady || !user?.id) return;
     await createRoom(
       { agentType: getCurrentAgentType() },
-      user?.id,
+      user.id,
       chatProfile
     );
-  }, [createRoom, getCurrentAgentType, user?.id, chatProfile]);
+  }, [createRoom, getCurrentAgentType, user?.id, chatProfile, isRoomCreationReady]);
 
   /**
    * Handle delete room
@@ -309,13 +342,14 @@ const ChatPageEnhanced: React.FC = () => {
    * 모든 세션 초기화 처리
    */
   const handleResetAllSessions = useCallback(async () => {
+    if (!isRoomCreationReady || !user?.id) return;
     setMessagesByRoom({});
     clearAllRooms();
     handleStopStream();
     setIsSessionExpired(false);
     // Create a new default room
-    await createRoom({ agentType: getCurrentAgentType() });
-  }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType]);
+    await createRoom({ agentType: getCurrentAgentType() }, user.id, chatProfile);
+  }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType, user?.id, chatProfile, isRoomCreationReady]);
 
   /**
    * Handle restore history
@@ -369,8 +403,9 @@ const ChatPageEnhanced: React.FC = () => {
       }
 
       setIsSessionExpired(false);
-    } catch (error) {
-      console.error('Failed to restore history:', error);
+    } catch (_error) {
+      // Preserve current messages; the existing retry state remains visible.
+      void _error;
     } finally {
       setIsRestoringHistory(false);
     }
@@ -414,6 +449,8 @@ const ChatPageEnhanced: React.FC = () => {
   const handleSendWithMessage = useCallback(async (customMessage?: string) => {
     const messageToSend = customMessage || input;
     if (!messageToSend.trim() && !selectedImage) return;
+    const initiatingUserId = user?.id;
+    if (!initiatingUserId || !isRoomCreationReady) return;
 
     // Cancel any existing request
     if (abortControllerRef.current) {
@@ -421,19 +458,37 @@ const ChatPageEnhanced: React.FC = () => {
     }
 
     // Create new AbortController for this request
-    abortControllerRef.current = new AbortController();
+    const requestController = new AbortController();
+    abortControllerRef.current = requestController;
+    const requestIsActive = () => (
+      activeUserIdRef.current === initiatingUserId
+      && abortControllerRef.current === requestController
+      && !requestController.signal.aborted
+    );
 
     // Get or create room ID (must await if creating new room)
     // 방 ID 가져오기 또는 생성 (새 방 생성 시 await 필요)
     let roomId = currentRoomId;
     if (!roomId) {
-      const newRoom = await createRoom(
-        { agentType: getCurrentAgentType() },
-        user?.id,
-        chatProfile
-      );
-      roomId = newRoom.id;
+      let createdRoomId: string;
+      try {
+        const newRoom = await createRoom(
+          { agentType: getCurrentAgentType() },
+          initiatingUserId,
+          chatProfile
+        );
+        createdRoomId = newRoom.id;
+      } catch {
+        if (abortControllerRef.current === requestController) {
+          abortControllerRef.current = null;
+        }
+        return;
+      }
+      if (!requestIsActive()) return;
+      roomId = createdRoomId;
     }
+
+    if (!requestIsActive()) return;
 
     const messageContent = selectedImage
       ? `${messageToSend || '음식 이미지 분석'} [이미지 첨부]`
@@ -472,7 +527,7 @@ const ChatPageEnhanced: React.FC = () => {
       // Handle nutrition image upload (non-streaming)
       if (isNutrition && currentImage) {
         // Create a valid session first
-        const sessionResponse = await createSession(user?.id);
+        const sessionResponse = await createSession(initiatingUserId);
 
         // Call nutrition analysis API with proper session
         const nutritionResponse = await analyzeNutrition({
@@ -480,6 +535,7 @@ const ChatPageEnhanced: React.FC = () => {
           image: currentImage,
           text: messageToSend || '음식 이미지 분석',
         });
+        if (!requestIsActive()) return;
 
         // Format the analysis result for display
         const analysis = nutritionResponse.analysis;
@@ -512,7 +568,7 @@ const ChatPageEnhanced: React.FC = () => {
         const streamOptions: StreamCallOptions = {
           sessionId: roomId,  // Use roomId as sessionId for Parlant session separation
           roomId: roomId,
-          userId: user?.id,
+          userId: initiatingUserId,
           userProfile: chatProfile,
         };
 
@@ -520,17 +576,15 @@ const ChatPageEnhanced: React.FC = () => {
           messageToSend,
           // onChunk callback
           (content, _isComplete) => {
-            setStreamingContent(content);
+            if (requestIsActive()) setStreamingContent(content);
           },
           // onError callback
-          (error) => {
-            if (error.name !== 'AbortError') {
-              console.error('Stream error:', error);
-            }
-          },
+          (_error) => undefined,
           // Options with sessionId = roomId for proper room separation
-          streamOptions
+          streamOptions,
+          requestController.signal,
         );
+        if (!requestIsActive()) return;
 
         // Add final assistant message
         const assistantMessage: ChatMessage = {
@@ -554,13 +608,12 @@ const ChatPageEnhanced: React.FC = () => {
         incrementMessageCount(roomId);
       }
     } catch (error) {
+      if (!requestIsActive()) return;
       // Don't show error for user-cancelled requests
       if ((error as Error).name === 'AbortError') {
-        console.log('Request was cancelled');
         return;
       }
 
-      console.error('Error sending message:', error);
       const errorMessage: ChatMessage = {
         id: assistantMessageId,
         role: 'assistant',
@@ -575,9 +628,14 @@ const ChatPageEnhanced: React.FC = () => {
         [roomId]: [...(prev[roomId] || []), errorMessage],
       }));
     } finally {
-      setIsStreaming(false);
-      setStreamingContent('');
-      abortControllerRef.current = null;
+      if (
+        activeUserIdRef.current === initiatingUserId
+        && abortControllerRef.current === requestController
+      ) {
+        setIsStreaming(false);
+        setStreamingContent('');
+        abortControllerRef.current = null;
+      }
     }
   }, [
     input,
@@ -589,7 +647,13 @@ const ChatPageEnhanced: React.FC = () => {
     getCurrentAgentType,
     updateRoomLastMessage,
     incrementMessageCount,
+    user?.id,
+    isRoomCreationReady,
   ]);
+
+  useEffect(() => {
+    initialMessageSendRef.current = handleSendWithMessage;
+  }, [handleSendWithMessage]);
 
   /**
    * Handle send message (delegates to handleSendWithMessage)
@@ -598,6 +662,28 @@ const ChatPageEnhanced: React.FC = () => {
   const handleSend = useCallback(async () => {
     await handleSendWithMessage();
   }, [handleSendWithMessage]);
+
+  // Consume MainPage's initial message only after actor/profile/room hydration.
+  useEffect(() => {
+    const state = location.state as LocationState | null;
+    if (
+      !isRoomCreationReady
+      || !currentRoomId
+      || !state?.initialMessage
+      || initialMessageProcessed.current
+    ) return;
+
+    const initialMessage = state.initialMessage;
+    setInput(initialMessage);
+    const timer = setTimeout(() => {
+      const sendInitialMessage = initialMessageSendRef.current;
+      if (!sendInitialMessage) return;
+      initialMessageProcessed.current = true;
+      void sendInitialMessage(initialMessage);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [currentRoomId, isRoomCreationReady, location.state]);
 
   /**
    * Handle suggestion click
@@ -634,6 +720,7 @@ const ChatPageEnhanced: React.FC = () => {
         onToggleArchive={toggleArchiveRoom}
         isOpen={isSidebarOpen}
         onClose={closeSidebar}
+        isCreateDisabled={!isRoomCreationReady}
       />
 
       {/* Main Chat Area */}
@@ -650,6 +737,21 @@ const ChatPageEnhanced: React.FC = () => {
         />
 
         {/* Messages */}
+        {hydrationError && (
+          <div
+            className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            role="alert"
+          >
+            <span>{hydrationError}</span>
+            <button
+              type="button"
+              className="shrink-0 rounded-lg bg-white px-3 py-1.5 font-medium text-red-700 shadow-sm hover:bg-red-100"
+              onClick={retryHydration}
+            >
+              다시 시도
+            </button>
+          </div>
+        )}
         <ChatMessages
           messages={currentMessages}
           isStreaming={isStreaming}
@@ -670,7 +772,7 @@ const ChatPageEnhanced: React.FC = () => {
           input={input}
           onInputChange={setInput}
           onSend={handleSend}
-          isDisabled={isStreaming}
+          isDisabled={isStreaming || !isRoomCreationReady}
           placeholder={isNutrition ? '메시지 입력...' : t.chat.placeholder}
           showImageUpload={isNutrition}
           selectedImage={selectedImage}

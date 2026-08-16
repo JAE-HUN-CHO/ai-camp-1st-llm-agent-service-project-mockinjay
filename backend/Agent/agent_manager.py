@@ -11,6 +11,7 @@ from .context_tracker import ContextTracker
 from .session_manager import SessionManager
 from .core.agent_registry import AgentRegistry
 from .core.contracts import AgentRequest, AgentResponse
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 # 에이전트 자동 import (자동 등록됨)
 from .medical_welfare import agent as _medical_welfare_agent  # noqa: F401
@@ -63,6 +64,15 @@ class AgentManager:
         Returns:
             Dict[str, Any]: Agent 응답 또는 에러
         """
+        if emergency_safety_policy.evaluate(user_input).blocked:
+            return {
+                "success": True,
+                "answer": EMERGENCY_RESPONSE,
+                "status": "success",
+                "agent_type": "emergency_safety",
+                "metadata": {"is_emergency": True, "provider": "emergency_pre_filter"},
+            }
+
         # 1. Agent 유효성 확인
         if agent_type not in self.agents:
             return {

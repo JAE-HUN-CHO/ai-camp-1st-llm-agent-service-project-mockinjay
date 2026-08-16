@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from typing import Any
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
@@ -7,6 +10,16 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 security = HTTPBearer()
+
+
+@dataclass(frozen=True, slots=True)
+class ActorContext:
+    """Trusted request actor and the resources already bound to that actor."""
+
+    user_id: str
+    room_id: str | None = None
+    session_id: str | None = None
+    health_record_id: str | None = None
 
 
 def get_request_user_id(request: Request) -> str:
@@ -71,6 +84,74 @@ async def get_current_user(credentials = Depends(security)) -> str:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="토큰 검증에 실패했습니다"
         )
+
+
+async def get_actor_context(user_id: str = Depends(get_current_user)) -> ActorContext:
+    """Build a trusted actor from the verified JWT subject."""
+    return ActorContext(user_id=str(user_id))
+
+
+async def authorize_chat_actor(
+    request: Request,
+    context_system: Any,
+    *,
+    requested_user_id: str | None,
+    room_id: str | None,
+    session_id: str | None,
+) -> ActorContext:
+    """Bind room/session identifiers to the JWT subject before downstream calls."""
+    user_id = get_request_user_id(request)
+    require_user_match(requested_user_id, user_id)
+
+    owned_room = None
+    if room_id:
+        db_manager = context_system.context_engineer.db_manager
+        await db_manager.connect()
+        database = db_manager.db
+        collection = database["chat_rooms"]
+        owned_room = await collection.find_one(
+            {"room_id": room_id, "user_id": user_id, "is_deleted": False}
+        )
+        if not owned_room:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
+
+    normalized_session_id = session_id
+    if session_id in {None, "default"}:
+        # Legacy callers may omit session_id. Bind that compatibility value to
+        # an owned room when available, otherwise keep it user-scoped so the
+        # remote-agent session cache can never be shared across actors.
+        normalized_session_id = room_id or f"default:{user_id}"
+
+    session = None
+    if normalized_session_id:
+        session = context_system.session_manager.get_session(normalized_session_id)
+        # Persisted rooms survive process restarts while SessionManager is only
+        # an in-memory accelerator. The canonical client uses room_id as the
+        # compatibility session identifier, so Mongo ownership is sufficient
+        # when that cache entry is absent.
+        compatibility_session = normalized_session_id == f"default:{user_id}"
+        if not session and not (
+            compatibility_session
+            or (owned_room and normalized_session_id == room_id)
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        if session and str(session.get("user_id")) != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: session ownership mismatch",
+            )
+
+        if room_id and session and session.get("room_id") not in {None, room_id}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: session room mismatch",
+            )
+
+    return ActorContext(
+        user_id=user_id,
+        room_id=room_id,
+        session_id=normalized_session_id,
+    )
 
 
 async def require_admin(user_id: str = Depends(get_current_user)) -> str:

@@ -19,12 +19,38 @@ class SensitiveDataFilter(logging.Filter):
     _pattern = re.compile(
         rf"(?i)({_field_names})\s*[:=]\s*(.*?)(?=\s+(?:{_field_names})\s*[:=]|[,}}\n]|$)"
     )
+    _email_pattern = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+    _bearer_pattern = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
+    _jwt_pattern = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
+    _canary_pattern = re.compile(r"(?i)\b(?:pii|health|token)[_-]?canary[-_A-Za-z0-9.]*\b")
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        record.msg = self._pattern.sub(r"\1=<redacted>", message)
+        message = self._pattern.sub(r"\1=<redacted>", message)
+        message = self._email_pattern.sub("<redacted-email>", message)
+        message = self._bearer_pattern.sub("Bearer <redacted>", message)
+        message = self._jwt_pattern.sub("<redacted-token>", message)
+        record.msg = self._canary_pattern.sub("<redacted-canary>", message)
         record.args = ()
         return True
+
+
+class RedactingFormatter(logging.Formatter):
+    """Apply the same PII policy to messages and formatted tracebacks."""
+
+    def formatException(self, exc_info) -> str:  # noqa: N802 - logging API
+        rendered = super().formatException(exc_info)
+        record = logging.LogRecord(
+            name="traceback",
+            level=logging.ERROR,
+            pathname="",
+            lineno=0,
+            msg=rendered,
+            args=(),
+            exc_info=None,
+        )
+        SensitiveDataFilter().filter(record)
+        return record.getMessage()
 
 
 def setup_logging():
@@ -36,7 +62,7 @@ def setup_logging():
     log_dir.mkdir(exist_ok=True)
 
     # Log format
-    log_format = logging.Formatter(
+    log_format = RedactingFormatter(
         fmt='%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

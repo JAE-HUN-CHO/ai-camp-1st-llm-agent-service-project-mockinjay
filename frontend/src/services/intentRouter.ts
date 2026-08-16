@@ -4,8 +4,9 @@
  */
 
 import type { IntentCategory } from '../types';
-import { INTENT_CLASSIFICATIONS, EMERGENCY_KEYWORDS } from '../types';
+import { INTENT_CLASSIFICATIONS } from '../types';
 import { env } from '../config/env';
+import { getAccessToken } from '../shared/auth/token';
 
 export type AgentType = 'medical_welfare' | 'nutrition' | 'research_paper' | 'router';
 
@@ -44,6 +45,7 @@ export interface BackendStreamChunk {
   };
   /** 에러 메시지 */
   error?: string;
+  is_emergency?: boolean;
 }
 
 /**
@@ -51,16 +53,8 @@ export interface BackendStreamChunk {
  * 나머지 의도 분류는 백엔드 RouterAgent의 LLM이 처리합니다.
  */
 export function detectIntent(text: string): IntentCategory[] {
-  const lowerText = text.toLowerCase();
-
-  // 응급 키워드만 프론트에서 즉시 체크 (빠른 응답)
-  const hasEmergency = EMERGENCY_KEYWORDS.some((keyword) => lowerText.includes(keyword));
-  if (hasEmergency) {
-    return ['MEDICAL_INFO']; // 응급 상황은 우선 처리
-  }
-
-  // 나머지는 백엔드에서 LLM으로 정밀 분류
-  // 빈 배열 반환 = 백엔드 분류 필요
+  void text;
+  // Emergency decisions are authoritative only at the backend policy boundary.
   return [];
 }
 
@@ -104,57 +98,33 @@ function addMedicalDisclaimer(content: string, intents: IntentCategory[]): strin
 }
 
 /**
- * 응급 상황 응답 생성
- */
-function generateEmergencyResponse(): string {
-  return `🚨 **응급 상황 감지**
-
-말씀하신 증상은 응급 상황일 수 있습니다.
-
-**즉시 다음 조치를 취하세요:**
-1. 119에 전화하거나
-2. 가까운 응급실을 방문하세요
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-⚠️ AI는 응급 상황을 정확히 판단할 수 없습니다.
-의심스러운 증상이 있다면 즉시 의료진의 도움을 받으시기 바랍니다.`;
-}
-
-/**
  * 백엔드 API 호출
  */
 async function callBackendAgent(
   query: string,
   agent: AgentType
 ): Promise<string> {
-  try {
-    const response = await fetch(`${env.apiBaseUrl}/api/chat/message`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: query,
-        agent_type: agent === 'router' ? 'auto' : agent,
-        session_id: 'default',
-      }),
-    });
+  const token = getAccessToken();
+  const headers: Record<string, string> = {'Content-Type': 'application/json'};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${env.apiBaseUrl}/api/chat/message`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      query: query,
+      agent_type: agent === 'router' ? 'auto' : agent,
+      session_id: 'default',
+    }),
+  });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Response error:', errorText);
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.response || data.answer || '응답을 받지 못했습니다.';
-
-    return content;
-  } catch (error) {
-    console.error(`Error calling ${agent} agent:`, error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
   }
+
+  const data = await response.json();
+  const content = data.response || data.answer || '응답을 받지 못했습니다.';
+
+  return content;
 }
 
 /**
@@ -193,7 +163,7 @@ export async function callBackendAgentStream(
   onError?: (error: Error) => void,
   options?: StreamCallOptions | 'general' | 'patient' | 'researcher',
   signal?: AbortSignal
-): Promise<{ agents: AgentType[]; intents: IntentCategory[] }> {
+): Promise<{ agents: AgentType[]; intents: IntentCategory[]; isEmergency: boolean }> {
   // 하위 호환성: options가 문자열(userProfile)인 경우 처리
   let sessionId = 'default';
   let userId: string | undefined;
@@ -209,13 +179,7 @@ export async function callBackendAgentStream(
     userProfile = options.userProfile || 'general';
   }
 
-  // Get auth token from localStorage
-  let authToken: string | null = null;
-  try {
-    authToken = localStorage.getItem('careguide_token');
-  } catch (_e) {
-    // localStorage not available
-  }
+  const authToken = getAccessToken();
 
   try {
     const headers: Record<string, string> = {
@@ -253,102 +217,103 @@ export async function callBackendAgentStream(
     let accumulatedContent = '';
     let detectedAgents: AgentType[] = [];
     let detectedIntents: IntentCategory[] = [];
+    let isEmergency = false;
+    let sseBuffer = '';
+    let terminalReceived = false;
+
+    const processEvent = (frame: string): boolean => {
+      const dataLines = frame
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).replace(/^ /, ''));
+      if (dataLines.length === 0) return false;
+
+      const data = dataLines.join('\n');
+      if (data === '[DONE]') {
+        terminalReceived = true;
+        return true;
+      }
+
+      let parsed: BackendStreamChunk;
+      try {
+        parsed = JSON.parse(data) as BackendStreamChunk;
+      } catch (error) {
+        throw new Error('Invalid SSE JSON frame', { cause: error });
+      }
+      if (parsed.error) throw new Error(parsed.error);
+
+      isEmergency = isEmergency || parsed.is_emergency === true;
+      if (parsed.metadata?.routed_to && parsed.metadata.routed_to.length > 0) {
+        const validAgents: readonly AgentType[] = [
+          'medical_welfare',
+          'nutrition',
+          'research_paper',
+          'router',
+        ];
+        const routedAgents = parsed.metadata.routed_to
+          .filter((agentName): agentName is string => typeof agentName === 'string')
+          .filter((agentName): agentName is AgentType =>
+            validAgents.includes(agentName as AgentType)
+          );
+        if (routedAgents.length > 0) {
+          detectedAgents = routedAgents;
+          detectedIntents = mapAgentsToIntents(routedAgents);
+        }
+      }
+
+      if (parsed.agent_type) {
+        const agentType = parsed.agent_type as AgentType;
+        if (!detectedAgents.includes(agentType)) detectedAgents.push(agentType);
+      }
+
+      const content = parsed.content || parsed.answer || parsed.response || '';
+      if (content) {
+        if (parsed.status === 'streaming') {
+          accumulatedContent += content;
+        } else if (parsed.status === 'new_message') {
+          accumulatedContent = accumulatedContent
+            ? `${accumulatedContent}\n\n${content}`
+            : content;
+        } else {
+          accumulatedContent = content;
+        }
+        onChunk(accumulatedContent, false, parsed);
+      }
+      return false;
+    };
 
     while (true) {
       const { done, value } = await reader.read();
 
       if (done) {
+        sseBuffer += decoder.decode();
+        if (sseBuffer.trim() && processEvent(sseBuffer.replace(/\r\n/g, '\n'))) {
+          onChunk(accumulatedContent, true);
+          return { agents: detectedAgents, intents: detectedIntents, isEmergency };
+        }
+        if (!terminalReceived) {
+          throw new Error('Chat stream ended before [DONE]');
+        }
         onChunk(accumulatedContent, true);
         break;
       }
 
-      const chunk = decoder.decode(value, { stream: true });
-
-      // SSE 형식 파싱: "data: {...}\n\n"
-      const lines = chunk.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6); // "data: " 제거
-
-          if (data === '[DONE]') {
-            onChunk(accumulatedContent, true);
-            return { agents: detectedAgents, intents: detectedIntents };
-          }
-
-          try {
-            const parsed: BackendStreamChunk = JSON.parse(data);
-
-            // 의도 정보 추출 (metadata.routed_to)
-            // Extract intent information from metadata
-            if (parsed.metadata?.routed_to && parsed.metadata.routed_to.length > 0) {
-              // 유효한 에이전트 타입만 필터링 (Filter valid agent types only)
-              const VALID_AGENTS: readonly AgentType[] = ['medical_welfare', 'nutrition', 'research_paper', 'router'];
-              const routedAgents = parsed.metadata.routed_to
-                .filter((agentName): agentName is string => typeof agentName === 'string')
-                .filter((agentName): agentName is AgentType =>
-                  VALID_AGENTS.includes(agentName as AgentType)
-                ) as AgentType[];
-
-              if (routedAgents.length > 0) {
-                detectedAgents = routedAgents;
-                detectedIntents = mapAgentsToIntents(routedAgents);
-              }
-            }
-
-            // 에이전트 타입 추출
-            if (parsed.agent_type && !detectedAgents.includes(parsed.agent_type as AgentType)) {
-              const agentType = parsed.agent_type as AgentType;
-              if (!detectedAgents.includes(agentType)) {
-                detectedAgents.push(agentType);
-              }
-            }
-
-            // 콘텐츠 추출
-            let content = '';
-            if (parsed.content) {
-              content = parsed.content;
-            } else if (parsed.answer) {
-              content = parsed.answer;
-            } else if (parsed.response) {
-              content = parsed.response;
-            }
-
-            if (content) {
-              // 스트리밍 청크인 경우 누적
-              if (parsed.status === 'streaming') {
-                accumulatedContent += content;
-                onChunk(accumulatedContent, false, parsed);
-              } else if (parsed.status === 'new_message') {
-                // 새 메시지 - 줄바꿈으로 구분하여 누적
-                if (accumulatedContent) {
-                  accumulatedContent += '\n\n' + content;
-                } else {
-                  accumulatedContent = content;
-                }
-                onChunk(accumulatedContent, false, parsed);
-              } else {
-                // 완료, 성공, 또는 기타 상태인 경우 (complete, success, undefined 등)
-                // Handle complete, success, or any other status
-                accumulatedContent = content;
-                onChunk(accumulatedContent, false, parsed);
-              }
-            }
-
-            // 에러 처리
-            if (parsed.error) {
-              throw new Error(parsed.error);
-            }
-          } catch (_e) {
-            // JSON 파싱 실패 시 무시 (불완전한 청크일 수 있음)
-            // Ignore JSON parse failures (may be incomplete chunks)
-          }
+      sseBuffer += decoder.decode(value, { stream: true });
+      sseBuffer = sseBuffer.replace(/\r\n/g, '\n');
+      let boundary = sseBuffer.indexOf('\n\n');
+      while (boundary >= 0) {
+        const frame = sseBuffer.slice(0, boundary);
+        sseBuffer = sseBuffer.slice(boundary + 2);
+        if (processEvent(frame)) {
+          onChunk(accumulatedContent, true);
+          return { agents: detectedAgents, intents: detectedIntents, isEmergency };
         }
+        boundary = sseBuffer.indexOf('\n\n');
       }
     }
 
-    return { agents: detectedAgents, intents: detectedIntents };
+    return { agents: detectedAgents, intents: detectedIntents, isEmergency };
   } catch (error) {
-    console.error(`Error in streaming call to ${agent} agent:`, error);
     if (onError) {
       onError(error as Error);
     }
@@ -398,31 +363,15 @@ export async function routeQueryStream(
   options?: StreamCallOptions | 'general' | 'patient' | 'researcher',
   signal?: AbortSignal
 ): Promise<RouterResponse> {
-  // 1. 응급 상황만 프론트에서 즉시 체크
-  const frontendIntents = detectIntent(query);
-  const isEmergency = frontendIntents.length > 0 && frontendIntents[0] === 'MEDICAL_INFO';
-
-  if (isEmergency) {
-    const emergencyContent = generateEmergencyResponse();
-    onChunk(emergencyContent, true);
-    return {
-      content: emergencyContent,
-      intents: ['MEDICAL_INFO'],
-      agents: [],
-      confidence: 1.0,
-      isDirectResponse: true,
-      isEmergency: true,
-    };
-  }
-
-  // 2. 백엔드로 라우팅 (의도 분류는 백엔드가 수행)
+  // The backend EmergencySafetyPolicy runs before every model/agent/provider.
   let finalContent = '';
   let backendAgents: AgentType[] = [];
   let backendIntents: IntentCategory[] = [];
+  let isEmergency = false;
 
   try {
     // 백엔드 스트리밍 호출 (의도 정보 추출)
-    const { agents, intents } = await callBackendAgentStream(
+    const result = await callBackendAgentStream(
       query,
       'router', // 항상 router로 시작 (자동 분류)
       (content, isComplete) => {
@@ -433,6 +382,8 @@ export async function routeQueryStream(
       options,
       signal
     );
+    const { agents, intents } = result;
+    isEmergency = result.isEmergency;
 
     // 타입 안전성을 위해 필터링
     backendAgents = agents.filter((a): a is AgentType =>
@@ -443,8 +394,7 @@ export async function routeQueryStream(
        'WELFARE_INFO', 'HEALTH_RECORD', 'LEARNING', 'POLICY', 'CHIT_CHAT'].includes(i)
     );
   } catch (error) {
-    console.error('Error in streaming call:', error);
-
+    if ((error as Error).name === 'AbortError') throw error;
     // 폴백: 응급 키워드만 체크하여 기본 응답
     const fallbackContent = `죄송합니다. 백엔드 서버와 통신 중 오류가 발생했습니다.
 
@@ -478,7 +428,7 @@ export async function routeQueryStream(
     agents: backendAgents,
     confidence: 0.85,
     isDirectResponse: false,
-    isEmergency: false,
+    isEmergency,
   };
 }
 
@@ -511,27 +461,11 @@ export async function routeQueryStream(
  * @returns 라우터 응답 객체 (Router response object)
  */
 export async function routeQuery(query: string): Promise<RouterResponse> {
-  // 1. 응급 상황만 프론트에서 즉시 체크
-  const frontendIntents = detectIntent(query);
-  const isEmergency = frontendIntents.length > 0 && frontendIntents[0] === 'MEDICAL_INFO';
-
-  if (isEmergency) {
-    return {
-      content: generateEmergencyResponse(),
-      intents: ['MEDICAL_INFO'],
-      agents: [],
-      confidence: 1.0,
-      isDirectResponse: true,
-      isEmergency: true,
-    };
-  }
-
-  // 2. 백엔드로 라우팅 (의도 분류는 백엔드가 수행)
+  // The backend EmergencySafetyPolicy is the single authoritative pre-filter.
   let content: string;
   try {
     content = await callBackendAgent(query, 'router');
-  } catch (error) {
-    console.error('Error calling backend:', error);
+  } catch (_error) {
     content = `죄송합니다. 백엔드 서버와 통신 중 오류가 발생했습니다.
 
 **가능한 원인:**

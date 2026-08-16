@@ -34,6 +34,7 @@ interface ChatSidebarProps {
   onToggleArchive: (roomId: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  isCreateDisabled?: boolean;
 }
 
 /**
@@ -103,6 +104,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onToggleArchive,
   isOpen,
   onClose,
+  isCreateDisabled = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -172,7 +174,8 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={onCreateRoom}
-                className="p-2 hover:bg-primary/10 text-primary rounded-xl transition-colors duration-200"
+                disabled={isCreateDisabled}
+                className="p-2 hover:bg-primary/10 text-primary rounded-xl transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Create new chat room"
                 title="새 대화 시작"
               >
@@ -353,4 +356,3 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
     </>
   );
 };
-

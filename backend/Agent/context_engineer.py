@@ -84,10 +84,10 @@ class ContextEngineer:
 
             # 3. Save to DB
             await self.db_manager.save_user_context(user_id, summary, keywords)
-            logger.info(f"✅ Updated context for user {user_id}: {keywords}")
+            logger.info("Updated redacted user context")
 
-        except Exception as e:
-            logger.error(f"Failed to analyze context for user {user_id}: {e}")
+        except Exception:
+            logger.error("Failed to analyze redacted user context", exc_info=True)
 
     async def get_user_context(self, user_id: str) -> dict:
         """

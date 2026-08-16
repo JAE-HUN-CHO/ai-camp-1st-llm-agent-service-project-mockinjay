@@ -58,8 +58,8 @@ export default function HealthRecordsPage() {
       setLoading(true);
       const res = await api.get<HealthRecord[]>('/api/health-records/');
       setRecords(res.data);
-    } catch (err) {
-      console.error('[HealthRecords] fetchRecords failed:', err);
+    } catch {
+      console.error('[HealthRecords] fetchRecords failed');
     } finally {
       setLoading(false);
     }
@@ -91,8 +91,8 @@ export default function HealthRecordsPage() {
       await api.delete(`/api/health-records/${id}`);
       setRecords(prev => prev.filter(r => r.id !== id));
       toast.success('기록이 삭제되었습니다.');
-    } catch (err) {
-      console.error('[HealthRecords] handleDelete failed:', err);
+    } catch {
+      console.error('[HealthRecords] handleDelete failed');
     }
   };
 
@@ -134,8 +134,8 @@ export default function HealthRecordsPage() {
       setIsFormOpen(false);
       setEditingId(null);
       setFormData(EMPTY_FORM);
-    } catch (err) {
-      console.error('[HealthRecords] handleSubmit failed:', err);
+    } catch {
+      console.error('[HealthRecords] handleSubmit failed');
     } finally {
       setSaving(false);
     }

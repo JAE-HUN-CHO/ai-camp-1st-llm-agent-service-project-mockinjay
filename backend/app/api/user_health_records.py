@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.api.dependencies import get_current_user
+from app.api.dependencies import ActorContext, get_actor_context
 from app.models.user_health_record import HealthRecordCreate, HealthRecordUpdate, HealthRecordResponse
 from app.db.connection import db
 from bson import ObjectId
+from bson.errors import InvalidId
 from datetime import datetime
 from typing import List
 
@@ -14,12 +15,12 @@ def get_health_records_collection():
     return db["health_records"]
 
 @router.get("/", response_model=List[HealthRecordResponse])
-async def get_health_records(user_id: str = Depends(get_current_user)):
+async def get_health_records(actor: ActorContext = Depends(get_actor_context)):
     """
     현재 로그인한 사용자의 모든 건강 기록을 조회합니다.
     """
     health_records_collection = get_health_records_collection()
-    cursor = health_records_collection.find({"user_id": user_id}).sort("date", -1)
+    cursor = health_records_collection.find({"user_id": actor.user_id}).sort("date", -1)
     records = [record async for record in cursor]
     
     return [
@@ -34,14 +35,14 @@ async def get_health_records(user_id: str = Depends(get_current_user)):
 @router.post("/", response_model=HealthRecordResponse)
 async def create_health_record(
     record: HealthRecordCreate,
-    user_id: str = Depends(get_current_user)
+    actor: ActorContext = Depends(get_actor_context),
 ):
     """
     새로운 건강 기록을 생성합니다.
     """
     health_records_collection = get_health_records_collection()
     record_doc = {
-        "user_id": user_id,
+        "user_id": actor.user_id,
         **record.model_dump(),
         "created_at": datetime.utcnow()
     }
@@ -50,7 +51,7 @@ async def create_health_record(
     
     return {
         "id": str(result.inserted_id),
-        "user_id": user_id,
+        "user_id": actor.user_id,
         **record.model_dump()
     }
 
@@ -58,16 +59,21 @@ async def create_health_record(
 async def update_health_record(
     record_id: str,
     record_update: HealthRecordUpdate,
-    user_id: str = Depends(get_current_user)
+    actor: ActorContext = Depends(get_actor_context),
 ):
     """
     건강 기록을 수정합니다.
     """
     health_records_collection = get_health_records_collection()
-    # 권한 확인
+    try:
+        object_id = ObjectId(record_id)
+    except (InvalidId, TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다") from None
+
+    # Bind the resource to ActorContext before any mutation.
     existing_record = await health_records_collection.find_one({
-        "_id": ObjectId(record_id),
-        "user_id": user_id
+        "_id": object_id,
+        "user_id": actor.user_id,
     })
     
     if not existing_record:
@@ -80,12 +86,14 @@ async def update_health_record(
         raise HTTPException(status_code=400, detail="업데이트할 데이터가 없습니다")
     
     await health_records_collection.update_one(
-        {"_id": ObjectId(record_id)},
+        {"_id": object_id, "user_id": actor.user_id},
         {"$set": update_data}
     )
     
     # 업데이트된 기록 조회
-    updated_record = await health_records_collection.find_one({"_id": ObjectId(record_id)})
+    updated_record = await health_records_collection.find_one(
+        {"_id": object_id, "user_id": actor.user_id}
+    )
     
     return {
         "id": str(updated_record["_id"]),
@@ -96,15 +104,20 @@ async def update_health_record(
 @router.delete("/{record_id}")
 async def delete_health_record(
     record_id: str,
-    user_id: str = Depends(get_current_user)
+    actor: ActorContext = Depends(get_actor_context),
 ):
     """
     건강 기록을 삭제합니다.
     """
     health_records_collection = get_health_records_collection()
+    try:
+        object_id = ObjectId(record_id)
+    except (InvalidId, TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다") from None
+
     result = await health_records_collection.delete_one({
-        "_id": ObjectId(record_id),
-        "user_id": user_id
+        "_id": object_id,
+        "user_id": actor.user_id,
     })
     
     if result.deleted_count == 0:

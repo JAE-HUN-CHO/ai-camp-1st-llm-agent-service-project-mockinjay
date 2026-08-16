@@ -4,13 +4,9 @@
  * 4개의 채팅 메시지 후 일일 퀴즈를 권장하는 배너
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Trophy, Star, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { storage } from '../../utils/storage';
-
-const QUIZ_PROMPT_DISMISSED_KEY = 'careguide_quiz_prompt_dismissed';
-const QUIZ_PROMPT_SHOWN_DATE_KEY = 'careguide_quiz_prompt_shown_date';
 
 interface QuizPromptBannerProps {
   userMessageCount: number;
@@ -18,28 +14,8 @@ interface QuizPromptBannerProps {
 
 export const QuizPromptBanner: React.FC<QuizPromptBannerProps> = ({ userMessageCount }) => {
   const navigate = useNavigate();
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    // Check if quiz prompt should be shown
-    const isDismissed = storage.get<boolean>(QUIZ_PROMPT_DISMISSED_KEY);
-    const lastShownDate = storage.get<string>(QUIZ_PROMPT_SHOWN_DATE_KEY);
-    const today = new Date().toDateString();
-
-    // Reset dismissal if it's a new day
-    if (lastShownDate && lastShownDate !== today) {
-      storage.remove(QUIZ_PROMPT_DISMISSED_KEY);
-    }
-
-    // Show prompt if:
-    // 1. User has sent 4 or more messages
-    // 2. Not dismissed today
-    // 3. First time showing today (reset daily)
-    if (userMessageCount >= 4 && !isDismissed) {
-      setIsVisible(true);
-      storage.set(QUIZ_PROMPT_SHOWN_DATE_KEY, today);
-    }
-  }, [userMessageCount]);
+  const [isDismissed, setIsDismissed] = useState(false);
+  const isVisible = userMessageCount >= 4 && !isDismissed;
 
   const handleClick = () => {
     navigate('/quiz');
@@ -47,8 +23,7 @@ export const QuizPromptBanner: React.FC<QuizPromptBannerProps> = ({ userMessageC
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsVisible(false);
-    storage.set(QUIZ_PROMPT_DISMISSED_KEY, true);
+    setIsDismissed(true);
   };
 
   if (!isVisible) return null;

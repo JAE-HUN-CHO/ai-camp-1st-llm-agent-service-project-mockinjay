@@ -16,6 +16,11 @@ import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 
+# The standalone runtime is local-only. Prevent transformers from performing
+# hosted cache probes while loading the already-installed cross-encoder.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
 import uuid
 from typing import Optional
 
@@ -35,6 +40,7 @@ from Agent.parlant_common import (
 )
 # ==================== Optimized Imports ====================
 from app.services.hybrid_search import OptimizedHybridSearchEngine
+from app.config import validate_port
 from parlant_nlp_adapter import create_healthcare_nlp_service
 
 # Optional: Cache Manager (requires Redis)
@@ -999,7 +1005,7 @@ async def add_guidelines(agent: p.Agent):
 
 
     _fast_answer_guideline = await agent.create_guideline(
-        condition="Always respond any query",
+        matcher=p.MATCH_ALWAYS,
         action="Always respond with a fast and concise answer. Never use exaggerated or inaccurate information. Base responses only on verified medical knowledge and search results."
     )
 
@@ -1034,7 +1040,7 @@ async def add_guidelines(agent: p.Agent):
     await emergency_guideline.prioritize_over(off_topic_blocking)
     
     await agent.create_guideline(
-        condition="When generating any response, including Korean writing, formatting, grammar, spacing, typography, presentation, readability management, and final delivery",
+        matcher=p.MATCH_ALWAYS,
         action="Apply correct Korean spacing rules; ensure grammatical accuracy and consistent honorifics; format content with clear headings, lists, and Markdown; present key points first with progressive detail and examples; translate the final answer into natural Korean; apply proper typography such as bold, italic, and code formatting; review readability, sentence flow, spacing, and clarity before sending; and ensure that the final answer always follows a consistent, proper format without deviation."
     )
 
@@ -1166,7 +1172,7 @@ async def register_agent(server: p.Server) -> None:
         journey = await create_integrated_medical_journey(agent)
 
         print("="*70)
-        print("🎉 CareGuide v2.0 Server Successfully Started!")
+        print("CareGuide v2.0 registration summary")
         print("="*70)
         print("\n📋 **Server Information**:")
         print(f"  • CareGuide Agent ID: {agent.id}")
@@ -1189,14 +1195,26 @@ async def register_agent(server: p.Server) -> None:
 
 if __name__ == "__main__":
     async def run_standalone():
+        research_port = validate_port(int(os.getenv("RESEARCH_PORT", "8800")), "RESEARCH_PORT")
+        tool_port = validate_port(
+            int(os.getenv("RESEARCH_TOOL_PORT", "8818")), "RESEARCH_TOOL_PORT"
+        )
+        if research_port == tool_port:
+            raise ValueError("RESEARCH_PORT and RESEARCH_TOOL_PORT must be distinct")
         async with p.Server(
             host="127.0.0.1",
-            port=int(os.getenv("RESEARCH_PORT", "8800")),
+            port=research_port,
+            tool_service_port=tool_port,
             nlp_service=create_healthcare_nlp_service,
             session_store="local",
             customer_store="local",
         ) as server:
+            async def report_ready() -> None:
+                await server.ready.wait()
+                print(f"Server ready: http://127.0.0.1:{research_port}/healthz")
+
+            asyncio.create_task(report_ready())
             await register_agent(server)
-            print("Server running standalone. Press Ctrl+C to exit.")
+            print("Registration complete; semantic evaluation and readiness are pending.")
 
     asyncio.run(run_standalone())

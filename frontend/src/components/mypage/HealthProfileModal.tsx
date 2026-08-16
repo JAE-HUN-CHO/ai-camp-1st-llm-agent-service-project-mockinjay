@@ -154,9 +154,9 @@ const HealthProfileModal: React.FC<HealthProfileModalProps> = ({
         notes: notes.trim(),
       });
       onClose();
-    } catch (err: unknown) {
+    } catch {
       setError('건강 프로필 저장 중 오류가 발생했습니다.');
-      console.error('Error updating health profile:', err);
+      console.error('Error updating health profile');
     } finally {
       setSubmitting(false);
     }

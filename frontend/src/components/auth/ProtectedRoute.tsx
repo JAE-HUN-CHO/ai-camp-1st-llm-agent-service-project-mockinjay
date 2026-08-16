@@ -45,32 +45,15 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   allowUnauthenticated = false,
   redirectTo = ROUTES.LOGIN,
-  fallback = null,
+  fallback: _fallback = null,
 }) => {
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
 
   // 비인증 접근 허용된 경우 바로 렌더링
   // Render directly if unauthenticated access is allowed
   if (allowUnauthenticated) {
     return <>{children}</>;
-  }
-
-  // 토큰이 localStorage에 있지만 아직 Context에 로드되지 않은 경우
-  // 초기 렌더링 시 깜빡임 방지
-  // If token exists in localStorage but not yet loaded to Context
-  // Prevents flash during initial render
-  const hasStoredToken = typeof window !== 'undefined' &&
-    localStorage.getItem('careguide_token') !== null;
-
-  // 토큰이 저장되어 있지만 Context가 아직 준비되지 않은 경우 로딩 표시
-  // Show loading if token is stored but Context is not ready yet
-  if (hasStoredToken && !isAuthenticated && !token) {
-    return fallback ? <>{fallback}</> : (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
   }
 
   // 인증되지 않은 경우 로그인 페이지로 리디렉션

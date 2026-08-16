@@ -1,6 +1,6 @@
 # ADR-008: Single Frontend Root Directory
 
-- **Status**: Proposed
+- **Status**: Superseded by ADR-011
 - **Date**: 2026-08-11
 - **Related**: [ADR-001](./ADR-001-canonical-frontend.md), [`BOUNDARY_MAP.md`](../agents/BOUNDARY_MAP.md)
 

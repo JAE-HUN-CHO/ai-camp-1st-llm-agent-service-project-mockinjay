@@ -29,7 +29,8 @@ import { MobileHeader } from '../../components/layout/MobileHeader';
 import { fetchPosts, fetchFeaturedPosts, fetchPostDetailPage, createComment, deleteComment, toggleLike, deletePost } from '../../services/communityApi';
 
 // Utils
-import { storage, getAnonymousId } from '../../utils/storage';
+import { getAnonymousId } from '../../utils/storage';
+import { useAuth } from '../../contexts/AuthContext';
 import type { PostCard as PostCardType, PostDetail, Comment } from '../../types/community';
 
 const CommunityPageEnhanced: React.FC = () => {
@@ -46,6 +47,7 @@ const CommunityPageEnhanced: React.FC = () => {
 
 // ==================== Post Detail View ====================
 const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ postId, language }) => {
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [post, setPost] = useState<PostDetail | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -58,7 +60,7 @@ const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ p
   const [isCommentAnonymous, setIsCommentAnonymous] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  const isLoggedIn = !!storage.get('careguide_token');
+  const isLoggedIn = isAuthenticated;
 
   const t = {
     back: language === 'ko' ? '목록으로' : 'Back to list',
@@ -195,8 +197,7 @@ const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ p
   // Check if current user can delete post (author only)
   // 사용자가 게시글 작성자인 경우에만 삭제 가능 (Check if user is the post author)
   // 로그인 사용자: user.id 비교, 익명 사용자: getAnonymousId() 비교
-  const savedUser = storage.get<{ id: string }>('careguide_user');
-  const currentUserId = savedUser?.id || getAnonymousId();
+  const currentUserId = user?.id || getAnonymousId();
   const canDeletePost = currentUserId === post.authorId || currentUserId === post.userId;
 
   return (
@@ -341,8 +342,7 @@ const PostDetailView: React.FC<{ postId: string; language: 'en' | 'ko' }> = ({ p
             // Check if current user can delete comment (author only)
             // 사용자가 댓글 작성자인 경우에만 삭제 가능 (Check if user is the comment author)
             // 로그인 사용자: user.id 비교, 익명 사용자: getAnonymousId() 비교
-            const commentSavedUser = storage.get<{ id: string }>('careguide_user');
-            const commentCurrentUserId = commentSavedUser?.id || getAnonymousId();
+            const commentCurrentUserId = user?.id || getAnonymousId();
             const canDeleteComment = commentCurrentUserId === comment.authorId || commentCurrentUserId === comment.userId;
             return (
               <div

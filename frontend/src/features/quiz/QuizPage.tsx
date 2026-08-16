@@ -6,24 +6,14 @@ import { Brain, Trophy, Target, CheckCircle, XCircle, AlertCircle } from 'lucide
 import api from '../../services/api';
 import { AxiosError } from 'axios';
 
-// 비회원용 익명 ID 생성/관리
+// 비회원용 익명 ID는 브라우저 메모리에만 유지한다.
+let anonymousQuizId: string | null = null;
+
 const getAnonymousUserId = (): string => {
-  const STORAGE_KEY = 'careguide_anonymous_quiz_id';
-  try {
-    let anonymousId = localStorage.getItem(STORAGE_KEY);
-
-    if (!anonymousId) {
-      // 새 익명 ID 생성: anon_timestamp_random
-      anonymousId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      localStorage.setItem(STORAGE_KEY, anonymousId);
-    }
-
-    return anonymousId;
-  } catch (e) {
-    console.warn('Could not access localStorage for anonymous ID:', e);
-    // Fallback to session-only ID
-    return `anon_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  if (!anonymousQuizId) {
+    anonymousQuizId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
   }
+  return anonymousQuizId;
 };
 
 interface QuizQuestion {

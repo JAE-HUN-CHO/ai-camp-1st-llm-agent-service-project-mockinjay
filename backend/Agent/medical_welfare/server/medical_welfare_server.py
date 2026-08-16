@@ -33,6 +33,7 @@ from parlant_nlp_adapter import create_healthcare_nlp_service
 # 서비스 imports
 from app.db.welfare_manager import WelfareManager
 from app.db.hospital_manager import HospitalManager
+from app.config import validate_port
 import logging
 
 # 공통 도구 imports
@@ -217,7 +218,7 @@ async def search_welfare_programs(
             logger.warning(f"Invalid category '{category}' provided. Ignoring filter to search all categories.")
             category = None
 
-        logger.info(f"Welfare search: query='{query}', category={category}, disease={disease}, stage={ckd_stage}")
+        logger.info("Welfare search received with redacted criteria")
 
         # Search welfare programs
         results = await WELFARE_MANAGER.search_programs(
@@ -341,7 +342,7 @@ async def search_hospitals(
             mapped_type = None
             has_dialysis = True
 
-        logger.info(f"Hospital search: query='{query}', type={mapped_type}, region={region}, has_dialysis={has_dialysis}")
+        logger.info("Hospital search received with redacted criteria")
 
         # Search hospitals
         results = await HOSPITAL_MANAGER.search_hospitals(
@@ -433,7 +434,7 @@ async def add_guidelines(agent: p.Agent):
 
 
     _fast_answer_guideline = await agent.create_guideline(
-        condition="Always respond any query",
+        matcher=p.MATCH_ALWAYS,
         action="Always respond with a fast and concise answer. Never use exaggerated or inaccurate information. Base responses only on verified medical knowledge and search results."
     )
 
@@ -468,7 +469,7 @@ async def add_guidelines(agent: p.Agent):
     await emergency_guideline.prioritize_over(off_topic_blocking)
     
     await agent.create_guideline(
-        condition="When generating any response, including Korean writing, formatting, grammar, spacing, typography, presentation, readability management, and final delivery",
+        matcher=p.MATCH_ALWAYS,
         action="Apply correct Korean spacing rules; ensure grammatical accuracy and consistent honorifics; format content with clear headings, lists, and Markdown; present key points first with progressive detail and examples; translate the final answer into natural Korean; apply proper typography such as bold, italic, and code formatting; review readability, sentence flow, spacing, and clarity before sending; and ensure that the final answer always follows a consistent, proper format without deviation."
     )
 
@@ -514,10 +515,10 @@ async def register_agent(server: p.Server, welfare_port: int | None = None):
 
         
         print("\n" + "="*70)
-        print(f"🟢 Medical Welfare Server is running on port {welfare_port}")
+        print(f"Medical Welfare registration complete for port {welfare_port}")
         print(f"   Agent ID: {agent.id}")
         print(f"   Journey ID: {welfare_journey.id}")
-        print("   Press Ctrl+C to exit.")
+        print("   Semantic evaluation and readiness are pending.")
         print("="*70 + "\n")
         profile = get_default_profile()
         # Create profile tag
@@ -533,7 +534,7 @@ async def register_agent(server: p.Server, welfare_port: int | None = None):
 
         # Display server information
         print("="*70)
-        print("🎉 Medical Welfare Server Successfully Started!")
+        print("Medical Welfare registration summary")
         print("="*70)
         print("\n📋 **Server Information**:")
         print(f"  • Medical Welfare Agent ID: {agent.id}")
@@ -563,14 +564,25 @@ async def cleanup_managers():
 if __name__ == "__main__":
     async def run_standalone():
         try:
-            welfare_port = int(os.getenv("WELFARE_PORT", "8801"))
+            welfare_port = validate_port(int(os.getenv("WELFARE_PORT", "8801")), "WELFARE_PORT")
+            tool_port = validate_port(
+                int(os.getenv("WELFARE_TOOL_PORT", "8819")), "WELFARE_TOOL_PORT"
+            )
+            if welfare_port == tool_port:
+                raise ValueError("WELFARE_PORT and WELFARE_TOOL_PORT must be distinct")
             async with p.Server(
                 host="127.0.0.1",
                 port=welfare_port,
+                tool_service_port=tool_port,
                 nlp_service=create_healthcare_nlp_service,
                 session_store="local",
                 customer_store="local",
             ) as server:
+                async def report_ready() -> None:
+                    await server.ready.wait()
+                    logger.info("Server ready: http://127.0.0.1:%s/healthz", welfare_port)
+
+                asyncio.create_task(report_ready())
                 await register_agent(server, welfare_port)
         except KeyboardInterrupt:
             logger.info("\n🛑 Received shutdown signal")

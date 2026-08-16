@@ -27,6 +27,7 @@ from Agent.core.agent_registry import AgentRegistry
 from Agent.core.contracts import AgentRequest, AgentResponse
 from Agent.core.execution_type import ExecutionType
 from app.config import PortConfigurationError, validate_parlant_ports, validate_port
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 # Parlant client
 from parlant.client.client import AsyncParlantClient
@@ -64,6 +65,8 @@ class MedicalWelfareAgent(LocalAgent):
     _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}
+    _client_initialization_lock: asyncio.Lock | None = None
+    _client_initialization_loop: asyncio.AbstractEventLoop | None = None
 
     # Session-based polling management
     # 세션 기반 폴링 관리
@@ -106,11 +109,23 @@ class MedicalWelfareAgent(LocalAgent):
     
     @classmethod
     async def _check_server_running(cls) -> bool:
-        """Check if Parlant server is running"""
+        """Require a 200 JSON agent list containing the expected identity."""
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{cls._server_url}/api/agents", timeout=2.0)
-                return response.status_code in [200, 401, 403, 404]
+                for path in ("/agents", "/api/agents"):
+                    response = await client.get(f"{cls._server_url}{path}", timeout=2.0)
+                    if response.status_code != 200:
+                        continue
+                    payload = response.json()
+                    agents = payload if isinstance(payload, list) else payload.get("items", [])
+                    if any(
+                        isinstance(agent, dict)
+                        and agent.get("id")
+                        and agent.get("name") == "MedicalWelfare_Agent"
+                        for agent in agents
+                    ):
+                        return True
+                return False
         except Exception:
             return False
     
@@ -122,23 +137,24 @@ class MedicalWelfareAgent(LocalAgent):
             return
         
         if cls._parlant_server_process is not None:
-            logger.info("✅ Medical Welfare server process already started")
-            return
-        
-        logger.info("🚀 Starting Medical Welfare Parlant server...")
-        
-        server_path = Path(__file__).parent / "server" / "medical_welfare_server.py"
-        
-        if not server_path.exists():
-            raise FileNotFoundError(f"Server not found: {server_path}")
-        
-        logger.info(f"📝 Server path: {server_path}")
-        
-        cls._parlant_server_process = subprocess.Popen(
-            [sys.executable, str(server_path)],
-            cwd=str(server_path.parent),
-            env=os.environ.copy()
-        )
+            if cls._parlant_server_process.poll() is not None:
+                raise RuntimeError("Medical Welfare server process exited before readiness")
+            logger.info("⏳ Medical Welfare server process is still starting")
+        else:
+            logger.info("🚀 Starting Medical Welfare Parlant server...")
+
+            server_path = Path(__file__).parent / "server" / "medical_welfare_server.py"
+
+            if not server_path.exists():
+                raise FileNotFoundError(f"Server not found: {server_path}")
+
+            logger.info(f"📝 Server path: {server_path}")
+
+            cls._parlant_server_process = subprocess.Popen(
+                [sys.executable, str(server_path)],
+                cwd=str(server_path.parent),
+                env=os.environ.copy()
+            )
         
         logger.info("⏳ Waiting for server to start...")
         max_wait = 60
@@ -164,28 +180,47 @@ class MedicalWelfareAgent(LocalAgent):
         raise TimeoutError(f"Server failed to start within {max_wait}s")
     
     @classmethod
+    def _get_client_initialization_lock(cls) -> asyncio.Lock:
+        """Return the lazy lock for this agent's single event-loop runtime."""
+        loop = asyncio.get_running_loop()
+        if cls._client_initialization_loop is None:
+            cls._client_initialization_lock = asyncio.Lock()
+            cls._client_initialization_loop = loop
+        elif cls._client_initialization_loop is not loop:
+            raise RuntimeError("Medical Welfare client requires a single asyncio event loop")
+        elif cls._client_initialization_lock is None:
+            cls._client_initialization_lock = asyncio.Lock()
+        return cls._client_initialization_lock
+
+    @classmethod
     async def _get_client(cls) -> AsyncParlantClient:
         """Get singleton Parlant client"""
-        if cls._parlant_client is None:
-            await cls._ensure_server_running()
-            
-            # Create httpx client with extended timeout for long-polling
-            httpx_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    connect=10.0,      # Connection timeout
-                    read=240.0,        # Read timeout - 4 minutes for long-polling
-                    write=10.0,        # Write timeout
-                    pool=None          # No pool timeout
+        async with cls._get_client_initialization_lock():
+            if cls._parlant_client is None:
+                await cls._ensure_server_running()
+
+                # Create httpx client with extended timeout for long-polling
+                httpx_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=10.0,      # Connection timeout
+                        read=240.0,        # Read timeout - 4 minutes for long-polling
+                        write=10.0,        # Write timeout
+                        pool=None          # No pool timeout
+                    )
                 )
-            )
-            
-            cls._parlant_client = AsyncParlantClient(
-                base_url=cls._server_url,
-                httpx_client=httpx_client
-            )
-            logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
-            
-            await cls._setup_agent()
+
+                cls._parlant_client = AsyncParlantClient(
+                    base_url=cls._server_url,
+                    httpx_client=httpx_client
+                )
+                logger.info(f"✅ Parlant client connected to {cls._server_url} (read timeout: 240s)")
+
+                try:
+                    await cls._setup_agent()
+                except Exception:
+                    cls._parlant_client = None
+                    await httpx_client.aclose()
+                    raise
         
         return cls._parlant_client
     
@@ -206,9 +241,7 @@ class MedicalWelfareAgent(LocalAgent):
                     cls._agent_id = target_agent.id
                     logger.info(f"✅ Using agent: {target_agent.name} (ID: {cls._agent_id})")
                 else:
-                    # Fallback to first agent if specific one not found
-                    cls._agent_id = agents_response[0].id
-                    logger.warning(f"⚠️ 'MedicalWelfare_Agent' not found, using first available: {agents_response[0].name} (ID: {cls._agent_id})")
+                    raise ValueError("Expected Parlant agent 'MedicalWelfare_Agent' not found")
             else:
                 raise ValueError("No agents found on Parlant server")
         except Exception as e:
@@ -517,10 +550,17 @@ class MedicalWelfareAgent(LocalAgent):
         Returns:
             AgentResponse with answer, sources
         """
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            return AgentResponse(
+                answer=EMERGENCY_RESPONSE,
+                status="success",
+                agent_type="emergency_safety",
+                metadata={"is_emergency": True, "provider": "emergency_pre_filter"},
+            )
         await self._initialize()
 
         try:
-            logger.info(f"🏥 Medical Welfare query: {request.query[:50]}...")
+            logger.info("Medical Welfare received a redacted query")
 
             # Get or create valid session (with automatic stale session recovery)
             # 유효한 세션 가져오기/생성 (스테일 세션 자동 복구 포함)
@@ -689,7 +729,7 @@ class MedicalWelfareAgent(LocalAgent):
                     
                     if msg_text and msg_text.strip():
                         full_answer.append(msg_text)
-                        logger.debug(f"📝 Extracted message: {msg_text[:100]}...")
+                        logger.debug("Extracted a provider message")
                 
                 answer_text = '\n'.join(full_answer)
                 
@@ -736,10 +776,19 @@ class MedicalWelfareAgent(LocalAgent):
         Stream responses from Parlant using continuous polling.
         연속 폴링을 사용하여 Parlant로부터 응답 스트림
         """
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            yield {
+                "answer": EMERGENCY_RESPONSE,
+                "content": EMERGENCY_RESPONSE,
+                "status": "complete",
+                "agent_type": "emergency_safety",
+                "is_emergency": True,
+            }
+            return
         await self._initialize()
 
         try:
-            logger.info(f"🏥 Medical Welfare query (stream): {request.query[:50]}...")
+            logger.info("Medical Welfare received a redacted streaming query")
 
             # Get or create valid session (with automatic stale session recovery)
             # 유효한 세션 가져오기/생성 (스테일 세션 자동 복구 포함)

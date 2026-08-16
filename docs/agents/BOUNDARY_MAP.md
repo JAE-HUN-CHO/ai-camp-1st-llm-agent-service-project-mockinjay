@@ -26,8 +26,8 @@ CareGuide의 도메인은 하나의 bounded context로 유지한다. 다만 변�
                                       │
                          ┌────────────▼─────────────┐
                          │ External Integrations     │
-                         │ OpenAI, PubMed, Clinical  │
-                         │ Trials.gov, MongoDB       │
+                         │ Ollama, Parlant, PubMed,  │
+                         │ ClinicalTrials.gov        │
                          └──────────────────────────┘
 
              Tests / Eval observe every boundary; Scripts execute workflows.
@@ -196,7 +196,7 @@ HTTP Router
 
 ### 정리 대상
 
-- `new_frontend`의 기능을 최종 `frontend`로 이전
+- `frontend/` 내부의 legacy component/service 정리
 - `frontend/src/services/api.ts` 도메인별 분리
 - `frontend/src/components/mypage/MyPageModals.tsx` 분리
 - `ChatPageEnhanced.tsx`, `TrendsPageEnhanced.tsx`의 fetching을 hooks로 이동
@@ -204,7 +204,9 @@ HTTP Router
 
 ### Frontend consolidation rule
 
-현재 구현 완성도가 높은 `new_frontend`를 기능 원본으로 삼고, 최종 디렉터리 이름만 `frontend`로 통일하는 것을 기본안으로 한다. 기존 `frontend`는 기능별로 `reuse / replace / obsolete`를 판정하고, `stitch_frontend`는 디자인 자산만 이관한다. 세 디렉터리를 동시에 유지하는 기간은 migration branch와 parity test가 통과할 때까지로 제한한다.
+통합은 완료됐다. ADR-011에 따라 `frontend/`만 제품 코드이며 `new_frontend/`와
+`stitch_frontend/`는 `logs/rollback/` 아래 historical material이다. 신규 기능·버그 수정·디자인
+이관의 기준은 항상 현재 `frontend/`이고 rollback 원본을 migration source로 사용하지 않는다.
 
 ## 5. Scripts boundary
 
@@ -286,17 +288,18 @@ Observability: logs, error payload, latency, cache hit/miss
 
 ### 포함 범위
 
-- OpenAI/LLM provider
-- Parlant runtime
+- Ollama local generation/embedding adapter
+- Parlant local runtime
 - PubMed/ClinicalTrials.gov
 - MongoDB/Vector Search
 
 ### 규칙
 
-- provider별 adapter를 둔다.
+- local runtime과 공개 정보 source별 adapter를 둔다.
 - timeout, retry, rate limit, fallback을 adapter 경계에서 처리한다.
 - provider response를 내부 domain/API schema로 변환한다.
 - API key와 provider-specific type이 frontend로 새지 않게 한다.
+- hosted/paid LLM provider는 비활성 historical 경로이며 local-first runtime에서 호출·fallback하지 않는다.
 
 ## Runtime / configuration rule
 
@@ -313,7 +316,8 @@ Observability: logs, error payload, latency, cache hit/miss
 - LLM과 embedding은 local adapter를 기본값으로 둔다.
 - MongoDB와 vector 검색은 로컬 runtime을 기본값으로 둔다.
 - PubMed/ClinicalTrials.gov 같은 외부 데이터는 backend adapter와 local cache를 통해서만 사용한다.
-- 외부 provider는 opt-in이며, provider 없이도 핵심 테스트가 실행되어야 한다.
+- PubMed/ClinicalTrials.gov 같은 공개 정보 source는 명시적으로 opt-in하며, hosted LLM provider 없이
+  핵심 테스트와 로컬 채팅이 실행되어야 한다.
 - 패키지는 최신 안정 버전을 검토하되 lockfile/compiled requirements로 고정한다.
 
 Cache는 별도 최상위 경계가 아니다. domain-persistent cache는 backend feature repository와 local MongoDB가 소유하고, 재생성 가능한 cache는 backend cache adapter 또는 frontend의 비민감 UX cache가 소유한다.

@@ -19,6 +19,7 @@ from Agent.router.prompts import (
     is_emergency_query,
     IntentCategory
 )
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class RouterAgent(LocalAgent):
         """
         # Quick emergency check
         if is_emergency_query(query):
-            logger.warning(f"🚨 EMERGENCY DETECTED in query: {query}")
+            logger.warning("Emergency query blocked before classification")
             return {
                 "intents": ["MEDICAL_INFO"],
                 "confidence": 1.0,
@@ -141,11 +142,10 @@ class RouterAgent(LocalAgent):
         
         # Log classification details
         logger.info("📊 Intent Classification:")
-        logger.info(f"   Query: {query}")
         logger.info(f"   Intents: {intents}")
         
         if is_emergency:
-             logger.warning(f"🚨 EMERGENCY FLAG SET for query: {query}")
+             logger.warning("Emergency flag set by deterministic policy")
 
         # Map frontend intent categories to backend agent names
         agent_mapping = {
@@ -253,7 +253,19 @@ class RouterAgent(LocalAgent):
         """
         Process the request by routing to appropriate agents.
         """
-        logger.info(f"🔄 Router received query: {request.query}")
+        decision = emergency_safety_policy.evaluate(request.query)
+        if decision.blocked:
+            return AgentResponse(
+                answer=EMERGENCY_RESPONSE,
+                sources=[],
+                papers=[],
+                tokens_used=0,
+                status="success",
+                agent_type="emergency_safety",
+                metadata={"is_emergency": True, "provider": "emergency_pre_filter"},
+            )
+
+        logger.info("Router received a redacted query")
 
         # 1. Classify Intent
         target_agent = request.context.get("target_agent") if request.context else None
@@ -360,7 +372,17 @@ class RouterAgent(LocalAgent):
         Process request with streaming support.
         Supports streaming for single-agent and real-time updates for multi-agent.
         """
-        logger.info(f"🔄 Router received query (stream): {request.query}")
+        decision = emergency_safety_policy.evaluate(request.query)
+        if decision.blocked:
+            yield {
+                "content": EMERGENCY_RESPONSE,
+                "status": "complete",
+                "agent_type": "emergency_safety",
+                "is_emergency": True,
+            }
+            return
+
+        logger.info("Router received a redacted streaming query")
 
         # 1. Classify Intent
         target_agent = request.context.get("target_agent") if request.context else None
