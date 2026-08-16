@@ -22,6 +22,7 @@ def test_frontend_account_and_health_routes_are_registered() -> None:
     assert _route_methods("/api/auth/change-password") <= {"POST"}
     assert {"GET", "POST"} <= _route_methods("/api/health-records/")
     assert {"PUT", "DELETE"} <= _route_methods("/api/health-records/{record_id}")
+    assert not _route_methods("/api/health")
 
 
 def test_quiz_contract_uses_session_endpoints() -> None:

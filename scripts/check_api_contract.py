@@ -53,7 +53,12 @@ def main() -> int:
         if missing:
             failures.append(f"{path}: missing {sorted(missing)}")
 
-    for stale_path in ("/api/quiz/start", "/api/quiz/submit", "/api/trends"):
+    for stale_path in (
+        "/api/health",
+        "/api/quiz/start",
+        "/api/quiz/submit",
+        "/api/trends",
+    ):
         if route_methods(stale_path):
             failures.append(f"stale route still registered: {stale_path}")
     if any(getattr(route, "path", "").startswith("/api/v2") for route in app.routes):

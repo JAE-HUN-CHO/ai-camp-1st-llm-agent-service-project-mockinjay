@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "route_prefix": "/api/health-records",
+  "routes": {
+    "list": {"method": "GET", "path": "/", "status": 200},
+    "create": {"method": "POST", "path": "/", "status": 200},
+    "update": {"method": "PUT", "path": "/{record_id}", "status": 200},
+    "delete": {"method": "DELETE", "path": "/{record_id}", "status": 200}
+  },
+  "content_type": "application/json",
+  "record_keys": [
+    "albumin",
+    "creatinine",
+    "date",
+    "gfr",
+    "hco3",
+    "hemoglobin",
+    "hospital",
+    "id",
+    "memo",
+    "phosphorus",
+    "potassium",
+    "pth",
+    "user_id"
+  ],
+  "delete_payload": {
+    "success": true,
+    "message": "기록이 삭제되었습니다"
+  },
+  "errors": {
+    "invalid_or_unowned_id": {"status": 404, "detail": "기록을 찾을 수 없습니다"},
+    "empty_update": {"status": 400, "detail": "업데이트할 데이터가 없습니다"}
+  },
+  "semantics": {
+    "owner_source": "jwt_actor",
+    "optional_null_is_clear": true,
+    "omitted_update_field_is_unchanged": true,
+    "list_order": "date_descending"
+  }
+}

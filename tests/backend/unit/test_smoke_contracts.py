@@ -1,8 +1,10 @@
 """Fail-closed evidence and SSE contract tests for Phase-1 scripts."""
 
 import json
+import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -10,13 +12,25 @@ SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import check_architecture_dependencies
+from audit_health_records_schema import BASELINE_INDEXES, evaluate_schema_audit
 from check_architecture_dependencies import _matches_module, imports
 from check_artifact_pii import main as pii_main
 from smoke_api_chat import SmokeContractError, parse_sse_line, serialize_stream_evidence
 from smoke_common import ensure_redacted, require_local_http
 from smoke_parlant_http import _discover, _event_summary, _prepare_error_artifact
 from run_chat_http_verification import _readiness_only, _stream_summary
+from run_health_records_http_verification import (
+    _stop_process,
+    read_schema_audit,
+    resolve_artifact_path,
+    telemetry_failures,
+)
 from summarize_chat_rollout import RolloutEvidenceError, main as rollout_main, validate_selector
+from summarize_health_records_phase3a import (
+    cross_user_cases,
+    required_counter_totals,
+    selector_identities_match,
+)
 from sanitize_verification_artifacts import sanitize_junit, sanitize_stream
 from verification_manifest import append_command, run_command
 
@@ -59,6 +73,175 @@ def test_chat_smoke_error_carries_only_transport_metadata() -> None:
 
     assert error.status_code == 503
     assert error.content_type == "application/json"
+
+
+def test_health_records_telemetry_requires_selected_crud_and_rejects_opposite() -> None:
+    selected = {
+        "hex.list.success": 2,
+        "hex.create.success": 2,
+        "hex.update.success": 1,
+        "hex.delete.success": 1,
+    }
+    assert telemetry_failures(selected, "hex") == []
+
+    selected.pop("hex.update.success")
+    selected["legacy.list.success"] = 1
+    assert telemetry_failures(selected, "hex") == [
+        "missing hex.update.success",
+        "opposite implementation telemetry present: legacy.list.success",
+    ]
+
+
+def test_health_records_artifacts_cannot_escape_the_run_directory(tmp_path) -> None:
+    assert resolve_artifact_path(tmp_path, Path("selector/hex.json")) == (
+        tmp_path / "selector/hex.json"
+    )
+    with pytest.raises(ValueError, match="artifact_dir"):
+        resolve_artifact_path(tmp_path, Path("../outside.json"))
+    with pytest.raises(ValueError, match="artifact_dir"):
+        resolve_artifact_path(tmp_path, tmp_path / "absolute.json")
+
+
+def test_health_records_schema_audit_counters_are_observed(tmp_path) -> None:
+    audit = tmp_path / "schema.json"
+    audit.write_text(
+        json.dumps(
+            {
+                "result": "pass",
+                "schema_migration_count": 0,
+                "index_migration_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert read_schema_audit(audit) == {
+        "schema_migration_count": 0,
+        "index_migration_count": 0,
+    }
+
+    audit.write_text(
+        json.dumps(
+            {
+                "result": "pass",
+                "schema_migration_count": 1,
+                "index_migration_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="schema_migration_count"):
+        read_schema_audit(audit)
+
+
+def test_health_records_shutdown_distinguishes_terminate_and_kill() -> None:
+    graceful = Mock()
+    graceful.poll.return_value = None
+    graceful.returncode = -15
+    graceful.wait.return_value = -15
+    graceful_result = _stop_process(graceful)
+    assert graceful_result.controlled is True
+    assert graceful_result.method == "terminate"
+    assert graceful_result.exit_code == -15
+
+    forced = Mock()
+    forced.poll.return_value = None
+    forced.returncode = -9
+    forced.wait.side_effect = [subprocess.TimeoutExpired("uvicorn", 20), -9]
+    forced_result = _stop_process(forced)
+    assert forced_result.controlled is False
+    assert forced_result.method == "kill"
+    assert forced_result.exit_code == -9
+
+
+def test_health_records_summary_counters_are_derived_and_fail_closed() -> None:
+    selector = {
+        "hosted_provider_call_count": 0,
+        "mongodb": {"schema_migration_count": 0},
+        "pii": {"leak_count": 0},
+        "smoke": {
+            "http": {
+                "unauthorized_write_count": 0,
+                "synthetic_leak_count": 0,
+            }
+        },
+    }
+
+    totals, missing = required_counter_totals([selector, selector])
+    assert totals == {
+        "unauthorized_write_count": 0,
+        "synthetic_leak_count": 0,
+        "synthetic_record_leak_count": 0,
+        "hosted_provider_call_count": 0,
+        "schema_migration_count": 0,
+    }
+    assert missing == []
+
+    incomplete = json.loads(json.dumps(selector))
+    del incomplete["pii"]["leak_count"]
+    totals, missing = required_counter_totals([selector, incomplete])
+    assert totals["synthetic_leak_count"] is None
+    assert missing == ["selector[1].pii.leak_count"]
+
+
+def test_health_records_cross_user_summary_handles_null_http() -> None:
+    assert cross_user_cases({"smoke": {"http": None}}) == {}
+
+
+def test_health_records_summary_rejects_substituted_selector_artifacts() -> None:
+    hex_selector = {
+        "implementation": "hex",
+        "selector": {
+            "environment_present": True,
+            "configured_value": "hex",
+            "expected_default": "legacy",
+        },
+    }
+    rollback_selector = {
+        "implementation": "legacy",
+        "selector": {
+            "environment_present": False,
+            "configured_value": None,
+            "expected_default": "legacy",
+        },
+    }
+    assert selector_identities_match(hex_selector, rollback_selector) is True
+
+    substituted = json.loads(json.dumps(hex_selector))
+    substituted["implementation"] = "legacy"
+    assert selector_identities_match(substituted, rollback_selector) is False
+
+
+def test_health_records_schema_audit_distinguishes_empty_and_drift() -> None:
+    empty = evaluate_schema_audit(
+        document_count=0,
+        verification_document_count=0,
+        observed_field_names=[],
+        indexes=BASELINE_INDEXES,
+    )
+    assert empty == {
+        "result": "pass",
+        "schema_observed": False,
+        "schema_migration_count": 0,
+        "index_migration_count": 0,
+    }
+
+    schema_drift = evaluate_schema_audit(
+        document_count=1,
+        verification_document_count=0,
+        observed_field_names=["_id", "unexpected"],
+        indexes=BASELINE_INDEXES,
+    )
+    assert schema_drift["result"] == "fail"
+    assert schema_drift["schema_migration_count"] == 1
+
+    index_drift = evaluate_schema_audit(
+        document_count=0,
+        verification_document_count=0,
+        observed_field_names=[],
+        indexes=[],
+    )
+    assert index_drift["result"] == "fail"
+    assert index_drift["index_migration_count"] == 1
 
 
 def test_rollout_summary_requires_successful_json_sse_and_telemetry(tmp_path) -> None:
