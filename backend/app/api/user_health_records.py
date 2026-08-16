@@ -1,126 +1,162 @@
-from fastapi import APIRouter, Depends, HTTPException
-from app.api.dependencies import ActorContext, get_actor_context
-from app.models.user_health_record import HealthRecordCreate, HealthRecordUpdate, HealthRecordResponse
-from app.db.connection import db
-from bson import ObjectId
-from bson.errors import InvalidId
-from datetime import datetime
+"""Inbound FastAPI adapter for the frozen Health Records REST v1 contract."""
+
 from typing import List
 
-router = APIRouter(prefix="/api/health-records", tags=["health-records"])
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.api.dependencies import ActorContext, get_actor_context
+from app.bootstrap.container import (
+    HealthRecordsContainer,
+    get_health_records_container,
+)
+from app.features.health.domain import (
+    HealthRecord,
+    HealthRecordAccessDenied,
+    HealthRecordDraft,
+    HealthRecordEmptyUpdate,
+    HealthRecordNotFound,
+    HealthRecordPatch,
+)
+from app.features.health import HEALTH_RECORDS_ROUTE_PREFIX
+from app.models.user_health_record import (
+    HealthRecordCreate,
+    HealthRecordResponse,
+    HealthRecordUpdate,
+)
 
 
-def get_health_records_collection():
-    """Lazy getter for health_records collection - avoids import-time DB access"""
-    return db["health_records"]
+router = APIRouter(prefix=HEALTH_RECORDS_ROUTE_PREFIX, tags=["health-records"])
+
+
+def _draft(record: HealthRecordCreate) -> HealthRecordDraft:
+    return HealthRecordDraft(**record.model_dump())
+
+
+def _patch(record: HealthRecordUpdate) -> HealthRecordPatch:
+    return HealthRecordPatch(record.model_dump(exclude_unset=True))
+
+
+def _response(record: HealthRecord) -> dict[str, object]:
+    return {
+        "id": record.record_id,
+        "user_id": record.owner_id,
+        "date": record.date,
+        "hospital": record.hospital,
+        "creatinine": record.creatinine,
+        "gfr": record.gfr,
+        "potassium": record.potassium,
+        "phosphorus": record.phosphorus,
+        "hemoglobin": record.hemoglobin,
+        "albumin": record.albumin,
+        "pth": record.pth,
+        "hco3": record.hco3,
+        "memo": record.memo,
+    }
+
+
+def _translate_health_record_error(error: Exception) -> HTTPException:
+    if isinstance(error, HealthRecordNotFound):
+        return HTTPException(status_code=404, detail="기록을 찾을 수 없습니다")
+    if isinstance(error, HealthRecordEmptyUpdate):
+        return HTTPException(status_code=400, detail="업데이트할 데이터가 없습니다")
+    if isinstance(error, HealthRecordAccessDenied):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    raise error
+
 
 @router.get("/", response_model=List[HealthRecordResponse])
-async def get_health_records(actor: ActorContext = Depends(get_actor_context)):
-    """
-    현재 로그인한 사용자의 모든 건강 기록을 조회합니다.
-    """
-    health_records_collection = get_health_records_collection()
-    cursor = health_records_collection.find({"user_id": actor.user_id}).sort("date", -1)
-    records = [record async for record in cursor]
-    
-    return [
-        {
-            "id": str(record["_id"]),
-            "user_id": record["user_id"],
-            **{k: v for k, v in record.items() if k not in ["_id", "user_id", "created_at"]}
-        }
-        for record in records
-    ]
+async def get_health_records(
+    actor: ActorContext = Depends(get_actor_context),
+    container: HealthRecordsContainer = Depends(get_health_records_container),
+):
+    """Return the authenticated owner's records in descending date order."""
+    operation = "list"
+    try:
+        if container.is_hex:
+            if container.list_health_records is None:
+                raise RuntimeError("Health Records hex container is incomplete")
+            records = await container.list_health_records.execute(actor)
+        else:
+            if container.legacy is None:
+                raise RuntimeError("Health Records legacy container is incomplete")
+            records = await container.legacy.list(actor)
+        container.telemetry.record(operation, "success")
+        return [_response(record) for record in records]
+    except Exception as error:
+        container.telemetry.record(operation, "failure")
+        raise _translate_health_record_error(error) from None
+
 
 @router.post("/", response_model=HealthRecordResponse)
 async def create_health_record(
     record: HealthRecordCreate,
     actor: ActorContext = Depends(get_actor_context),
+    container: HealthRecordsContainer = Depends(get_health_records_container),
 ):
-    """
-    새로운 건강 기록을 생성합니다.
-    """
-    health_records_collection = get_health_records_collection()
-    record_doc = {
-        "user_id": actor.user_id,
-        **record.model_dump(),
-        "created_at": datetime.utcnow()
-    }
+    """Create a record using the trusted JWT owner and frozen v1 payload."""
+    operation = "create"
+    try:
+        draft = _draft(record)
+        if container.is_hex:
+            if container.create_health_record is None:
+                raise RuntimeError("Health Records hex container is incomplete")
+            created = await container.create_health_record.execute(actor, draft)
+        else:
+            if container.legacy is None:
+                raise RuntimeError("Health Records legacy container is incomplete")
+            created = await container.legacy.create(actor, draft)
+        container.telemetry.record(operation, "success")
+        return _response(created)
+    except Exception as error:
+        container.telemetry.record(operation, "failure")
+        raise _translate_health_record_error(error) from None
 
-    result = await health_records_collection.insert_one(record_doc)
-    
-    return {
-        "id": str(result.inserted_id),
-        "user_id": actor.user_id,
-        **record.model_dump()
-    }
 
 @router.put("/{record_id}", response_model=HealthRecordResponse)
 async def update_health_record(
     record_id: str,
     record_update: HealthRecordUpdate,
     actor: ActorContext = Depends(get_actor_context),
+    container: HealthRecordsContainer = Depends(get_health_records_container),
 ):
-    """
-    건강 기록을 수정합니다.
-    """
-    health_records_collection = get_health_records_collection()
+    """Update an owner-scoped record while preserving null/unset semantics."""
+    operation = "update"
     try:
-        object_id = ObjectId(record_id)
-    except (InvalidId, TypeError, ValueError):
-        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다") from None
+        patch = _patch(record_update)
+        if container.is_hex:
+            if container.update_health_record is None:
+                raise RuntimeError("Health Records hex container is incomplete")
+            updated = await container.update_health_record.execute(actor, record_id, patch)
+        else:
+            if container.legacy is None:
+                raise RuntimeError("Health Records legacy container is incomplete")
+            updated = await container.legacy.update(actor, record_id, patch)
+        container.telemetry.record(operation, "success")
+        return _response(updated)
+    except Exception as error:
+        container.telemetry.record(operation, "failure")
+        raise _translate_health_record_error(error) from None
 
-    # Bind the resource to ActorContext before any mutation.
-    existing_record = await health_records_collection.find_one({
-        "_id": object_id,
-        "user_id": actor.user_id,
-    })
-    
-    if not existing_record:
-        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다")
-    
-    # 업데이트할 데이터만 추출
-    update_data = record_update.model_dump(exclude_unset=True)
-    
-    if not update_data:
-        raise HTTPException(status_code=400, detail="업데이트할 데이터가 없습니다")
-    
-    await health_records_collection.update_one(
-        {"_id": object_id, "user_id": actor.user_id},
-        {"$set": update_data}
-    )
-    
-    # 업데이트된 기록 조회
-    updated_record = await health_records_collection.find_one(
-        {"_id": object_id, "user_id": actor.user_id}
-    )
-    
-    return {
-        "id": str(updated_record["_id"]),
-        "user_id": updated_record["user_id"],
-        **{k: v for k, v in updated_record.items() if k not in ["_id", "user_id", "created_at"]}
-    }
 
 @router.delete("/{record_id}")
 async def delete_health_record(
     record_id: str,
     actor: ActorContext = Depends(get_actor_context),
+    container: HealthRecordsContainer = Depends(get_health_records_container),
 ):
-    """
-    건강 기록을 삭제합니다.
-    """
-    health_records_collection = get_health_records_collection()
+    """Delete only a record owned by the authenticated actor."""
+    operation = "delete"
     try:
-        object_id = ObjectId(record_id)
-    except (InvalidId, TypeError, ValueError):
-        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다") from None
-
-    result = await health_records_collection.delete_one({
-        "_id": object_id,
-        "user_id": actor.user_id,
-    })
-    
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="기록을 찾을 수 없습니다")
-    
-    return {"success": True, "message": "기록이 삭제되었습니다"}
+        if container.is_hex:
+            if container.delete_health_record is None:
+                raise RuntimeError("Health Records hex container is incomplete")
+            await container.delete_health_record.execute(actor, record_id)
+        else:
+            if container.legacy is None:
+                raise RuntimeError("Health Records legacy container is incomplete")
+            await container.legacy.delete(actor, record_id)
+        container.telemetry.record(operation, "success")
+        return {"success": True, "message": "기록이 삭제되었습니다"}
+    except Exception as error:
+        container.telemetry.record(operation, "failure")
+        raise _translate_health_record_error(error) from None

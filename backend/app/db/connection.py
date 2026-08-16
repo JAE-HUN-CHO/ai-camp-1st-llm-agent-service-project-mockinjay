@@ -108,6 +108,11 @@ def get_clinical_trials_cache_collection() -> AsyncIOMotorCollection:
     return Database.get_collection("clinical_trials_cache")
 
 
+def get_health_records_collection() -> AsyncIOMotorCollection:
+    """활성 Health Records v1 컬렉션 반환."""
+    return Database.get_collection("health_records")
+
+
 # 하위 호환성을 위한 전역 변수 (점진적 마이그레이션용)
 # 주의: 이 변수들은 비동기 컨텍스트에서만 사용해야 합니다
 users_collection = None
