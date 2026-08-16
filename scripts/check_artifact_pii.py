@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from sensitive_patterns import SENSITIVE_PATTERN
@@ -14,15 +15,18 @@ PATTERN = SENSITIVE_PATTERN
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("artifact_dir", type=Path)
+    parser.add_argument("--json-output", type=Path)
     args = parser.parse_args()
     if not args.artifact_dir.is_dir():
         print("PII artifact scan failed: artifact directory does not exist")
         return 1
     matches = []
     scanned = 0
-    report_path = args.artifact_dir / "privacy" / "pii-scan.txt"
+    excluded_paths = {args.artifact_dir / "privacy" / "pii-scan.txt"}
+    if args.json_output is not None:
+        excluded_paths.add(args.json_output)
     for path in args.artifact_dir.rglob("*"):
-        if not path.is_file() or path == report_path:
+        if not path.is_file() or path in excluded_paths:
             continue
         scanned += 1
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -30,6 +34,23 @@ def main() -> int:
             matches.append(str(path.relative_to(args.artifact_dir)))
     print(f"PII artifact matches: {len(matches)}")
     print(f"PII artifact files scanned: {scanned}")
+    if args.json_output is not None:
+        args.json_output.parent.mkdir(parents=True, exist_ok=True)
+        args.json_output.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "files_scanned": scanned,
+                    "canary_matches": len(matches),
+                    "matching_files": matches,
+                    "result": "pass" if scanned > 0 and not matches else "fail",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     if scanned == 0:
         print("PII artifact scan failed: no evidence files found")
         return 1

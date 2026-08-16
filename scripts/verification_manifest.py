@@ -98,6 +98,7 @@ def append_command(
     started_at: str,
     finished_at: str,
     artifacts: list[str],
+    cwd: Path | None = None,
 ) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = artifact_dir / "manifest.json"
@@ -121,6 +122,7 @@ def append_command(
     manifest["commands"].append(
         {
             "argv": _sanitize_argv(argv),
+            "cwd": str((cwd or ROOT).resolve()),
             "exit_code": exit_code,
             "started_at": started_at,
             "finished_at": finished_at,
@@ -133,7 +135,13 @@ def append_command(
     )
 
 
-def run_command(artifact_dir: Path, output: Path, command: list[str]) -> int:
+def run_command(
+    artifact_dir: Path,
+    output: Path,
+    command: list[str],
+    produced_artifacts: list[Path] | None = None,
+    cwd: Path = ROOT,
+) -> int:
     artifact_dir = artifact_dir.resolve()
     output = output.resolve()
     try:
@@ -141,25 +149,43 @@ def run_command(artifact_dir: Path, output: Path, command: list[str]) -> int:
     except ValueError as exc:
         raise ValueError("verification output must be inside artifact_dir") from exc
     _validate_existing_manifest(artifact_dir)
+    cwd = cwd.resolve()
+    try:
+        cwd.relative_to(ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError("verification cwd must be inside the repository") from exc
+    if not cwd.is_dir():
+        raise ValueError("verification cwd must be an existing directory")
     started = _now()
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as stream:
         completed = subprocess.run(
             command,
-            cwd=ROOT,
+            cwd=cwd,
             text=True,
             stdout=stream,
             stderr=subprocess.STDOUT,
             check=False,
         )
     finished = _now()
+    artifacts = [str(relative_output)]
+    for produced in produced_artifacts or []:
+        produced = produced.resolve()
+        try:
+            relative_produced = produced.relative_to(artifact_dir)
+        except ValueError as exc:
+            raise ValueError("produced artifact must be inside artifact_dir") from exc
+        if not produced.is_file():
+            raise RuntimeError(f"expected produced artifact is missing: {relative_produced}")
+        artifacts.append(str(relative_produced))
     append_command(
         artifact_dir,
         argv=command,
         exit_code=completed.returncode,
         started_at=started,
         finished_at=finished,
-        artifacts=[str(relative_output)],
+        artifacts=artifacts,
+        cwd=cwd,
     )
     return completed.returncode
 
@@ -168,12 +194,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--produced-artifact", type=Path, action="append", default=[])
+    parser.add_argument("--cwd", type=Path, default=ROOT)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a command is required after --")
-    return run_command(args.artifact_dir, args.output, command)
+    return run_command(
+        args.artifact_dir,
+        args.output,
+        command,
+        produced_artifacts=args.produced_artifact,
+        cwd=args.cwd,
+    )
 
 
 if __name__ == "__main__":
