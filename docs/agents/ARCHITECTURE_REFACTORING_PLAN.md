@@ -129,7 +129,9 @@ frame이며 provider 원문을 노출하지 않는다.
 - [x] 3B `HealthProfile`과 owner-scoped `HealthProfileRepository`/application use case 정의
 - [x] 3B legacy/hex GET·PUT 공통 frozen v1 fixture와 frontend client 회귀 추가
 - [x] 3B 기존 unique `userId` index·upsert와 null/unset 보존 의미 유지
-- [x] 3B 실제 legacy/hex HTTP cross-user 3/3, unauthorized write·PII·hosted call 0 검증
+- [x] 3B 실제 legacy/hex HTTP cross-user 3/3, unauthorized write·PII 0 검증. hosted call 0은
+  Health Profile provider port 부재, runtime provider 비활성화, hosted credential 제거와 import gate를
+  근거로 한 local-only 파생 판정이며 network 실측값이 아니다.
 
 **완료 조건:** 3A는 삭제·재시도·부분 실패를 재현하고, 3B는 owner-scoped read/upsert와
 null/unset 보존을 재현한다. 두 slice 모두 타 사용자 접근과 비인가 쓰기를 fail-closed한다.
@@ -164,7 +166,7 @@ null/unset 보존을 재현한다. 두 slice 모두 타 사용자 접근과 비�
   key/index/backfill/collection merge/cleanup은 추가하지 않는다.
 - Phase 3C dormant `/api/health`와 기존 `HealthRepository`는 수정하지 않는다.
 - 근거는
-  `logs/verification/268ce874e0edb537636badf2dcb089f6b7d23e0e/20260816T161115Z/manifest.json`과
+  `logs/verification/e47098b09164b47724da38542580a4c546530d2a/20260816T165944Z/manifest.json`과
   동일 run의 `http/health-profile-{legacy,hex,rollback}.json`,
   `selector/health-profile-{legacy,hex,invalid,rollback}.json`,
   `storage/health-profiles-schema-after.json`에 보관한다.
@@ -264,11 +266,13 @@ logs/verification/<git-sha>/<UTC-run-id>/
   eval/{router-summary,safety-summary}.json
 ```
 
-Phase 3B rollback은 `scripts/summarize_health_profiles_phase3b.py`에
-`selector/health-profile-rollback.json`과 `http/health-profile-rollback.json`을 각각
-legacy selector/HTTP 입력으로 전달해 판정한다. 두 artifact 모두 `result=pass`, 구현 `legacy`,
-selector 미설정·기본값 `legacy`, owner 격리 3/3, 무인증 쓰기 0, null/unset·나이 경계 보존을
-충족해야 종합 결과가 PASS다.
+Phase 3B rollback은 `scripts/summarize_health_profiles_phase3b.py`에 동일 run의 필수 입력
+`--unit-junit`, `--integration-junit`, `--frontend-junit`, `--hex-selector`, `--invalid-selector`,
+`--hex-http`, `--schema-audit`, `--import-rules`, `--pii`, `--output`을 모두 전달한 상태에서
+`--legacy-selector selector/health-profile-rollback.json`과
+`--legacy-http http/health-profile-rollback.json`을 함께 전달해 판정한다. 두 rollback artifact는
+`result=pass`, 구현 `legacy`, selector 미설정·기본값 `legacy`, owner 격리 3/3, 무인증 쓰기 0,
+null/unset·나이 경계 보존을 충족해야 종합 결과가 PASS다.
 
 artifact는 raw prompt/response, token, email, 건강정보를 저장하지 않는다. local `logs/`는 ignored이므로
 향후 CI가 동일 directory를 build artifact로 업로드해야 review evidence가 된다.
