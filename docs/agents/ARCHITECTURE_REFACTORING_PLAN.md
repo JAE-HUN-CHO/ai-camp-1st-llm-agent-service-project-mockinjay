@@ -166,7 +166,7 @@ null/unset 보존을 재현한다. 두 slice 모두 타 사용자 접근과 비�
   key/index/backfill/collection merge/cleanup은 추가하지 않는다.
 - Phase 3C dormant `/api/health`와 기존 `HealthRepository`는 수정하지 않는다.
 - 근거는
-  `logs/verification/e47098b09164b47724da38542580a4c546530d2a/20260816T165944Z/manifest.json`과
+  `logs/verification/ce5c08999ec6b15387a57d0636c64ce8bf669539/20260816T171606Z/manifest.json`과
   동일 run의 `http/health-profile-{legacy,hex,rollback}.json`,
   `selector/health-profile-{legacy,hex,invalid,rollback}.json`,
   `storage/health-profiles-schema-after.json`에 보관한다.
