@@ -149,5 +149,6 @@ async def test_cross_user_update_and_retry_delete_fail_closed() -> None:
         await DeleteHealthRecord(repository).execute(other_actor, "record-1")
 
     assert repository.records["record-1"].memo == "initial"
-    assert repository.unauthorized_write_attempts == 2
+    assert repository.calls == [("get", "owner-2"), ("delete", "owner-2")]
+    assert repository.unauthorized_write_attempts == 1
     assert repository.unauthorized_writes == 0

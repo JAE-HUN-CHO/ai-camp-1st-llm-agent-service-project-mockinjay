@@ -12,6 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import check_architecture_dependencies
+import run_health_records_http_verification as health_records_verification
 from audit_health_records_schema import BASELINE_INDEXES, evaluate_schema_audit
 from check_architecture_dependencies import _matches_module, imports
 from check_artifact_pii import main as pii_main
@@ -151,6 +152,39 @@ def test_health_records_shutdown_distinguishes_terminate_and_kill() -> None:
     assert forced_result.controlled is False
     assert forced_result.method == "kill"
     assert forced_result.exit_code == -9
+
+
+def test_health_records_server_manifest_keeps_process_exit_code(
+    monkeypatch, tmp_path
+) -> None:
+    recorded: list[dict[str, object]] = []
+
+    def capture_append_command(_artifact_dir, **kwargs) -> None:
+        recorded.append(kwargs)
+
+    monkeypatch.setattr(
+        health_records_verification,
+        "append_command",
+        capture_append_command,
+    )
+    health_records_verification.record_server_command(
+        tmp_path,
+        server_argv=["python", "-m", "uvicorn"],
+        shutdown=health_records_verification.ShutdownResult(True, -15, "terminate"),
+        server_started_at="2026-08-16T00:00:00+00:00",
+        finished_at="2026-08-16T00:00:01+00:00",
+        artifacts=["selector/health-records-hex.json"],
+    )
+
+    assert recorded == [
+        {
+            "argv": ["python", "-m", "uvicorn"],
+            "exit_code": -15,
+            "started_at": "2026-08-16T00:00:00+00:00",
+            "finished_at": "2026-08-16T00:00:01+00:00",
+            "artifacts": ["selector/health-records-hex.json"],
+        }
+    ]
 
 
 def test_health_records_summary_counters_are_derived_and_fail_closed() -> None:

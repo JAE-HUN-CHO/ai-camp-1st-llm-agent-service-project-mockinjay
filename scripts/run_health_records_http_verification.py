@@ -150,6 +150,30 @@ def telemetry_failures(counters: dict[str, int], implementation: str) -> list[st
     return failures
 
 
+def record_server_command(
+    artifact_dir: Path,
+    *,
+    server_argv: list[str],
+    shutdown: ShutdownResult,
+    server_started_at: str,
+    finished_at: str,
+    artifacts: list[str],
+) -> None:
+    """Pair the spawned server argv with its actual process exit code.
+
+    The outer ``verification_manifest.run_command`` invocation records this
+    verifier's validation exit code separately.
+    """
+    append_command(
+        artifact_dir,
+        argv=server_argv,
+        exit_code=shutdown.exit_code,
+        started_at=server_started_at,
+        finished_at=finished_at,
+        artifacts=artifacts,
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     artifact_dir = args.artifact_dir.resolve()
     selector_path = resolve_artifact_path(artifact_dir, args.selector_artifact)
@@ -269,6 +293,8 @@ def run(args: argparse.Namespace) -> int:
                 + "; ".join(telemetry_errors)
             )
 
+    verification_exit_code = 0 if result == "pass" else 1
+
     http_summary: dict[str, object] | None = None
     if http_path.is_file():
         loaded = json.loads(http_path.read_text(encoding="utf-8"))
@@ -287,6 +313,7 @@ def run(args: argparse.Namespace) -> int:
     summary: dict[str, object] = {
         "schema_version": 1,
         "result": result,
+        "verification_exit_code": verification_exit_code,
         "implementation": args.implementation,
         "selector": {
             "environment_present": not args.unset_selector,
@@ -326,11 +353,11 @@ def run(args: argparse.Namespace) -> int:
     }
     ensure_redacted(summary)
     write_json(selector_path, summary)
-    append_command(
+    record_server_command(
         artifact_dir,
-        argv=server_argv,
-        exit_code=0 if result == "pass" else 1,
-        started_at=server_started_at,
+        server_argv=server_argv,
+        shutdown=shutdown,
+        server_started_at=server_started_at,
         finished_at=utc_now(),
         artifacts=[
             str(selector_path.relative_to(artifact_dir)),
@@ -341,7 +368,7 @@ def run(args: argparse.Namespace) -> int:
             ),
         ],
     )
-    return 0 if result == "pass" else 1
+    return verification_exit_code
 
 
 def main() -> int:
