@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "endpoints": {
+    "/api/chat/message": ["application/json", "text/event-stream"],
+    "/api/chat/stream": ["text/event-stream"],
+    "/api/chat/rooms": ["application/json"],
+    "/api/chat/rooms/{room_id}/history": ["application/json"],
+    "/api/chat/history": ["application/json"],
+    "/api/chat/history/{agent_type}": ["application/json"],
+    "/api/chat/{research|welfare}/{path}": ["application/json"]
+  },
+  "status_semantics": {
+    "processing": "progress",
+    "synthesizing": "progress",
+    "streaming": "delta",
+    "partial": "snapshot",
+    "new_message": "append_message",
+    "complete": "terminal_success_snapshot",
+    "success": "terminal_success_snapshot",
+    "error": "terminal_failure",
+    "cancelled": "terminal_cancelled"
+  },
+  "transport_done": "[DONE]",
+  "scenarios": [
+    {
+      "name": "success",
+      "frames": [
+        {"status": "processing", "content": "progress"},
+        {"status": "streaming", "content": "hello "},
+        {"status": "partial", "content": "preview"},
+        {"status": "synthesizing", "content": "progress"},
+        {"status": "complete", "content": "hello world"},
+        "[DONE]"
+      ],
+      "expected_outcome": "success",
+      "expected_content": "hello world"
+    },
+    {
+      "name": "success_alias",
+      "frames": [
+        {"status": "new_message", "answer": "first"},
+        {"status": "new_message", "response": "second"},
+        {"status": "success", "content": "combined"},
+        "[DONE]"
+      ],
+      "expected_outcome": "success",
+      "expected_content": "combined"
+    },
+    {
+      "name": "error_then_done",
+      "frames": [
+        {"status": "streaming", "content": "partial"},
+        {"status": "error", "error": "local failure"},
+        "[DONE]"
+      ],
+      "expected_outcome": "error",
+      "expected_content": "partial"
+    },
+    {
+      "name": "cancelled_then_done",
+      "frames": [
+        {"status": "cancelled", "message": "stopped"},
+        "[DONE]"
+      ],
+      "expected_outcome": "cancelled",
+      "expected_content": ""
+    },
+    {
+      "name": "done_without_terminal",
+      "frames": [
+        {"status": "streaming", "content": "partial"},
+        "[DONE]"
+      ],
+      "expected_outcome": "protocol_error",
+      "expected_content": "partial"
+    },
+    {
+      "name": "eof_without_done",
+      "frames": [
+        {"status": "complete", "content": "answer"}
+      ],
+      "expected_outcome": "protocol_error",
+      "expected_content": "answer"
+    }
+  ]
+}

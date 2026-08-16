@@ -28,3 +28,19 @@ def test_quiz_contract_uses_session_endpoints() -> None:
     assert "POST" in _route_methods("/api/quiz/session/start")
     assert "POST" in _route_methods("/api/quiz/session/submit-answer")
     assert "POST" in _route_methods("/api/quiz/session/complete")
+
+
+def test_frozen_chat_v1_routes_are_registered_without_v2_alias() -> None:
+    assert _route_methods("/api/chat/message") == {"POST"}
+    assert _route_methods("/api/chat/stream") == {"POST"}
+    assert _route_methods("/api/chat/rooms") == {"GET"}
+    assert _route_methods("/api/chat/rooms/{room_id}/history") == {"GET"}
+    assert _route_methods("/api/chat/history") == {"GET"}
+    assert _route_methods("/api/chat/history/{agent_type}") == {"GET"}
+    proxy_methods = {"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"}
+    assert _route_methods("/api/chat/research/{path:path}") == proxy_methods
+    assert _route_methods("/api/chat/welfare/{path:path}") == proxy_methods
+    assert _route_methods("/api/chat/{path:path}") == proxy_methods
+    assert not any(
+        getattr(route, "path", "").startswith("/api/v2") for route in app.routes
+    )
