@@ -105,6 +105,7 @@ const ChatPageEnhanced: React.FC = () => {
 
   // Refs
   const initialMessageProcessed = useRef(false);
+  const initialMessageSendRef = useRef<((message: string) => Promise<void>) | null>(null);
 
   // Page visibility animation
   const [pageVisible, setPageVisible] = useState(false);
@@ -191,22 +192,6 @@ const ChatPageEnhanced: React.FC = () => {
     const timer = setTimeout(() => setPageVisible(true), 50);
     return () => clearTimeout(timer);
   }, []);
-
-  // Handle initial message from MainPage
-  useEffect(() => {
-    const state = location.state as LocationState | null;
-    if (state?.initialMessage && !initialMessageProcessed.current) {
-      setInput(state.initialMessage);
-      initialMessageProcessed.current = true;
-
-      // Auto-send after 500ms
-      const timer = setTimeout(() => {
-        handleSend();
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [location.state]);
 
   // Create default room if none exists
   useEffect(() => {
@@ -665,6 +650,7 @@ const ChatPageEnhanced: React.FC = () => {
     user?.id,
     isRoomCreationReady,
   ]);
+  initialMessageSendRef.current = handleSendWithMessage;
 
   /**
    * Handle send message (delegates to handleSendWithMessage)
@@ -673,6 +659,28 @@ const ChatPageEnhanced: React.FC = () => {
   const handleSend = useCallback(async () => {
     await handleSendWithMessage();
   }, [handleSendWithMessage]);
+
+  // Consume MainPage's initial message only after actor/profile/room hydration.
+  useEffect(() => {
+    const state = location.state as LocationState | null;
+    if (
+      !isRoomCreationReady
+      || !currentRoomId
+      || !state?.initialMessage
+      || initialMessageProcessed.current
+    ) return;
+
+    const initialMessage = state.initialMessage;
+    setInput(initialMessage);
+    const timer = setTimeout(() => {
+      const sendInitialMessage = initialMessageSendRef.current;
+      if (!sendInitialMessage) return;
+      initialMessageProcessed.current = true;
+      void sendInitialMessage(initialMessage);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [currentRoomId, isRoomCreationReady, location.state]);
 
   /**
    * Handle suggestion click
