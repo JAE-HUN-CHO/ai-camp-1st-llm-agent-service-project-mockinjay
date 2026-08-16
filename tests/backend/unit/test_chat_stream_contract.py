@@ -22,17 +22,28 @@ class _FakeContextManager:
     async def get_user_context(self, _user_id: str) -> dict:
         return {}
 
-    async def save_conversation(self, user_id: str, session_id: str, agent_type: str, user_input: str, agent_response: str, room_id: str | None = None) -> None:
-        self.saved.append(
-            {
-                "user_id": user_id,
-                "session_id": session_id,
-                "agent_type": agent_type,
-                "user_input": user_input,
-                "agent_response": agent_response,
-                "room_id": room_id,
-            }
-        )
+    async def save_conversation(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_type: str,
+        user_input: str,
+        agent_response: str,
+        room_id: str | None = None,
+        client_message_id: str | None = None,
+    ) -> bool:
+        saved = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "agent_type": agent_type,
+            "user_input": user_input,
+            "agent_response": agent_response,
+            "room_id": room_id,
+        }
+        if client_message_id is not None:
+            saved["client_message_id"] = client_message_id
+        self.saved.append(saved)
+        return True
 
     async def analyze_and_update_context(self, _user_id: str) -> None:
         return None
@@ -139,7 +150,13 @@ def test_chat_stream_emits_sse_and_persists_final_response(monkeypatch) -> None:
     with TestClient(app) as client:
         response = client.post(
             "/api/chat/stream",
-            json={"query": "hello", "session_id": "session-1", "user_id": "user-1", "room_id": "room-1"},
+            json={
+                "query": "hello",
+                "session_id": "session-1",
+                "user_id": "user-1",
+                "room_id": "room-1",
+                "client_message_id": "legacy-router-stream-id",
+            },
         )
 
     assert response.status_code == 200
@@ -155,8 +172,32 @@ def test_chat_stream_emits_sse_and_persists_final_response(monkeypatch) -> None:
             "user_input": "hello",
             "agent_response": "hello world",
             "room_id": "room-1",
+            "client_message_id": "legacy-router-stream-id",
         }
     ]
+
+
+def test_legacy_message_fallback_preserves_sse_media_type(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    runtime = SimpleNamespace(router_agent=_FakeRouter())
+    app = _chat_app(manager, runtime.router_agent)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/message",
+            json={
+                "query": "hello",
+                "session_id": "session-1",
+                "user_id": "user-1",
+                "room_id": "room-1",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert '"status": "complete"' in response.text
+    assert response.text.endswith("data: [DONE]\n\n")
 
 
 def test_chat_stream_requires_query() -> None:

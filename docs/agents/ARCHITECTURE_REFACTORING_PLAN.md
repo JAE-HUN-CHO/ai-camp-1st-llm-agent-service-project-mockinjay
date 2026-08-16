@@ -1,11 +1,12 @@
 # CareGuide 아키텍처 리팩토링 실행 계획
 
 **작성일:** 2026-08-15
-**상태:** Phase 0~1 verified; Phase 2 Chat authorized
+**최종 갱신일:** 2026-08-16
+**상태:** Phase 0~2 verified; Phase 3 이후 별도 승인 필요
 **전제:** 현재 API·MongoDB·Ollama·Parlant 계약을 보존하는 점진적 strangler refactor
 
-**착수 판정:** Phase 0~1은 완료·검증됐다. Project owner는 Phase 2 Chat만 다음 실행 범위로
-승인했다. Phase 3 이후는 각 phase의 별도 범위 확인 전 startable하지 않다.
+**착수 판정:** Phase 0~2는 완료·검증됐다. Phase 2 완료는 Phase 3 착수 승인을 포함하지
+않으며, Phase 3 이후는 각 phase의 별도 범위 확인 전 startable하지 않다.
 
 실제 실행 작업에 전달할 복사 가능한 지시문과 계량 성공조건은
 [`ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md`](./ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md)를 사용한다.
@@ -17,7 +18,7 @@
 3. 기존 endpoint는 compatibility facade로 유지한다.
 4. untracked `data/`와 생성 artifact는 변경 범위에 포함하지 않는다.
 5. 실패한 runtime gate를 문서에 남기고, 통과 전 다음 gate로 넘어가지 않는다.
-6. [`ADR-013`](../adr/ADR-013-feature-first-hexagonal-modular-monolith.md)의 범위에 따라 현재는 Phase 2 Chat만 실행한다.
+6. [`ADR-013`](../adr/ADR-013-feature-first-hexagonal-modular-monolith.md)의 범위에 따라 Phase 2 Chat에서 멈추고 Phase 3는 별도 승인 전 실행하지 않는다.
 
 ## Phase 0 — 기준선과 안전장치
 
@@ -74,30 +75,43 @@ app/features/chat/application.py
 app/features/chat/ports.py
 app/adapters/mongodb/chat_repository.py
 app/bootstrap/container.py                 # selector를 한 번만 평가
-app/adapters/ollama/client.py              # 현재 LLMProvider 구현체 아님
-app/ports/llm.py                           # keep/adapt/replace 결정 후 한 계약만 사용
+app/adapters/ollama/chat_generator.py      # Chat consumer-owned adapter
+app/ports/llm.py                           # signature 불일치로 재사용하지 않음
 ```
 
-- [ ] `ChatMessage`, `ChatRoom`, `ChatSafetyPolicy` 정의
-- [ ] `ChatRepository`, `ChatGenerator`, `AgentRouter` 중복 여부를 판정하고 한 계약만 정의
-- [ ] `ActorContext`로 room/session owner를 모델 호출·저장 전에 검증
-- [ ] `SendChatMessage`와 `StreamChatMessage` use case 구현
-- [ ] 기존 `/api/chat/message`, `/api/chat/stream`, rooms/history/proxy를 stable facade로 유지
-- [ ] `/message`의 현재 JSON/SSE 이중 media type을 유지할지 별도 API 결정으로 고정
-- [ ] Agent의 raw DB·Ollama 접근 제거
-- [ ] optional `client_message_id`와 additive `idempotency_key/_schema_version` migration 설계
-- [ ] duplicate audit 후 `(user_id, idempotency_key)` sparse unique index와 resumable backfill
-- [ ] legacy default → contract pass → hex 전환 및 legacy/new call counter·rollback drill
-- [ ] fake adapter 단위 테스트 작성
-- [ ] Ollama 실제 HTTP smoke와 MongoDB authenticated ping/실제 query 실행
-- [ ] 두 frontend parser에 동일 fixture를 사용해 전체 v1 status/payload/error/cancel 의미 테스트
-- [ ] headers 전 503/504와 stream 시작 후 error frame을 분리 테스트
-- [ ] `[DONE]`을 transport 종료로만 처리하고 error+DONE을 성공으로 승격하지 않는지 검증
-- [ ] 새 named-event 계약이 필요하면 별도 API ADR과 `/api/v2`로 분리
+- [x] `ChatMessage`, `ChatRoom`, `ChatSafetyPolicy` 정의; safety policy는 Phase 0 singleton을 alias로 재사용
+- [x] `ChatRepository`, `ChatGenerator`, `AgentRouter` 중복 여부를 판정; Router 추가 없이 두 consumer-owned port만 정의
+- [x] `ActorContext`로 room/session owner를 모델 호출·저장 전에 검증
+- [x] `SendChatMessage`와 `StreamChatMessage` use case 구현
+- [x] 기존 `/api/chat/message`, `/api/chat/stream`, rooms/history/proxy를 stable facade로 유지
+- [x] `/message`의 현재 JSON/SSE 이중 media type을 frozen v1 fixture로 유지
+- [x] hex 경로의 raw DB·Ollama 접근을 outbound adapter 뒤로 이동; legacy Agent facade는 rollback을 위해 유지
+- [x] optional `client_message_id`와 신규 문서 `_schema_version=2`를 additive하게 적용
+- [x] duplicate audit 후 user-scoped deterministic MongoDB `_id` + `$setOnInsert`를 채택; custom index·backfill·cleanup 불필요
+- [x] legacy default → contract pass → 명시적 hex canary와 legacy/new call counter·restart rollback drill
+- [x] fake adapter 단위 테스트 작성
+- [x] Ollama 실제 HTTP smoke와 MongoDB authenticated ping/실제 query 실행
+- [x] 두 frontend parser에 동일 fixture를 사용해 전체 v1 status/payload/error/cancel 의미 테스트
+- [x] headers 전 503/504와 stream 시작 후 error frame을 분리 테스트
+- [x] `[DONE]`을 transport 종료로만 처리하고 error+DONE을 성공으로 승격하지 않는지 검증
+- [x] 새 named-event 계약이 필요하지 않음을 확인; `/api/v2` 추가 없음
 
 **완료 조건:** unit·contract·integration·real smoke, owner isolation, 저장 idempotency, selector rollback이
 통과한다. 비스트리밍/headers 전 장애는 503/504, stream 시작 후 장애는 HTTP 200+terminal error
 frame이며 provider 원문을 노출하지 않는다.
+
+### Phase 2 고정 결정과 증거
+
+- selector 기본값은 계속 `legacy`다. `hex`는 로컬 canary에서만 명시적으로 선택했고 종료 후
+  process restart로 `legacy` REST/SSE rollback을 확인한다.
+- 동일 `client_message_id`의 순차·동시 재시도는 hardening 전 통합 테스트에서 중복 문서를
+  재현했다. 신규 write는 `(user_id, client_message_id)`의 SHA-256 기반 deterministic `_id`와
+  `$setOnInsert`를 사용하므로 기본 `_id` unique invariant만으로 논리 write가 1개다.
+- 기존 문서 backfill, custom unique index, collection 병합, cleanup은 수행하지 않는다. 이 결정은
+  additive하며 selector rollback과 독립적이다.
+- 최종 근거는
+  `logs/verification/0d435fc48d35d1650fddd4375746f0e74e63c320/20260816T044829Z/manifest.json`과
+  동일 run의 `selector/hex-canary.json`, `storage/idempotency-audit.json`에 보관한다.
 
 ## Phase 3 — Health vertical slices
 

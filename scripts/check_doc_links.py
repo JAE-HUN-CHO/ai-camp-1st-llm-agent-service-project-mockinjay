@@ -13,6 +13,11 @@ NORMATIVE = (
     Path("docs/agents/BOUNDARY_MAP.md"),
     Path("docs/agents/CACHE_POLICY.md"),
     Path("docs/agents/DOCUMENT_CONSISTENCY_MATRIX.md"),
+    Path("docs/agents/ARCHITECTURE_CURRENT_STATE.md"),
+    Path("docs/agents/ARCHITECTURE_PHASE_0_INVENTORY.md"),
+    Path("docs/agents/ARCHITECTURE_ATAM_LITE_TRACEABILITY.md"),
+    Path("docs/agents/ARCHITECTURE_REFACTORING_DESIGN.md"),
+    Path("docs/agents/ARCHITECTURE_REFACTORING_PLAN.md"),
     Path("docs/adr/README.md"),
     Path("docs/adr/ADR-004-clinical-trials-scope.md"),
     Path("docs/adr/ADR-005-vector-db.md"),
@@ -21,6 +26,7 @@ NORMATIVE = (
     Path("docs/adr/ADR-009-local-first-runtime.md"),
     Path("docs/adr/ADR-010-local-embedding-dimension-policy.md"),
     Path("docs/adr/ADR-011-current-runtime-contract.md"),
+    Path("docs/adr/ADR-013-feature-first-hexagonal-modular-monolith.md"),
 )
 MARKDOWN_LINK = re.compile(r"\[[^]]+\]\(([^)]+)\)")
 

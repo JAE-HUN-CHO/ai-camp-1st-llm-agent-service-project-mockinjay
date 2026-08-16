@@ -1,1 +1,1 @@
-"""MongoDB adapters for application ports."""
+"""MongoDB outbound adapters."""

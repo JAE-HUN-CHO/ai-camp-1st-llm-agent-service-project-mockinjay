@@ -23,6 +23,7 @@ class _Context:
 
     async def save_conversation(self, *args):
         self.saved.append(args)
+        return True
 
     async def analyze_and_update_context(self, _user_id):
         return None
@@ -75,13 +76,19 @@ def test_message_uses_application_ollama_service(monkeypatch):
     with TestClient(_app(context)) as client:
         response = client.post(
             "/api/chat/message",
-            json={"query": "혈압 관리", "session_id": "s1", "user_profile": "patient"},
+            json={
+                "query": "혈압 관리",
+                "session_id": "s1",
+                "user_profile": "patient",
+                "client_message_id": "legacy-message-id",
+            },
         )
 
     assert response.status_code == 200
     assert response.json()["content"] == "실제 Ollama 답변"
     assert response.json()["metadata"]["retrieved_count"] == 1
     assert context.saved[0][3:5] == ("혈압 관리", "실제 Ollama 답변")
+    assert context.saved[0][6] == "legacy-message-id"
 
 
 def test_stream_uses_application_ollama_service(monkeypatch):
@@ -92,7 +99,12 @@ def test_stream_uses_application_ollama_service(monkeypatch):
     with TestClient(_app(context)) as client:
         response = client.post(
             "/api/chat/stream",
-            json={"query": "혈압 관리", "session_id": "s1", "user_profile": "patient"},
+            json={
+                "query": "혈압 관리",
+                "session_id": "s1",
+                "user_profile": "patient",
+                "client_message_id": "legacy-stream-id",
+            },
         )
 
     assert response.status_code == 200
@@ -100,6 +112,7 @@ def test_stream_uses_application_ollama_service(monkeypatch):
     assert '"content": "실제 "' in response.text
     assert response.text.endswith("data: [DONE]\n\n")
     assert context.saved[0][3:5] == ("혈압 관리", "실제 스트림")
+    assert context.saved[0][6] == "legacy-stream-id"
 
 
 def test_emergency_message_blocks_model_and_context_calls(monkeypatch):

@@ -1,9 +1,12 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import List, Dict, Optional
+import hashlib
+import json
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 from dotenv import load_dotenv
+from pymongo.errors import DuplicateKeyError
 
 load_dotenv()
 
@@ -37,7 +40,16 @@ class ContextManager:
             self.client.close()
             logger.info("Context Manager connection closed")
 
-    async def save_conversation(self, user_id: str, session_id: str, agent_type: str, user_input: str, agent_response: str, room_id: str = None):
+    async def save_conversation(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_type: str,
+        user_input: str,
+        agent_response: str,
+        room_id: str | None = None,
+        client_message_id: str | None = None,
+    ) -> bool:
         """
         Save a single conversation turn to history.
 
@@ -48,21 +60,48 @@ class ContextManager:
             user_input: 사용자 입력
             agent_response: 에이전트 응답
             room_id: 채팅방 ID (선택사항)
+            client_message_id: 클라이언트가 재시도 동안 재사용하는 선택적 ID
+
+        Returns:
+            새 문서를 만들었으면 True, 동일 client_message_id 재시도면 False.
         """
         if self.db is None:
             await self.connect()
 
+        normalized_room_id = room_id or session_id
         document = {
             "user_id": user_id,
             "session_id": session_id,
-            "room_id": room_id or session_id,  # room_id가 없으면 session_id 사용
+            "room_id": normalized_room_id,
             "agent_type": agent_type,
             "user_input": user_input,
             "agent_response": agent_response,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(UTC)
         }
+        if client_message_id:
+            document["client_message_id"] = client_message_id
+            document["_schema_version"] = 2
+            scope = json.dumps(
+                [user_id, client_message_id],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            digest = hashlib.sha256(scope.encode("utf-8")).hexdigest()
+            document["_id"] = f"chat-v1:{digest}"
+            try:
+                result = await self.db.conversation_history.update_one(
+                    {"_id": document["_id"]},
+                    {"$setOnInsert": document},
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                # A concurrent retry can win the deterministic _id upsert
+                # between the query and insert. That is an idempotent replay.
+                return False
+            return result.upserted_id is not None
 
         await self.db.conversation_history.insert_one(document)
+        return True
 
     async def get_recent_conversations(self, user_id: str, limit: int = 5) -> List[Dict]:
         """

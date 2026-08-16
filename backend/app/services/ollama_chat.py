@@ -7,6 +7,7 @@ described as RAG-backed when no vector context was actually collected.
 
 from __future__ import annotations
 
+import inspect
 import os
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
@@ -211,14 +212,21 @@ class OllamaChatService:
             max_tokens=int(os.getenv("OLLAMA_MAX_TOKENS", "4096")),
             stream=True,
         )
-        async for chunk in stream:
-            choices = getattr(chunk, "choices", None) or []
-            if not choices:
-                continue
-            content = getattr(choices[0], "delta", None)
-            content = getattr(content, "content", "") if content else ""
-            if content:
-                yield {"status": "streaming", "content": content, "agent_type": "ollama_rag"}
+        try:
+            async for chunk in stream:
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                content = getattr(choices[0], "delta", None)
+                content = getattr(content, "content", "") if content else ""
+                if content:
+                    yield {"status": "streaming", "content": content, "agent_type": "ollama_rag"}
+        finally:
+            close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
 
     async def close(self) -> None:
         close = getattr(self.client, "close", None)

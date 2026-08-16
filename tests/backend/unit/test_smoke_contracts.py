@@ -12,9 +12,12 @@ sys.path.insert(0, str(SCRIPTS))
 import check_architecture_dependencies
 from check_architecture_dependencies import _matches_module, imports
 from check_artifact_pii import main as pii_main
-from smoke_api_chat import parse_sse_line, serialize_stream_evidence
+from smoke_api_chat import SmokeContractError, parse_sse_line, serialize_stream_evidence
 from smoke_common import ensure_redacted, require_local_http
 from smoke_parlant_http import _discover, _event_summary, _prepare_error_artifact
+from run_chat_http_verification import _readiness_only, _stream_summary
+from summarize_chat_rollout import RolloutEvidenceError, main as rollout_main, validate_selector
+from sanitize_verification_artifacts import sanitize_junit, sanitize_stream
 from verification_manifest import append_command, run_command
 
 
@@ -47,6 +50,135 @@ def test_stream_evidence_keeps_terminal_and_done_on_separate_lines() -> None:
     ]
 
 
+def test_chat_smoke_error_carries_only_transport_metadata() -> None:
+    error = SmokeContractError(
+        "provider failed",
+        status_code=503,
+        content_type="application/json",
+    )
+
+    assert error.status_code == 503
+    assert error.content_type == "application/json"
+
+
+def test_rollout_summary_requires_successful_json_sse_and_telemetry(tmp_path) -> None:
+    artifact = tmp_path / "hex.json"
+    payload = {
+        "result": "pass",
+        "implementation": "hex",
+        "hosted_provider_call_count": 0,
+        "smoke": {
+            "scenario": "success",
+            "exit_code": 0,
+            "duration_seconds": 1.0,
+            "message": {
+                "status_code": 200,
+                "content_type": "application/json",
+                "provider": "ollama",
+                "agent_identity": "ollama_rag",
+                "message_id": {"sha256": "message", "bytes": 1},
+            },
+            "stream": {
+                "status_code": 200,
+                "content_type": "text/event-stream; charset=utf-8",
+                "provider_identity": "ollama",
+                "agent_identity": "ollama_rag",
+                "terminal_status": "complete",
+                "transport_done_count": 1,
+                "message_id": {"sha256": "stream", "bytes": 1},
+            },
+        },
+        "telemetry": {"hex.message.success": 1, "hex.stream.success": 1},
+    }
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert validate_selector(artifact, "hex")["terminal_status"] == "complete"
+
+    payload["smoke"]["stream"]["transport_done_count"] = 0
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RolloutEvidenceError, match="stream_done"):
+        validate_selector(artifact, "hex")
+
+
+def test_evidence_sanitizer_removes_host_parameters_and_token_sized_hashes(
+    tmp_path,
+) -> None:
+    junit = tmp_path / "unit.xml"
+    junit.write_text(
+        '<testsuite hostname="private-host"><testcase name="test_case[raw health text]">'
+        '<failure message="private failure">private traceback</failure>'
+        "<system-out>private output</system-out></testcase></testsuite>",
+        encoding="utf-8",
+    )
+    stream = tmp_path / "stream.ndjson"
+    stream.write_text(
+        json.dumps(
+            {
+                "status": "streaming",
+                "content": {"sha256": "recoverable", "bytes": 2},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "status": "complete",
+                "content": {"sha256": "full-answer", "bytes": 2000},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "status": "complete",
+                "content": "raw terminal answer",
+                "error": "raw terminal error",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    sanitize_junit(junit)
+    sanitize_stream(stream)
+
+    junit_text = junit.read_text(encoding="utf-8")
+    stream_records = [json.loads(line) for line in stream.read_text().splitlines()]
+    assert "private-host" not in junit_text
+    assert "raw health text" not in junit_text
+    assert "private output" not in junit_text
+    assert "private failure" not in junit_text
+    assert "private traceback" not in junit_text
+    assert stream_records[0] == {"status": "streaming", "content_bytes": 2}
+    assert stream_records[1]["content"]["sha256"] == "full-answer"
+    assert stream_records[2] == {
+        "status": "complete",
+        "content_bytes": len("raw terminal answer".encode()),
+        "error_bytes": len("raw terminal error".encode()),
+    }
+
+
+def test_http_summary_fails_closed_for_empty_or_identifierless_stream(tmp_path) -> None:
+    stream = tmp_path / "stream.ndjson"
+    stream.write_text("", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="empty"):
+        _stream_summary(stream)
+
+    stream.write_text('{"status":"complete"}\n', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="identifier"):
+        _stream_summary(stream)
+
+
+@pytest.mark.parametrize(
+    ("readiness", "evidence", "expected"),
+    [(False, False, None), (True, False, True), (True, True, False)],
+)
+def test_readiness_only_reflects_smoke_evidence(
+    readiness: bool,
+    evidence: bool,
+    expected: bool | None,
+) -> None:
+    assert _readiness_only(readiness, evidence) is expected
+
+
 def test_event_evidence_hashes_content_without_storing_raw_text() -> None:
     summary = _event_summary(
         {"id": "evt-1", "offset": 2, "kind": "message", "source": "ai_agent", "data": {"message": "private response"}}
@@ -69,6 +201,11 @@ def test_pii_scan_fails_closed_for_missing_and_empty_directories(
     monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(missing)])
     assert pii_main() == 1
 
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(empty)])
+    assert pii_main() == 1
+
 
 def test_pii_scan_excludes_only_the_canonical_report(monkeypatch, tmp_path) -> None:
     artifact_dir = tmp_path / "artifacts"
@@ -85,10 +222,26 @@ def test_pii_scan_excludes_only_the_canonical_report(monkeypatch, tmp_path) -> N
     disguised_artifact.write_text("health-canary-ckd3", encoding="utf-8")
     assert pii_main() == 1
 
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(empty)])
-    assert pii_main() == 1
+
+def test_rollout_rejects_reused_hex_artifacts(monkeypatch, tmp_path) -> None:
+    reused = tmp_path / "hex.json"
+    rollback = tmp_path / "rollback.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "summarize_chat_rollout.py",
+            *sum((["--hex-artifact", str(reused)] for _ in range(5)), []),
+            "--rollback-artifact",
+            str(rollback),
+            "--output",
+            str(tmp_path / "rollout.json"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        rollout_main()
+    assert error.value.code == 2
 
 
 def test_parlant_smoke_removes_stale_top_level_error_artifact(tmp_path) -> None:
@@ -124,6 +277,70 @@ def test_verification_output_must_be_inside_artifact_directory(tmp_path) -> None
     ]
     with pytest.raises(ValueError, match="inside artifact_dir"):
         run_command(tmp_path / "artifacts", tmp_path / "outside.txt", command)
+    assert not marker.exists()
+
+
+def test_verification_records_declared_produced_artifact(tmp_path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    output = artifact_dir / "command.txt"
+    junit = artifact_dir / "unit.junit.xml"
+    command = [
+        sys.executable,
+        "-c",
+        f"from pathlib import Path; Path({str(junit)!r}).write_text('<testsuite/>')",
+    ]
+
+    assert run_command(artifact_dir, output, command, [junit]) == 0
+    manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["commands"][-1]["artifacts"] == ["command.txt", "unit.junit.xml"]
+
+
+def test_missing_produced_artifact_is_still_recorded(tmp_path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    output = artifact_dir / "command.txt"
+    missing = artifact_dir / "missing.xml"
+
+    with pytest.raises(RuntimeError, match="expected produced artifact is missing"):
+        run_command(
+            artifact_dir,
+            output,
+            [sys.executable, "-c", "print('executed')"],
+            [missing],
+        )
+
+    manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["commands"][-1]["artifacts"] == ["command.txt", "missing.xml"]
+
+
+def test_verification_runs_from_repository_subdirectory(tmp_path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    output = artifact_dir / "command.txt"
+    frontend = Path(__file__).resolve().parents[3] / "frontend"
+
+    assert run_command(
+        artifact_dir,
+        output,
+        [sys.executable, "-c", "from pathlib import Path; print(Path.cwd().name)"],
+        cwd=frontend,
+    ) == 0
+    assert output.read_text(encoding="utf-8").strip() == "frontend"
+    manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["commands"][-1]["cwd"] == str(frontend)
+
+
+@pytest.mark.parametrize("cwd_kind", ["outside", "missing"])
+def test_verification_rejects_invalid_cwd_before_command(tmp_path, cwd_kind) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    marker = tmp_path / "executed"
+    cwd = tmp_path if cwd_kind == "outside" else Path(__file__).parents[3] / "missing-cwd"
+    command = [
+        sys.executable,
+        "-c",
+        f"from pathlib import Path; Path({str(marker)!r}).write_text('x')",
+    ]
+
+    with pytest.raises(ValueError, match="verification cwd"):
+        run_command(artifact_dir, artifact_dir / "output.txt", command, cwd=cwd)
     assert not marker.exists()
 
 

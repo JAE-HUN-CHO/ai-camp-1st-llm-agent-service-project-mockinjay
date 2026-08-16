@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 import logging
 import os
-from datetime import datetime
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any, NoReturn, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,24 @@ _background_tasks: set[asyncio.Task] = set()
 _ALLOWED_PROFILES = {"general", "patient", "researcher"}
 
 
+def _consume_background_task(task: asyncio.Task[Any]) -> None:
+    if task.cancelled():
+        return
+    try:
+        failure = task.exception()
+    except Exception:  # noqa: BLE001 - task failures must not expose chat context
+        logger.warning("Chat context analysis task failed")
+        return
+    if failure is not None:
+        logger.warning("Chat context analysis task failed")
+
+
+def _track_background_task(task: asyncio.Task[Any]) -> None:
+    _background_tasks.add(task)
+    task.add_done_callback(_consume_background_task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 def _normalize_profile(value: object) -> str:
     return value if isinstance(value, str) and value in _ALLOWED_PROFILES else "general"
 
@@ -49,7 +67,22 @@ from app.api.dependencies import (
     get_request_user_id,
     require_user_match,
 )
+from app.bootstrap.container import ChatContainer, get_chat_container
+from app.core.actor import ActorContext
 from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
+from app.features.chat.application import (
+    ChatCommand,
+    PreparedChatStream,
+    accumulate_chat_stream_content,
+)
+from app.features.chat.domain import (
+    ChatAccessDenied,
+    ChatError,
+    ChatProviderTimeout,
+    ChatProviderUnavailable,
+    ChatRoomNotFound,
+    ChatSessionNotFound,
+)
 
 
 def _authorize_user(request: Request, requested_user_id: Optional[str]) -> str:
@@ -88,26 +121,186 @@ async def _persist_chat_response(
     query: str,
     answer: str,
     agent_type: str = "ollama_rag",
+    client_message_id: str | None = None,
 ) -> None:
     """Persist a direct Ollama response using the same history contract."""
     if not (answer and user_id and session_id and query):
         return
     try:
-        await context_system.context_engineer.db_manager.save_conversation(
-            user_id, session_id, agent_type, query, answer, room_id
+        created = await context_system.context_engineer.db_manager.save_conversation(
+            user_id,
+            session_id,
+            agent_type,
+            query,
+            answer,
+            room_id,
+            client_message_id,
         )
+        if created is False:
+            return
         task = asyncio.create_task(
             context_system.context_engineer.analyze_and_update_context(user_id)
         )
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-    except Exception as exc:  # history persistence must not hide a valid answer
-        logger.warning("History saving failed for direct Ollama response: %s", exc)
+        _track_background_task(task)
+    except Exception:  # noqa: BLE001 - preserve a valid answer if history fails
+        logger.warning("History saving failed for direct Ollama response")
+
+
+def _raise_hex_chat_error(error: ChatError) -> NoReturn:
+    if isinstance(error, ChatAccessDenied):
+        raise HTTPException(status_code=403, detail="Access denied") from error
+    if isinstance(error, (ChatRoomNotFound, ChatSessionNotFound)):
+        raise HTTPException(status_code=404, detail="Chat resource not found") from error
+    if isinstance(error, ChatProviderTimeout):
+        raise HTTPException(status_code=504, detail="Local chat provider timeout") from error
+    if isinstance(error, ChatProviderUnavailable):
+        raise HTTPException(status_code=503, detail="Local chat provider unavailable") from error
+    raise HTTPException(status_code=503, detail="Chat request failed") from error
+
+
+async def _hex_chat_message(
+    *,
+    container: ChatContainer,
+    query: str,
+    user_id: str,
+    session_id: str,
+    room_id: str | None,
+    profile: str,
+    client_message_id: str | None,
+) -> JSONResponse:
+    use_case = container.send_chat_message
+    if use_case is None:
+        raise RuntimeError("hex Chat use case is not configured")
+    try:
+        generation = await use_case.execute(
+            ChatCommand(
+                actor=ActorContext(
+                    user_id=user_id,
+                    room_id=room_id,
+                    session_id=session_id,
+                ),
+                query=query,
+                profile=profile,
+                client_message_id=client_message_id,
+            )
+        )
+    except ChatError as error:
+        container.telemetry.record("message", "failure")
+        _raise_hex_chat_error(error)
+
+    outcome = "success" if generation.persisted else "persistence_failure"
+    container.telemetry.record("message", outcome)
+    return JSONResponse(
+        content=json.loads(
+            json.dumps(
+                {
+                    "answer": generation.answer,
+                    "content": generation.answer,
+                    "status": "success",
+                    "agent_type": generation.agent_type,
+                    "sources": list(generation.sources),
+                    "metadata": dict(generation.metadata),
+                },
+                default=str,
+            )
+        )
+    )
+
+
+async def _prepare_hex_chat_stream(
+    *,
+    request: Request,
+    container: ChatContainer,
+    query: str,
+    user_id: str,
+    session_id: str,
+    room_id: str | None,
+    profile: str,
+    client_message_id: str | None,
+) -> StreamingResponse:
+    use_case = container.stream_chat_message
+    if use_case is None:
+        raise RuntimeError("hex Chat stream use case is not configured")
+    try:
+        prepared = await use_case.prepare(
+            ChatCommand(
+                actor=ActorContext(
+                    user_id=user_id,
+                    room_id=room_id,
+                    session_id=session_id,
+                ),
+                query=query,
+                profile=profile,
+                client_message_id=client_message_id,
+            )
+        )
+    except ChatError as error:
+        container.telemetry.record("stream", "failure")
+        _raise_hex_chat_error(error)
+
+    return StreamingResponse(
+        _hex_chat_stream_events(request, container, prepared),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _hex_chat_stream_events(
+    request: Request,
+    container: ChatContainer,
+    prepared: PreparedChatStream,
+):
+    use_case = container.stream_chat_message
+    if use_case is None:
+        raise RuntimeError("hex Chat stream use case is not configured")
+
+    stream_registry = get_stream_registry(request)
+    session_id = prepared.actor.session_id or f"default:{prepared.actor.user_id}"
+    stream_registry.set(
+        session_id,
+        {
+            "session_id": session_id,
+            "room_id": prepared.actor.room_id,
+            "user_id": prepared.actor.user_id,
+            "started_at": datetime.now(UTC),
+            "cancel_requested": False,
+            "partial_response": "",
+        },
+    )
+    terminal = "failure"
+    accumulated = ""
+
+    async def is_cancelled() -> bool:
+        metadata = stream_registry.get(session_id, {})
+        return bool(metadata.get("cancel_requested")) or await request.is_disconnected()
+
+    try:
+        async for event in use_case.events(prepared, is_cancelled=is_cancelled):
+            if event.status in {"complete", "success"}:
+                terminal = "success"
+            elif event.status == "cancelled":
+                terminal = "cancelled"
+            elif event.status == "error":
+                terminal = "failure"
+            metadata = stream_registry.get(session_id)
+            accumulated = accumulate_chat_stream_content(accumulated, event)
+            if metadata is not None:
+                metadata["partial_response"] = accumulated
+            yield f"data: {json.dumps(event.as_payload(), ensure_ascii=False, default=str)}\n\n"
+    finally:
+        stream_registry.pop(session_id, None)
+        container.telemetry.record("stream", terminal)
+    yield "data: [DONE]\n\n"
 
 
 async def _direct_ollama_stream(
     service,
     context_system,
+    container: ChatContainer,
     *,
     query: str,
     profile: str,
@@ -115,6 +308,7 @@ async def _direct_ollama_stream(
     user_id: str,
     session_id: str,
     room_id: str | None,
+    client_message_id: str | None,
 ):
     accumulated = ""
     terminal_emitted = False
@@ -153,7 +347,9 @@ async def _direct_ollama_stream(
             room_id=room_id,
             query=query,
             answer=accumulated,
+            client_message_id=client_message_id,
         )
+    container.telemetry.record("stream", "success" if completed else "failure")
     yield "data: [DONE]\n\n"
 
 
@@ -409,6 +605,7 @@ async def chat_message(request: Request):
     """
     Main Chat Endpoint - Uses RouterAgent with streaming support
     """
+    container = None
     try:
         context_system = get_context_system(request)
         body = await request.json()
@@ -420,8 +617,31 @@ async def chat_message(request: Request):
         if not query:
             raise HTTPException(status_code=400, detail="Query is required")
 
+        profile = _normalize_profile(
+            body.get("profile") or body.get("user_profile", "general")
+        )
+        client_message_id = body.get("client_message_id")
+        container = get_chat_container(request)
+        if client_message_id is not None and (
+            not isinstance(client_message_id, str)
+            or not client_message_id.strip()
+            or len(client_message_id) > 128
+        ):
+            raise HTTPException(status_code=400, detail="Invalid client_message_id")
+        if container.is_hex:
+            return await _hex_chat_message(
+                container=container,
+                query=query,
+                user_id=user_id,
+                session_id=session_id,
+                room_id=room_id,
+                profile=profile,
+                client_message_id=client_message_id,
+            )
+
         decision = emergency_safety_policy.evaluate(query)
         if decision.blocked:
+            container.telemetry.record("message", "success")
             return JSONResponse(
                 content={
                     "answer": EMERGENCY_RESPONSE,
@@ -471,8 +691,6 @@ async def chat_message(request: Request):
 
         # Get user profile for Parlant customer tag
         # 사용자 프로필 추출 (Parlant 고객 태그용)
-        profile = _normalize_profile(body.get("profile") or body.get("user_profile", "general"))
-
         # The canonical runtime uses the local Ollama/RAG service directly.
         # Tests and legacy callers may still inject a router-only runtime, so
         # retain that seam as an explicit fallback.
@@ -491,7 +709,9 @@ async def chat_message(request: Request):
                 room_id=room_id,
                 query=query,
                 answer=answer,
+                client_message_id=client_message_id,
             )
+            container.telemetry.record("message", "success")
             return JSONResponse(
                 content=json.loads(json.dumps({
                     "answer": answer,
@@ -526,7 +746,7 @@ async def chat_message(request: Request):
                 "session_id": session_id,
                 "room_id": room_id,
                 "user_id": user_id,
-                "started_at": datetime.utcnow(),
+                "started_at": datetime.now(UTC),
                 "cancel_requested": False,
                 "partial_response": ""
             }
@@ -614,14 +834,29 @@ async def chat_message(request: Request):
                 ):
                     save_agent_type = final_agent_type or "research_paper"
 
-                    await context_system.context_engineer.db_manager.save_conversation(
-                        user_id, session_id, save_agent_type, query, accumulated_response, room_id
+                    created = await context_system.context_engineer.db_manager.save_conversation(
+                        user_id,
+                        session_id,
+                        save_agent_type,
+                        query,
+                        accumulated_response,
+                        room_id,
+                        client_message_id,
                     )
-                    asyncio.create_task(context_system.context_engineer.analyze_and_update_context(user_id))
+                    if created is not False:
+                        _track_background_task(
+                            asyncio.create_task(
+                                context_system.context_engineer.analyze_and_update_context(user_id)
+                            )
+                        )
                     logger.info("Saved redacted streaming conversation metadata")
             except Exception as e:
                 logger.warning(f"History saving failed in stream: {e}")
 
+            container.telemetry.record(
+                "message",
+                "success" if completed and not failed else "failure",
+            )
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -637,6 +872,8 @@ async def chat_message(request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        if container is not None:
+            container.telemetry.record("message", "failure")
         logger.error(f"Chat processing error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -646,6 +883,7 @@ async def chat_stream(request: Request):
     """
     Streaming Chat Endpoint - Uses RouterAgent to handle complex intents with streaming
     """
+    container = None
     try:
         context_system = get_context_system(request)
         body = await request.json()
@@ -660,8 +898,32 @@ async def chat_stream(request: Request):
         if not query:
             raise HTTPException(status_code=400, detail="Query is required")
 
+        profile = _normalize_profile(
+            body.get("profile") or body.get("user_profile", "general")
+        )
+        client_message_id = body.get("client_message_id")
+        container = get_chat_container(request)
+        if client_message_id is not None and (
+            not isinstance(client_message_id, str)
+            or not client_message_id.strip()
+            or len(client_message_id) > 128
+        ):
+            raise HTTPException(status_code=400, detail="Invalid client_message_id")
+        if container.is_hex:
+            return await _prepare_hex_chat_stream(
+                request=request,
+                container=container,
+                query=query,
+                user_id=user_id,
+                session_id=session_id,
+                room_id=room_id,
+                profile=profile,
+                client_message_id=client_message_id,
+            )
+
         decision = emergency_safety_policy.evaluate(query)
         if decision.blocked:
+            container.telemetry.record("stream", "success")
             return StreamingResponse(
                 _emergency_sse(),
                 media_type="text/event-stream",
@@ -705,8 +967,6 @@ async def chat_stream(request: Request):
 
         # Get user profile for Parlant customer tag
         # 사용자 프로필 추출 (Parlant 고객 태그용)
-        profile = _normalize_profile(body.get("profile") or body.get("user_profile", "general"))
-
         runtime = get_agent_runtime(request)
         chat_service = getattr(runtime, "chat_service", None) if getattr(runtime, "use_ollama", True) else None
         if chat_service is not None:
@@ -715,12 +975,14 @@ async def chat_stream(request: Request):
                 _direct_ollama_stream(
                     chat_service,
                     context_system,
+                    container,
                     query=query,
                     profile=profile,
                     user_context=user_context,
                     user_id=user_id,
                     session_id=session_id,
                     room_id=room_id,
+                    client_message_id=client_message_id,
                 ),
                 media_type="text/event-stream",
                 headers={
@@ -838,15 +1100,30 @@ async def chat_stream(request: Request):
                     # Use final_agent_type or default to router/research_paper
                     save_agent_type = final_agent_type or "research_paper"
 
-                    await context_system.context_engineer.db_manager.save_conversation(
-                        user_id, session_id, save_agent_type, query, accumulated_response, room_id
+                    created = await context_system.context_engineer.db_manager.save_conversation(
+                        user_id,
+                        session_id,
+                        save_agent_type,
+                        query,
+                        accumulated_response,
+                        room_id,
+                        client_message_id,
                     )
                     # Trigger analysis (fire and forget)
-                    asyncio.create_task(context_system.context_engineer.analyze_and_update_context(user_id))
+                    if created is not False:
+                        _track_background_task(
+                            asyncio.create_task(
+                                context_system.context_engineer.analyze_and_update_context(user_id)
+                            )
+                        )
                     logger.info("Saved redacted streaming conversation metadata")
             except Exception as e:
                 logger.warning(f"History saving failed in stream: {e}")
 
+            container.telemetry.record(
+                "stream",
+                "success" if completed and not failed else "failure",
+            )
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -862,6 +1139,8 @@ async def chat_stream(request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        if container is not None:
+            container.telemetry.record("stream", "failure")
         logger.error(f"Chat stream error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
