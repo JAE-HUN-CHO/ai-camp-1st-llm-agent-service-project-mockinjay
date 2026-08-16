@@ -13,7 +13,13 @@ import time
 
 import httpx
 
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "backend"
+sys.path.insert(0, str(BACKEND))
+
+from app.bootstrap.container import HEALTH_PROFILE_IMPLEMENTATION_ERROR
 from smoke_common import (
+    HOSTED_SECRET_NAMES,
     digest_text,
     require_local_http,
     resolve_artifact_path,
@@ -21,13 +27,6 @@ from smoke_common import (
     write_json,
 )
 from verification_manifest import append_command
-
-
-ROOT = Path(__file__).resolve().parents[1]
-BACKEND = ROOT / "backend"
-sys.path.insert(0, str(BACKEND))
-
-from app.bootstrap.container import HEALTH_PROFILE_IMPLEMENTATION_ERROR
 
 
 def run(args: argparse.Namespace) -> int:
@@ -40,15 +39,9 @@ def run(args: argparse.Namespace) -> int:
     environment["CHAT_IMPLEMENTATION"] = "legacy"
     environment["HEALTH_RECORDS_IMPLEMENTATION"] = "legacy"
     environment["HEALTH_PROFILE_IMPLEMENTATION"] = "invalid"
-    for name in (
-        "ANTHROPIC_API_KEY",
-        "AZURE_OPENAI_API_KEY",
-        "EMCIE_API_KEY",
-        "GOOGLE_API_KEY",
-        "GROQ_API_KEY",
-        "OPENAI_API_KEY",
-    ):
-        environment.pop(name, None)
+    removed_hosted_credentials = sorted(
+        name for name in HOSTED_SECRET_NAMES if environment.pop(name, None)
+    )
 
     server_argv = [
         sys.executable,
@@ -126,7 +119,12 @@ def run(args: argparse.Namespace) -> int:
             "provider_call_evidence": {
                 "measurement": "derived_not_network_observed",
                 "basis": "selector_failed_before_http_readiness",
-                "hosted_credentials_present_after_sanitization": [],
+                "hosted_credentials_present_before_sanitization": (
+                    removed_hosted_credentials
+                ),
+                "hosted_credentials_present_after_sanitization": sorted(
+                    name for name in HOSTED_SECRET_NAMES if environment.get(name)
+                ),
             },
             "failure": (
                 {

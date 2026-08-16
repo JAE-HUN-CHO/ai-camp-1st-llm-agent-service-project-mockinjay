@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 import logging
-from typing import Any
+from typing import Protocol
 
 from pymongo import ReturnDocument
 
@@ -27,21 +27,42 @@ _MONGO_FIELD = {
 }
 
 
+class _HealthProfileCollection(Protocol):
+    async def find_one(
+        self, query: Mapping[str, object]
+    ) -> Mapping[str, object] | None: ...
+
+    async def find_one_and_update(
+        self,
+        query: Mapping[str, object],
+        update: Mapping[str, object],
+        *,
+        upsert: bool,
+        return_document: object,
+    ) -> Mapping[str, object] | None: ...
+
+
+class _MissingUpsertResult(RuntimeError):
+    pass
+
+
 class MongoHealthProfileRepository:
     """Persist profiles without changing collection fields or indexes."""
 
-    def __init__(self, collection_factory: Callable[[], Any]) -> None:
+    def __init__(
+        self, collection_factory: Callable[[], _HealthProfileCollection]
+    ) -> None:
         self._collection_factory = collection_factory
 
     @property
-    def _collection(self) -> Any:
+    def _collection(self) -> _HealthProfileCollection:
         return self._collection_factory()
 
     async def get_for_owner(self, owner_id: str) -> HealthProfile:
         try:
             document = await self._collection.find_one({"userId": owner_id})
             return self._to_domain(document) if document else HealthProfile.empty(owner_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - translate Mongo driver failures
             self._raise_persistence_error(exc)
 
     async def upsert_for_owner(
@@ -63,13 +84,17 @@ class MongoHealthProfileRepository:
                 return_document=ReturnDocument.AFTER,
             )
             if document is None:
-                raise RuntimeError("health profile upsert result was not found")
+                self._raise_missing_upsert_result()
             return self._to_domain(document)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - translate Mongo driver failures
             self._raise_persistence_error(exc)
 
     @staticmethod
-    def _to_domain(document: Mapping[str, Any]) -> HealthProfile:
+    def _raise_missing_upsert_result() -> None:
+        raise _MissingUpsertResult
+
+    @staticmethod
+    def _to_domain(document: Mapping[str, object]) -> HealthProfile:
         updated_at = document.get("updatedAt")
         if isinstance(updated_at, str):
             updated_at = datetime.fromisoformat(updated_at)
@@ -86,4 +111,4 @@ class MongoHealthProfileRepository:
     @staticmethod
     def _raise_persistence_error(exc: Exception) -> None:
         logger.warning("Health Profile persistence failed")
-        raise HealthProfilePersistenceError("health profile persistence failed") from exc
+        raise HealthProfilePersistenceError from exc

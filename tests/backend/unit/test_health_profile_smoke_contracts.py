@@ -14,6 +14,7 @@ SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from run_health_profiles_http_verification import (
+    _telemetry,
     read_schema_audit,
     resolve_artifact_path,
     telemetry_failures,
@@ -56,6 +57,19 @@ def test_health_profile_schema_audit_requires_all_zero_counters(tmp_path: Path) 
 
 
 def test_health_profile_telemetry_rejects_missing_and_opposite_calls() -> None:
+    log_text = "\n".join(
+        [
+            "INFO Health Profile implementation call implementation=hex "
+            "operation=get outcome=success count=1",
+            "INFO Health Profile implementation call implementation=hex "
+            "operation=update outcome=success count=1",
+        ]
+    )
+    assert _telemetry(log_text) == {
+        "hex.get.success": 1,
+        "hex.update.success": 1,
+    }
+
     assert telemetry_failures(
         {"hex.get.success": 2, "hex.update.success": 3}, "hex"
     ) == []

@@ -84,6 +84,11 @@ def _summary(response: httpx.Response, payload: object) -> dict[str, object]:
     }
 
 
+def _stable_profile(profile: dict[str, object]) -> dict[str, object]:
+    """Compare frozen profile values while allowing the write timestamp to advance."""
+    return {key: value for key, value in profile.items() if key != "updatedAt"}
+
+
 def run(args: argparse.Namespace) -> int:
     token = os.getenv("CAREGUIDE_SMOKE_TOKEN")
     other_token = os.getenv("CAREGUIDE_OTHER_SMOKE_TOKEN")
@@ -137,20 +142,21 @@ def run(args: argparse.Namespace) -> int:
             or not isinstance(updated.get("updatedAt"), str)
         ):
             raise SmokeContractError("Health Profile update payload changed")
+        stable_updated = _stable_profile(updated)
         operations["owner_update"] = _summary(update_response, updated)
 
         null_response = client.put(
             path, headers=owner_headers, json={"conditions": None}
         )
         null_profile = _profile(null_response)
-        if null_profile.get("conditions") != [canary] or null_profile.get("age") != 44:
+        if _stable_profile(null_profile) != stable_updated:
             raise SmokeContractError("Health Profile explicit-null semantics changed")
         null_preserved = True
         operations["explicit_null"] = _summary(null_response, null_profile)
 
         unset_response = client.put(path, headers=owner_headers, json={})
         unset_profile = _profile(unset_response)
-        if unset_profile.get("conditions") != [canary] or unset_profile.get("age") != 44:
+        if _stable_profile(unset_profile) != stable_updated:
             raise SmokeContractError("Health Profile unset semantics changed")
         unset_preserved = True
         operations["empty_update"] = _summary(unset_response, unset_profile)
@@ -163,7 +169,8 @@ def run(args: argparse.Namespace) -> int:
                 content_type=unauthenticated_response.headers.get("content-type"),
             )
         unauthenticated = _json(
-            unauthenticated_response, unauthenticated_response.status_code
+            unauthenticated_response,
+            401 if unauthenticated_response.status_code == 401 else 403,
         )
         operations["unauthenticated_update"] = _summary(
             unauthenticated_response, unauthenticated
@@ -188,7 +195,7 @@ def run(args: argparse.Namespace) -> int:
 
         owner_after_response = client.get(path, headers=owner_headers)
         owner_after = _profile(owner_after_response)
-        if owner_after.get("conditions") != [canary] or owner_after.get("age") != 44:
+        if _stable_profile(owner_after) != stable_updated:
             raise SmokeContractError("Cross-user Health Profile write changed owner data")
         cross_user_cases_passed += 1
         operations["owner_after_other_write"] = _summary(
@@ -219,6 +226,14 @@ def run(args: argparse.Namespace) -> int:
             above_maximum_response, above_maximum
         )
         validation_cases_passed += 1
+
+        after_validation_response = client.get(path, headers=owner_headers)
+        after_validation = _profile(after_validation_response)
+        if _stable_profile(after_validation) != stable_updated:
+            raise SmokeContractError("Rejected Health Profile age was persisted")
+        operations["owner_after_invalid_age"] = _summary(
+            after_validation_response, after_validation
+        )
 
     result = (
         "pass"

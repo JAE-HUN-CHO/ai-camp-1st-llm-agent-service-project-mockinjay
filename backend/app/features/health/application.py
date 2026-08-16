@@ -19,7 +19,7 @@ from app.features.health.ports import HealthProfileRepository, HealthRecordRepos
 
 def _profile_owner_id(actor: ActorContext) -> str:
     if not actor.user_id:
-        raise HealthProfileAccessDenied("authenticated actor is required")
+        raise HealthProfileAccessDenied
     return actor.user_id
 
 

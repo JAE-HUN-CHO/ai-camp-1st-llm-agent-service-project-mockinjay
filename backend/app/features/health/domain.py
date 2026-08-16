@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import Mapping
 
 
 MUTABLE_HEALTH_PROFILE_FIELDS = (
@@ -15,6 +15,25 @@ MUTABLE_HEALTH_PROFILE_FIELDS = (
     "age",
     "gender",
 )
+
+
+class HealthProfileError(Exception):
+    """Base failure translated by the MyPage inbound adapter."""
+
+
+class HealthProfileAccessDenied(HealthProfileError):
+    def __init__(self) -> None:
+        super().__init__("authenticated actor is required")
+
+
+class HealthProfilePersistenceError(HealthProfileError):
+    def __init__(self) -> None:
+        super().__init__("health profile persistence failed")
+
+
+class HealthProfilePatchError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("health profile patch contains unsupported fields")
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,23 +78,11 @@ class HealthProfilePatch:
     def __post_init__(self) -> None:
         unknown = set(self.fields) - set(MUTABLE_HEALTH_PROFILE_FIELDS)
         if unknown:
-            raise ValueError("health profile patch contains unsupported fields")
+            raise HealthProfilePatchError
         object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
 
     def as_persisted_fields(self) -> dict[str, object]:
         return {key: value for key, value in self.fields.items() if value is not None}
-
-
-class HealthProfileError(Exception):
-    """Base failure translated by the MyPage inbound adapter."""
-
-
-class HealthProfileAccessDenied(HealthProfileError):
-    pass
-
-
-class HealthProfilePersistenceError(HealthProfileError):
-    pass
 
 
 OPTIONAL_HEALTH_RECORD_FIELDS = (

@@ -14,6 +14,16 @@ from sensitive_patterns import SENSITIVE_PATTERN
 
 ROOT = Path(__file__).resolve().parents[1]
 SENSITIVE = SENSITIVE_PATTERN
+HOSTED_SECRET_NAMES = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "EMCIE_API_KEY",
+        "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
+        "OPENAI_API_KEY",
+    }
+)
 
 
 def utc_now() -> str:

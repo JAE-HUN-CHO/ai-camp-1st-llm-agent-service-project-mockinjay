@@ -62,6 +62,15 @@ def _zero(item: dict[str, object], *path: str) -> bool:
     return type(value) is int and value == 0
 
 
+def _sum_integer_evidence(
+    items: tuple[dict[str, object], ...], *path: str
+) -> int | None:
+    values = [_nested(item, *path) for item in items]
+    if not all(type(value) is int for value in values):
+        return None
+    return sum(int(value) for value in values)
+
+
 def provider_evidence_passes(item: dict[str, object]) -> bool:
     evidence = item.get("provider_call_evidence")
     return (
@@ -69,6 +78,10 @@ def provider_evidence_passes(item: dict[str, object]) -> bool:
         and evidence.get("measurement") == "derived_not_network_observed"
         and evidence.get("health_profile_provider_port_present") is False
         and evidence.get("ollama_enabled") is False
+        and isinstance(
+            evidence.get("hosted_credentials_present_before_sanitization"),
+            list,
+        )
         and evidence.get("hosted_credentials_present_after_sanitization") == []
         and _zero(item, "hosted_provider_call_count")
         and _zero(item, "provider_call_count")
@@ -135,6 +148,14 @@ def invalid_selector_passes(item: dict[str, object]) -> bool:
         == "derived_not_network_observed"
         and _nested(item, "provider_call_evidence", "basis")
         == "selector_failed_before_http_readiness"
+        and isinstance(
+            _nested(
+                item,
+                "provider_call_evidence",
+                "hosted_credentials_present_before_sanitization",
+            ),
+            list,
+        )
         and _nested(
             item,
             "provider_call_evidence",
@@ -198,14 +219,20 @@ def build_summary(
     http_ok = http_passes(legacy_http, "legacy") and http_passes(hex_http, "hex")
     invalid_ok = invalid_selector_passes(invalid_selector)
     schema_ok = schema_passes(schema)
-    imports_ok = (
-        imports.get("enforced_violation_count") == 0
-        and imports.get("enforced_violations") == []
-    )
-    pii_ok = pii.get("result") == "pass" and pii.get("canary_matches") == 0
+    imports_ok = _zero(
+        imports, "enforced_violation_count"
+    ) and imports.get("enforced_violations") == []
+    pii_ok = pii.get("result") == "pass" and _zero(pii, "canary_matches")
     groups_ok = all(
         group["total"] > 0 and group["failed"] == 0 and group["skipped"] == 0
         for group in groups.values()
+    )
+    unauthorized_write_count = _sum_integer_evidence(
+        (legacy_http, hex_http), "unauthorized_write_count"
+    )
+    hosted_provider_call_count = _sum_integer_evidence(
+        (legacy_selector, hex_selector, invalid_selector),
+        "hosted_provider_call_count",
     )
     result = (
         "pass"
@@ -242,12 +269,10 @@ def build_summary(
         "http_implementations_total": 2,
         "cross_user_cases_passed": 6 if http_ok else 0,
         "cross_user_cases_total": 6,
-        "unauthorized_write_count": 0 if http_ok else None,
+        "unauthorized_write_count": unauthorized_write_count,
         "sensitive_artifact_match_count": pii.get("canary_matches"),
         "import_violation_count": imports.get("enforced_violation_count"),
-        "hosted_provider_call_count": (
-            0 if selectors_ok and invalid_ok and imports_ok else None
-        ),
+        "hosted_provider_call_count": hosted_provider_call_count,
         "hosted_provider_call_count_basis": "derived_not_network_observed",
         "schema_migration_count": schema.get("schema_migration_count"),
         "index_migration_count": schema.get("index_migration_count"),

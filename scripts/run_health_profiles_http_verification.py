@@ -30,6 +30,7 @@ sys.path.insert(0, str(BACKEND))
 
 from app.config import settings
 from smoke_common import (
+    HOSTED_SECRET_NAMES,
     digest_text,
     ensure_redacted,
     require_local_http,
@@ -40,14 +41,6 @@ from smoke_common import (
 from verification_manifest import append_command
 
 
-HOSTED_SECRET_NAMES = {
-    "ANTHROPIC_API_KEY",
-    "AZURE_OPENAI_API_KEY",
-    "EMCIE_API_KEY",
-    "GOOGLE_API_KEY",
-    "GROQ_API_KEY",
-    "OPENAI_API_KEY",
-}
 TELEMETRY_PATTERN = re.compile(
     r"Health Profile implementation call implementation=(legacy|hex) "
     r"operation=(get|update) outcome=(success|failure) count=(\d+)"
@@ -368,6 +361,9 @@ def run(args: argparse.Namespace) -> int:
             "basis": "health_profile_has_no_provider_port_and_runtime_providers_are_disabled",
             "health_profile_provider_port_present": False,
             "ollama_enabled": False,
+            "hosted_credentials_present_before_sanitization": (
+                removed_hosted_credentials
+            ),
             "hosted_credentials_present_after_sanitization": sorted(
                 name for name in HOSTED_SECRET_NAMES if environment.get(name)
             ),

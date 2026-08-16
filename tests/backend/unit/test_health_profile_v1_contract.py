@@ -139,18 +139,15 @@ def test_update_preserves_keys_alias_and_null_unset_semantics(
     path = FIXTURE["paths"]["update"]["path"]
     owner_id = str(actor["value"]["_id"])
 
-    created = _assert_json_response(
-        client.put(
-            path,
-            json={
-                "conditions": ["synthetic-condition"],
-                "allergies": ["synthetic-allergy"],
-                "dietaryRestrictions": ["synthetic-restriction"],
-                "age": 44,
-                "gender": "other",
-            },
-        )
-    )
+    update_payload = {
+        "conditions": ["synthetic-condition"],
+        "allergies": ["synthetic-allergy"],
+        "dietaryRestrictions": ["synthetic-restriction"],
+        "age": 44,
+        "gender": "other",
+    }
+    assert set(update_payload) == set(FIXTURE["update_fields"])
+    created = _assert_json_response(client.put(path, json=update_payload))
     assert set(created) == RESPONSE_KEYS
     assert created["userId"] == owner_id
     assert created["conditions"] == created["healthConditions"]
