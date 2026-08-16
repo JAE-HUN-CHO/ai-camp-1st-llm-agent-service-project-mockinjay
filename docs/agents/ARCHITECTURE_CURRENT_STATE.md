@@ -161,7 +161,7 @@ Phase 0~1에서는 통합하거나 이동하지 않는다.
 | 전체 핵심 API·브라우저 흐름 | 미완료 | Phase 2 Chat 이외의 실제 사용자 여정은 아직 범위 밖 |
 
 2026-08-16 CodeRabbit 후속 수정은 기존 Phase 0 runtime manifest를 대체하지 않는
-PR console 검증이다. 해당 worktree에서 `tests/backend/unit`은 163 passed(55 warnings),
+PR console 검증이다. 해당 worktree에서 `tests/backend/unit`은 165 passed(55 warnings),
 명시적 Mongo integration은 4 passed(26 warnings), frontend는 31 files/416 tests passed,
 build 통과, lint 0 errors/65 warnings였다. 변경 Python Ruff, architecture dependency gate,
 15개 normative 문서 링크, `git diff --check`가 통과했고 보존된 runtime artifact 37개에서
