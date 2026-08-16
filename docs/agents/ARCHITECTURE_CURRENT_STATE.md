@@ -2,7 +2,7 @@
 
 **작성일:** 2026-08-16
 **상태:** 사실 기준 문서
-**목적:** Phase 0 이전 기준선과 Phase 0~2 gate 이후 상태를 구분해 기록한다.
+**목적:** Phase 0 이전 기준선과 Phase 0~3A gate 이후 상태를 구분해 기록한다.
 **Baseline commit:** `fda93b9dbb81` (`codex/ollama-integration-smoke-fix`)
 
 > 이 문서는 완료 보고서가 아니다. 문서에 존재하는 계획과 실제 실행 증거를 구분한다.
@@ -16,11 +16,13 @@
 | Phase 0~1 최종 runtime gate | run `20260815T143102Z`, worktree fingerprint `d5f1f73380f1f107e6ed2861032fc89b929f32553e5fe5ee3145a85fa45dfb04` | Research/Welfare 실제 HTTP와 31개 명령의 로컬 evidence |
 | ADR-013 owner 승인 기록 | run `20260816T004558Z`, worktree fingerprint `db41dc55c9387f22f27153e64f904982974ffba8948179fd78911a84aca1f56f` | Accepted 전환과 Phase 2 Chat 범위 승인 evidence |
 | Phase 2 Chat 고정 gate | Git `0d435fc48d35d1650fddd4375746f0e74e63c320`, run `20260816T044829Z` | frozen v1, 저장 멱등성, hex 5회 REST/SSE canary, legacy rollback evidence; fingerprint는 manifest가 authoritative |
+| Phase 3A Health Records 고정 gate | Git `12199ec324efa1f47ccfa3f78e45fbe18b6e9085`, run `20260816T132213Z` | active REST v1/schema 보존, owner isolation, hex 실제 HTTP와 selector-unset legacy rollback; fingerprint는 manifest가 authoritative |
 
-세 run의 manifest는 각각
+네 run의 manifest는 각각
 `logs/verification/fda93b9dbb8107ecbffa593041c9417f822a6688/20260815T143102Z/manifest.json`과
 `logs/verification/fda93b9dbb8107ecbffa593041c9417f822a6688/20260816T004558Z/manifest.json`,
-`logs/verification/0d435fc48d35d1650fddd4375746f0e74e63c320/20260816T044829Z/manifest.json`에 있다.
+`logs/verification/0d435fc48d35d1650fddd4375746f0e74e63c320/20260816T044829Z/manifest.json`,
+`logs/verification/12199ec324efa1f47ccfa3f78e45fbe18b6e9085/20260816T132213Z/manifest.json`에 있다.
 `logs/`는 git-ignored 로컬 evidence이므로 Git SHA만으로 dirty-worktree 실행을 재현했다고 간주하지
 않고, 반드시 worktree fingerprint까지 함께 대조한다. 이후 PR head의 정적/단위 회귀는 별도 gate이며
 이 장시간 HTTP run을 같은 SHA에서 다시 실행했다는 뜻이 아니다.
@@ -36,6 +38,9 @@
 - `CHAT_IMPLEMENTATION`은 API composition root에서 한 번만 평가하며 미설정 기본값은
   `legacy`다. 명시적 `hex`는 `SendChatMessage`/`StreamChatMessage`와 MongoDB/Ollama adapter를
   호출하고 실패 시 다른 provider로 fallback하지 않는다.
+- `HEALTH_RECORDS_IMPLEMENTATION`도 같은 composition root에서 한 번만 평가하며 미설정 기본값은
+  `legacy`다. 명시적 `hex`는 Health Records application use case와 owner-scoped MongoDB adapter를
+  호출하고, legacy facade는 process restart rollback을 위해 유지한다.
 - 생성·임베딩 기본 provider는 로컬 Ollama이다.
 - 데이터베이스와 vector search는 로컬 Docker MongoDB 계약을 따른다.
 - Parlant Research/Welfare는 별도 서버 진입점과 포트(`8800`/`8801`)를 가진다. 위 Phase 1
@@ -56,7 +61,7 @@ frontend/
         │ REST / SSE
         ▼
 backend/app/
-  api/ → features/chat/application → domain/ports ← MongoDB/Ollama adapters
+  api/ → features/{chat,health}/application → domain/ports ← MongoDB/Ollama adapters
        → legacy services/Agent compatibility facade
         │
         ├── app/features/       # account/chat/community/diet/health/quiz/research
@@ -74,10 +79,10 @@ MongoDB local Docker + Ollama local runtime
 ```
 
 현재 runtime ownership은 분산되어 있다. `backend/app`이 HTTP-scoped runtime과 Parlant proxy를
-조립하고 `backend/Agent`가 Agent 구현과 Parlant server 코드를 가진다. Chat은 Phase 2에서 실제
-production-selectable hexagonal seam이 됐지만, 나머지 `app/features`의 대부분은 metadata/naming
-anchor이고 기존 `app/ports` 네 개는 production consumer가 확인되지 않았다. 따라서 Chat 이외를
-완성된 hexagonal seam으로 간주하면 안 된다. 특히 Nutrition은
+조립하고 `backend/Agent`가 Agent 구현과 Parlant server 코드를 가진다. Chat과 active Health
+Records는 각각 Phase 2와 Phase 3A에서 production-selectable hexagonal seam이 됐지만, 나머지
+`app/features`의 대부분은 metadata/naming anchor이고 기존 `app/ports` 네 개는 production
+consumer가 확인되지 않았다. 따라서 이 두 slice 이외를 완성된 hexagonal seam으로 간주하면 안 된다. 특히 Nutrition은
 `backend/agents/`와 `backend/Agent/`에 구현이 중복되어 있다.
 
 ## 3. 구현상 강점
@@ -87,7 +92,7 @@ anchor이고 기존 `app/ports` 네 개는 production consumer가 확인되지 �
 | 외부 provider | Ollama, MongoDB, PubMed, Parlant를 adapter/client 형태로 분리하려는 구조가 존재한다. |
 | Agent 공통 계약 | `Agent/core/contracts.py`, `local_agent.py`, `remote_agent.py`가 공통 실행 계약을 제공한다. |
 | 기존 port | `app/ports/llm.py`, `embedding.py`, `vector.py`, `external_search.py`가 정의돼 있으나 production wiring/consumer는 확인되지 않았다. |
-| 기존 feature seam | Chat은 domain/application/port와 real adapter가 wiring됐다. `research`에는 runtime이 있고 다른 feature는 주로 metadata/naming anchor다. |
+| 기존 feature seam | Chat과 active Health Records는 domain/application/port와 real adapter가 wiring됐다. `research`에는 runtime이 있고 다른 feature는 주로 metadata/naming anchor다. |
 | API 계층 | 도메인별 FastAPI router와 service/repository 계층이 존재한다. |
 | 데이터 경계 | MongoDB repository·vector adapter·local data 처리 경계가 문서화되어 있다. |
 | 런타임 안전 | 포트 검증, embedding 차원 검증, Ollama-only 정책, emergency pre-filter가 존재한다. |
@@ -105,8 +110,8 @@ atomic lease, backoff, terminal failure가 있고 FastAPI lifespan이 in-process
 ### 4.1 API와 업무 로직의 결합
 
 일부 대형 router가 HTTP validation, DB query, 외부 provider 호출, cache, 응답 변환을 동시에 수행한다.
-Chat의 명시적 hex 경로는 use case로 분리됐지만 frozen v1과 rollback을 위한 legacy facade가 같은
-router에 남아 있으므로 이 결합을 전체 제거한 것으로 해석하지 않는다.
+Chat과 active Health Records의 명시적 hex 경로는 use case로 분리됐지만 frozen v1과 rollback을
+위한 legacy facade가 남아 있으므로 이 결합을 전체 제거한 것으로 해석하지 않는다.
 
 - `backend/app/api/community.py`
 - `backend/app/api/chat.py`
@@ -144,7 +149,7 @@ Agent는 입력 해석과 응답 조합을 담당하고, DB transaction·권한�
 
 ## 5. 현재 검증 상태
 
-Phase 0 이전 baseline 확인과 Phase 0~2 이후 검증을 섞어 읽지 않는다. 아래는 gate 이후 로컬 evidence다.
+Phase 0 이전 baseline 확인과 Phase 0~3A 이후 검증을 섞어 읽지 않는다. 아래는 gate 이후 로컬 evidence다.
 
 정적 검사 첫 네 행은 당시 console 결과이며 영구 artifact가 없다. Runtime 세 행은 위
 `20260815T143102Z` manifest와 그 하위 HTTP/runtime artifact에 보관돼 있다.
@@ -167,7 +172,8 @@ Phase 0~1에서는 통합하거나 이동하지 않는다.
 | Research Parlant HTTP | 통과 | agent/customer/session/response event 식별자는 `<redacted>`; run ID·manifest·fingerprint로 추적 |
 | Welfare Parlant HTTP | 통과 | agent/customer/session/response event 식별자는 `<redacted>`; run ID·manifest·fingerprint로 추적 |
 | hosted LLM provider | 호출 0 | 최종 승인 run의 manifest/runtime log 기준 |
-| 전체 핵심 API·브라우저 흐름 | 미완료 | Phase 2 Chat 이외의 실제 사용자 여정은 아직 범위 밖 |
+| Phase 3A Health Records 실제 HTTP | legacy/hex 각각 CRUD·날짜 내림차순·정확한 error detail·cross-user 2/2·delete retry 통과 | selector-unset legacy rollback, unauthorized write·PII·synthetic 잔존 0 |
+| 전체 핵심 API·브라우저 흐름 | 미완료 | Phase 2 Chat·Phase 3A Health Records 이외의 실제 사용자 여정은 아직 범위 밖 |
 
 2026-08-16 CodeRabbit 후속 수정은 기존 Phase 0 runtime manifest를 대체하지 않는
 PR console 검증이다. 해당 worktree에서 `tests/backend/unit`은 165 passed(55 warnings),
@@ -183,15 +189,23 @@ Phase 2 최종 run은 frozen REST/SSE v1 fixture, emergency/ownership/PII/import
 rollback을 한 worktree fingerprint로 묶는다. 원문 prompt/response는 저장하지 않고 hash·length·status만
 artifact에 남긴다. exact 수치와 argv는 `20260816T044829Z/manifest.json`을 기준으로 한다.
 
+Phase 3A 최종 run은 frozen Health Records REST v1 fixture, legacy/hex fake adapter 단위 테스트,
+로컬 MongoDB 명시적 integration, import gate, selector invalid/default/rollback, 실제 CRUD·cross-user·
+날짜 내림차순·정확한 error detail·null/unset·delete retry HTTP를 한 manifest로 묶는다. 최종 수치는
+backend unit/delivery 245, Mongo integration 7, frontend 31 files/428 tests이며 건강값과 JWT는
+artifact에 저장하지 않고 body/record ID hash·length·status만 남긴다. exact argv와 단계별
+worktree fingerprint는 `20260816T132213Z/manifest.json`을 기준으로 한다.
+
 ## 6. 운영 판정
 
 현재 시스템은 **내부 개발·QA 데모 전용**이다. 공개 운영과 외부 파일럿은 NO-GO다.
 Phase 0은 access token의 `localStorage` 저장·복원과 민감 console/raw log 경로를 제거했고,
-Phase 2는 Chat의 로컬 canary와 rollback까지 통과했지만 공개 운영 승인에 필요한 다음 gate는 남아 있다.
+Phase 2와 Phase 3A는 각 slice의 로컬 canary와 rollback까지 통과했지만 공개 운영 승인에 필요한
+다음 gate는 남아 있다.
 
 1. CI와 릴리스 gate
 2. 실제 browser E2E와 전체 사용자 여정
 3. 외부 pilot/production profile, TLS/HA/managed DB에 대한 별도 운영 ADR
-4. Phase 3 Health와 Phase 6 research-owned `DailySearchQuota`의 별도 범위 승인
+4. Phase 3B·3C Health와 Phase 6 research-owned `DailySearchQuota`의 별도 범위 승인
 
 이 문서에서 “현재 adapter가 존재한다”는 표현은 “provider 교체가 완전히 검증됐다”는 의미가 아니다.

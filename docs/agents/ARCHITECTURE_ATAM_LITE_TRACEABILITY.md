@@ -1,14 +1,14 @@
-# Phase 0 ATAM-lite risk and traceability matrix
+# Phase 0–3A ATAM-lite risk and traceability matrix
 
-**Scope:** CareGuide Phase 0–1 only
-**Decision boundary:** ADR-013 is Accepted; Phase 2 Chat is the only authorized next slice.
+**Scope:** CareGuide Phase 0–3A traceability
+**Decision boundary:** ADR-013 is Accepted; Phase 3A Health Records is approved and Phase 3B·3C remain unauthorized.
 
 | Risk | Quality scenario / stimulus | Response and measurable threshold | Test / command | Artifact | Owner / sensitivity / tradeoff |
 |---|---|---|---|---|---|
 | R-01 ClinicalTrials generated interpretation harms a patient | A user requests one trial detail in Korean | original fields remain distinct; translation is faithful; source + disclaimer present; generated interpretation/recommendation count 0; contract 100% | `test_detail_contract_preserves_source_and_forbids_generated_interpretation` | `unit.junit.xml`, clinical contract source | research; medical safety highest; less convenient summary |
 | R-02 emergency query reaches a model/Agent/provider | Any message/stream/proxy contains gold-set emergency language | deterministic terminal emergency response; false negative 0; downstream call count 0 | emergency policy + Ollama endpoint/Agent tests | `eval/safety-summary.json`, unit JUnit | chat safety owner; favors high recall over precision |
-| R-03 cross-user room/session/health mutation | JWT actor supplies another actor's resource ID | reject before model/DB mutation; cross-user cases 100%; unauthorized write 0 | `test_actor_context.py`, health mutation tests | `unit.junit.xml` | chat/health; authorization over permissive recovery |
-| R-04 token/chat/health PII escapes | Canary appears in storage, console, application log or evidence writer | zero canary occurrences in all four sinks | logging canary + frontend static/runtime tests + artifact validator | `pii/canary.json`, frontend test output | platform; observability loses raw payloads |
+| R-03 cross-user room/session/health mutation | JWT actor supplies another actor's resource ID | reject before model/DB mutation; cross-user cases 100%; unauthorized write 0 | `test_actor_context.py`, Health Records fake/Mongo/HTTP owner tests | `unit.junit.xml`, `integration.junit.xml`, `http/health-records*.json` | chat/health; authorization over permissive recovery |
+| R-04 token/chat/health PII escapes | Canary appears in storage, console, application log or evidence writer | zero canary occurrences in all four sinks | logging canary + Health Records synthetic canary + artifact validator | `pii/canary.json`, selector/HTTP evidence, frontend test output | platform; observability loses raw payloads |
 | R-05 false Parlant readiness | Port returns 404/HTML/wrong agent | readiness true only for 200 JSON schema with target id/name | readiness unit tests + live smoke | `http/research.json`, `http/welfare.json` | welfare/research; stricter startup may delay availability |
 | R-06 HTTP flow hangs or reports false success | provider never terminates or SSE emits error then DONE | bounded timeout; non-zero exit; terminal success frame and `[DONE]` recorded separately | both smoke scripts | HTTP JSON/NDJSON + manifest exit code | runtime; bounded wait over optimistic demo |
 | R-07 hosted provider silently activates | local provider is unavailable | no hosted fallback; fail non-zero; hosted call count 0 | configuration/static scan + live smoke | manifest environment/provider fields | platform; availability sacrificed for local-only contract |
@@ -42,5 +42,6 @@
 6. Use a non-loopback URL or credential on a smoke command line.
 7. Try to reintroduce generated ClinicalTrials significance/recommendations.
 
-Every abuse case is fail-closed in Phase 0–1 or produces a non-zero verification
-result. No destructive schema operation is part of a response.
+Every abuse case applicable to the approved Phase 0–3A scope is fail-closed in its
+owning phase or produces a non-zero verification result. No destructive schema
+operation is part of a response.
