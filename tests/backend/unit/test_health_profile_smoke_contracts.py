@@ -55,7 +55,7 @@ def test_health_profile_child_environment_removes_all_hosted_credentials() -> No
         "OPENAI_API_KEY",
     }
     assert required_names <= HOSTED_SECRET_NAMES
-    environment = {name: "synthetic-secret" for name in HOSTED_SECRET_NAMES}
+    environment = dict.fromkeys(HOSTED_SECRET_NAMES, "synthetic-secret")
     environment["SAFE_SETTING"] = "preserved"
 
     assert sanitize_hosted_credentials(environment) == sorted(HOSTED_SECRET_NAMES)
