@@ -1,13 +1,13 @@
 # CareGuide 아키텍처 리팩토링 실행 계획
 
 **작성일:** 2026-08-15
-**최종 갱신일:** 2026-08-16
-**상태:** Phase 0~2와 Phase 3A verified; Phase 3B 이후 별도 승인 필요
+**최종 갱신일:** 2026-08-17
+**상태:** Phase 0~2와 Phase 3A~3B verified; Phase 3C 이후 별도 승인 필요
 **전제:** 현재 API·MongoDB·Ollama·Parlant 계약을 보존하는 점진적 strangler refactor
 
-**착수 판정:** Phase 0~2는 완료·검증됐고 owner가 Phase 3A `/api/health-records`만 별도로
-승인했다. 이 승인은 Phase 3B·3C 또는 이후 phase의 착수를 포함하지 않는다.
-**Tracking:** [GH-#30](https://github.com/KernelAcademy-AICamp/ai-camp-1st-llm-agent-service-project-mockinjay/issues/30)
+**착수 판정:** Phase 0~2는 완료·검증됐고 owner가 Phase 3A `/api/health-records`와 Phase 3B
+`/api/mypage/health-profile`을 순서대로 별도 승인했다. Phase 3C 또는 이후 phase는 승인하지 않았다.
+**Tracking:** [GH-#30](https://github.com/KernelAcademy-AICamp/ai-camp-1st-llm-agent-service-project-mockinjay/issues/30), [GH-#31](https://github.com/KernelAcademy-AICamp/ai-camp-1st-llm-agent-service-project-mockinjay/issues/31)
 
 실제 실행 작업에 전달할 복사 가능한 지시문과 계량 성공조건은
 [`ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md`](./ARCHITECTURE_REFACTORING_EXECUTION_PROMPT.md)를 사용한다.
@@ -19,7 +19,7 @@
 3. 기존 endpoint는 compatibility facade로 유지한다.
 4. untracked `data/`와 생성 artifact는 변경 범위에 포함하지 않는다.
 5. 실패한 runtime gate를 문서에 남기고, 통과 전 다음 gate로 넘어가지 않는다.
-6. [`ADR-013`](../adr/ADR-013-feature-first-hexagonal-modular-monolith.md)의 범위에 따라 승인된 Phase 3A에서 멈추고 Phase 3B·3C는 별도 승인 전 실행하지 않는다.
+6. [`ADR-013`](../adr/ADR-013-feature-first-hexagonal-modular-monolith.md)의 범위에 따라 승인된 Phase 3B에서 멈추고 Phase 3C 이후는 별도 승인 전 실행하지 않는다.
 
 ## Phase 0 — 기준선과 안전장치
 
@@ -117,7 +117,7 @@ frame이며 provider 원문을 노출하지 않는다.
 ## Phase 3 — Health vertical slices
 
 - [x] 3A: active `/api/health-records` → `health_records`를 behavior-preserving migration
-- [ ] 3B: active `/api/mypage/health` → `health_profiles`를 별도 migration
+- [x] 3B: active `/api/mypage/health-profile` → `health_profiles`를 behavior-preserving migration
 - [ ] 3C: dormant `/api/health`와 `HealthRepository`를 retain/delete/versioned-activate 결정
 - [x] 3A에서 collection/field/API를 재대조하고 schema ADR 없이 collection 병합 금지
 - [x] frozen v1 validation을 바꾸지 않고 3A 건강기록 entity를 framework-independent domain으로 이동
@@ -126,8 +126,13 @@ frame이며 provider 원문을 노출하지 않는다.
 - [x] legacy/hex 공통 create/read/update/delete 계약 테스트 추가
 - [x] null과 unset semantics 보존
 - [x] 실제 HTTP synthetic canary로 민감정보 artifact/application log 유출 0 검증
+- [x] 3B `HealthProfile`과 owner-scoped `HealthProfileRepository`/application use case 정의
+- [x] 3B legacy/hex GET·PUT 공통 frozen v1 fixture와 frontend client 회귀 추가
+- [x] 3B 기존 unique `userId` index·upsert와 null/unset 보존 의미 유지
+- [x] 3B 실제 legacy/hex HTTP cross-user 3/3, unauthorized write·PII·hosted call 0 검증
 
-**완료 조건:** router raw query 제거, 타 사용자 접근 거부, 삭제·재시도·부분 실패 재현 가능.
+**완료 조건:** 3A는 삭제·재시도·부분 실패를 재현하고, 3B는 owner-scoped read/upsert와
+null/unset 보존을 재현한다. 두 slice 모두 타 사용자 접근과 비인가 쓰기를 fail-closed한다.
 
 ### Phase 3A 고정 결정과 증거
 
@@ -138,12 +143,31 @@ frame이며 provider 원문을 노출하지 않는다.
   사용한다.
 - create idempotency key, 신규 index, backfill, collection 병합, cleanup은 frozen schema를 바꿀
   필요가 없어 추가하지 않았다. delete retry는 기존 404 계약으로 fail-closed한다.
-- Phase 3B `/api/mypage/health`, Phase 3C dormant `/api/health`와 기존 `HealthRepository`는 수정하지
-  않았다.
+- Phase 3A 검증 당시에는 Phase 3B `/api/mypage/health-profile`, Phase 3C dormant `/api/health`와
+  기존 `HealthRepository`를 수정하지 않았다.
 - 근거는
   `logs/verification/12199ec324efa1f47ccfa3f78e45fbe18b6e9085/20260816T132213Z/manifest.json`과
   동일 run의 `http/health-records.json`, `http/health-records-hex.json`,
   `selector/health-records-hex.json`, `selector/health-records-rollback.json`에 보관한다.
+
+### Phase 3B 고정 결정
+
+- `HEALTH_PROFILE_IMPLEMENTATION=legacy|hex`는 API composition root에서 한 번만 평가한다.
+  미설정 기본값은 `legacy`이고 잘못된 값은 HTTP ready 전에 fail-closed한다.
+- 실제 frozen 경로는 `GET/PUT /api/mypage/health-profile`이다. status, JSON media type,
+  `userId/conditions/healthConditions/allergies/dietaryRestrictions/age/gender/updatedAt`, validation,
+  기본 empty profile과 null/unset 보존 의미를 바꾸지 않는다.
+- legacy `HealthService`는 compatibility facade 뒤에 유지하고 hex 경로만 framework-independent
+  application port와 MongoDB adapter를 사용한다. 두 구현 모두 JWT에서 검증한 actor의 `userId`만
+  DB query/upsert에 전달한다.
+- 기존 unique `idx_health_profiles_userId`와 upsert가 단일 profile의 idempotency를 제공하므로 신규
+  key/index/backfill/collection merge/cleanup은 추가하지 않는다.
+- Phase 3C dormant `/api/health`와 기존 `HealthRepository`는 수정하지 않는다.
+- 근거는
+  `logs/verification/268ce874e0edb537636badf2dcb089f6b7d23e0e/20260816T161115Z/manifest.json`과
+  동일 run의 `http/health-profile-{legacy,hex,rollback}.json`,
+  `selector/health-profile-{legacy,hex,invalid,rollback}.json`,
+  `storage/health-profiles-schema-after.json`에 보관한다.
 
 ## Phase 4 — Welfare/Research adapter 정리
 
@@ -234,8 +258,17 @@ logs/verification/<git-sha>/<UTC-run-id>/
   http/chat-stream.ndjson
   http/{health-records,health-records-hex}.json
   selector/{health-records-hex,health-records-rollback}.json
+  http/health-profile-{legacy,hex,rollback}.json
+  selector/health-profile-{legacy,hex,invalid,rollback}.json
+  storage/health-profiles-schema-after.json
   eval/{router-summary,safety-summary}.json
 ```
+
+Phase 3B rollback은 `scripts/summarize_health_profiles_phase3b.py`에
+`selector/health-profile-rollback.json`과 `http/health-profile-rollback.json`을 각각
+legacy selector/HTTP 입력으로 전달해 판정한다. 두 artifact 모두 `result=pass`, 구현 `legacy`,
+selector 미설정·기본값 `legacy`, owner 격리 3/3, 무인증 쓰기 0, null/unset·나이 경계 보존을
+충족해야 종합 결과가 PASS다.
 
 artifact는 raw prompt/response, token, email, 건강정보를 저장하지 않는다. local `logs/`는 ignored이므로
 향후 CI가 동일 directory를 build artifact로 업로드해야 review evidence가 된다.

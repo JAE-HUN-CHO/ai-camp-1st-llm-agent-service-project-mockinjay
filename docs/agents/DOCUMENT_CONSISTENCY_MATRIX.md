@@ -29,8 +29,9 @@
 
 ADR-001/008/009/010의 Proposed 방향은 ADR-011이 supersede했으므로 historical이다.
 ADR-013의 목표 구조와 owner/selector/rollback 정책은 binding이다. Phase 2 Chat 완료 후
-owner가 Phase 3A active `/api/health-records` vertical slice만 승인했다. Phase 3B
-`/api/mypage/health`, Phase 3C dormant `/api/health` 및 이후 phase는 미승인 상태다. ADR-004의 오래된
+owner가 Phase 3A active `/api/health-records`에 이어 Phase 3B active
+`/api/mypage/health-profile` vertical slice를 별도로 승인했다. Phase 3C dormant `/api/health` 및
+이후 phase는 미승인 상태다. ADR-004의 오래된
 `new_frontend/` 실행 메모는 수정하지 않고, 현재 구현 대상은 ADR-011에 따라 `frontend/`다.
 
 ## 역사적·참고 문서 (non-normative)
