@@ -64,10 +64,10 @@ def test_local_translation_client_is_configured() -> None:
 
 @pytest.mark.asyncio
 async def test_detail_contract_preserves_source_and_forbids_generated_interpretation(monkeypatch) -> None:
-    async def fake_detail(_nct_id):
+    async def fake_detail(_nct_id) -> dict[str, object]:
         return {"protocolSection": {"identificationModule": {"nctId": "NCT00000001"}}}
 
-    async def fake_parse(_study, *, translate=False):
+    async def fake_parse(_study, *, translate=False) -> dict[str, object]:
         return {
             "nctId": "NCT00000001",
             "title": "충실한 번역" if translate else "Recommendations and clinical significance",

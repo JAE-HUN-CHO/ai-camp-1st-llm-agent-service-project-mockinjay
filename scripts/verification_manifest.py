@@ -9,11 +9,23 @@ import hashlib
 import json
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 
+from sensitive_patterns import SENSITIVE_PATTERN
+
 
 ROOT = Path(__file__).resolve().parents[1]
+SENSITIVE_OPTION = re.compile(
+    r"(?i)^--?(?:access[-_]?token|api[-_]?key|authorization|credential|email|password|secret|token)$"
+)
+SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?i)^(--?(?:access[-_]?token|api[-_]?key|authorization|credential|email|password|secret|token)=)(.*)$"
+)
+SENSITIVE_QUERY_VALUE = re.compile(
+    r"(?i)([?&](?:access[-_]?token|api[-_]?key|authorization|credential|email|password|secret|token)=)[^&\s]*"
+)
 
 
 def _now() -> str:
@@ -46,6 +58,38 @@ def worktree_fingerprint(artifact_dir: Path | None = None) -> str:
     return digest.hexdigest()
 
 
+def _validate_existing_manifest(artifact_dir: Path) -> dict | None:
+    manifest_path = artifact_dir / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest["git_sha"] != git_sha():
+        raise RuntimeError("manifest SHA differs from current HEAD")
+    return manifest
+
+
+def _sanitize_argv(argv: list[str]) -> list[str]:
+    sanitized = []
+    redact_next = False
+    for argument in argv:
+        if redact_next:
+            sanitized.append("<redacted>")
+            redact_next = False
+            continue
+        if SENSITIVE_OPTION.fullmatch(argument):
+            sanitized.append(argument)
+            redact_next = True
+            continue
+        assignment = SENSITIVE_ASSIGNMENT.match(argument)
+        if assignment:
+            sanitized.append(f"{assignment.group(1)}<redacted>")
+            continue
+        redacted = SENSITIVE_PATTERN.sub("<redacted>", argument)
+        redacted = SENSITIVE_QUERY_VALUE.sub(r"\1<redacted>", redacted)
+        sanitized.append(redacted)
+    return sanitized
+
+
 def append_command(
     artifact_dir: Path,
     *,
@@ -57,11 +101,8 @@ def append_command(
 ) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = artifact_dir / "manifest.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest["git_sha"] != git_sha():
-            raise RuntimeError("manifest SHA differs from current HEAD")
-    else:
+    manifest = _validate_existing_manifest(artifact_dir)
+    if manifest is None:
         manifest = {
             "schema_version": 1,
             "git_sha": git_sha(),
@@ -79,7 +120,7 @@ def append_command(
     manifest["updated_at"] = finished_at
     manifest["commands"].append(
         {
-            "argv": argv,
+            "argv": _sanitize_argv(argv),
             "exit_code": exit_code,
             "started_at": started_at,
             "finished_at": finished_at,
@@ -99,6 +140,7 @@ def run_command(artifact_dir: Path, output: Path, command: list[str]) -> int:
         relative_output = output.relative_to(artifact_dir)
     except ValueError as exc:
         raise ValueError("verification output must be inside artifact_dir") from exc
+    _validate_existing_manifest(artifact_dir)
     started = _now()
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as stream:

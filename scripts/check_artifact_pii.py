@@ -20,8 +20,9 @@ def main() -> int:
         return 1
     matches = []
     scanned = 0
+    report_path = args.artifact_dir / "privacy" / "pii-scan.txt"
     for path in args.artifact_dir.rglob("*"):
-        if not path.is_file() or path.name == "pii-scan.txt":
+        if not path.is_file() or path == report_path:
             continue
         scanned += 1
         text = path.read_text(encoding="utf-8", errors="ignore")

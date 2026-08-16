@@ -225,17 +225,20 @@ def main() -> int:
             },
         )
     target_names = ("research", "welfare") if args.target == "all" else (args.target,)
+    artifacts = [
+        f"http/{name}.json"
+        for name in target_names
+        if (artifact_dir / "http" / f"{name}.json").is_file()
+    ]
+    if (artifact_dir / "http" / "parlant-smoke-error.json").is_file():
+        artifacts.append("http/parlant-smoke-error.json")
     append_command(
         artifact_dir,
         argv=[sys.executable, *sys.argv],
         exit_code=exit_code,
         started_at=started,
         finished_at=utc_now(),
-        artifacts=[
-            f"http/{name}.json"
-            for name in target_names
-            if (artifact_dir / "http" / f"{name}.json").is_file()
-        ],
+        artifacts=artifacts,
     )
     return exit_code
 

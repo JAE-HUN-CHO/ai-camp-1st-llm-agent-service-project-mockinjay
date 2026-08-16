@@ -1,5 +1,6 @@
 """Fail-closed evidence and SSE contract tests for Phase-1 scripts."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from check_artifact_pii import main as pii_main
 from smoke_api_chat import parse_sse_line, serialize_stream_evidence
 from smoke_common import ensure_redacted, require_local_http
 from smoke_parlant_http import _discover, _event_summary
-from verification_manifest import run_command
+from verification_manifest import append_command, run_command
 
 
 @pytest.mark.parametrize(
@@ -68,6 +69,19 @@ def test_pii_scan_fails_closed_for_missing_and_empty_directories(
     monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(missing)])
     assert pii_main() == 1
 
+
+def test_pii_scan_excludes_only_the_canonical_report(monkeypatch, tmp_path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    canonical_report = artifact_dir / "privacy" / "pii-scan.txt"
+    disguised_artifact = artifact_dir / "http" / "pii-scan.txt"
+    canonical_report.parent.mkdir(parents=True)
+    disguised_artifact.parent.mkdir(parents=True)
+    canonical_report.write_text("prior scanner output", encoding="utf-8")
+    disguised_artifact.write_text("health-canary-ckd3", encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(artifact_dir)])
+    assert pii_main() == 1
+
     empty = tmp_path / "empty"
     empty.mkdir()
     monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(empty)])
@@ -90,8 +104,62 @@ def test_relative_imports_and_module_boundaries_are_enforced(
 
 
 def test_verification_output_must_be_inside_artifact_directory(tmp_path) -> None:
+    marker = tmp_path / "executed"
+    command = [
+        sys.executable,
+        "-c",
+        f"from pathlib import Path; Path({str(marker)!r}).write_text('x')",
+    ]
     with pytest.raises(ValueError, match="inside artifact_dir"):
-        run_command(tmp_path / "artifacts", tmp_path / "outside.txt", ["true"])
+        run_command(tmp_path / "artifacts", tmp_path / "outside.txt", command)
+    assert not marker.exists()
+
+
+def test_manifest_sha_mismatch_blocks_command_before_output(tmp_path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    (artifact_dir / "manifest.json").write_text(
+        json.dumps({"git_sha": "different-head"}),
+        encoding="utf-8",
+    )
+    marker = tmp_path / "executed"
+    command = [
+        sys.executable,
+        "-c",
+        f"from pathlib import Path; Path({str(marker)!r}).write_text('x')",
+    ]
+
+    with pytest.raises(RuntimeError, match="manifest SHA differs"):
+        run_command(artifact_dir, artifact_dir / "output.txt", command)
+
+    assert not marker.exists()
+    assert not (artifact_dir / "output.txt").exists()
+
+
+def test_manifest_redacts_sensitive_argv_values(tmp_path) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    append_command(
+        artifact_dir,
+        argv=[
+            "smoke",
+            "--email",
+            "patient@example.com",
+            "--token=secret-token",
+            "--url=http://127.0.0.1:8000/path?api_key=secret&safe=1",
+            "Bearer another-secret",
+        ],
+        exit_code=0,
+        started_at="2026-08-16T00:00:00+00:00",
+        finished_at="2026-08-16T00:00:01+00:00",
+        artifacts=[],
+    )
+
+    serialized = (artifact_dir / "manifest.json").read_text(encoding="utf-8")
+    assert "patient@example.com" not in serialized
+    assert "secret-token" not in serialized
+    assert "api_key=secret" not in serialized
+    assert "another-secret" not in serialized
+    assert serialized.count("<redacted>") >= 4
 
 
 class _DiscoveryResponse:
@@ -108,7 +176,7 @@ class _DiscoveryClient:
         self._responses = iter(responses)
         self.call_count = 0
 
-    async def get(self, _url):
+    async def get(self, _url: str) -> _DiscoveryResponse:
         self.call_count += 1
         return next(self._responses)
 

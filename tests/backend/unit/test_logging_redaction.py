@@ -63,6 +63,8 @@ def test_traceback_text_is_redacted_by_formatter() -> None:
         exc_info=exc_info,
     )
     emitted = RedactingFormatter("%(message)s").format(record)
+    assert "RuntimeError" in emitted
+    assert "<redacted>" in emitted
     assert "health-canary" not in emitted
     assert "patient@example.com" not in emitted
     assert "secret-token" not in emitted
