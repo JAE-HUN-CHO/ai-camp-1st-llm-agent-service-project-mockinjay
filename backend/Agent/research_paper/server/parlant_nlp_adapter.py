@@ -7,6 +7,7 @@ the local Ollama instance.
 """
 
 from __future__ import annotations
+import asyncio
 import os
 import json
 import logging
@@ -97,10 +98,12 @@ class HealthcareSchematicGenerator(BaseSchematicGenerator[T]):
         logger: Logger,
         tracer: Tracer,
         meter: Meter,
+        generation_gate: asyncio.Semaphore,
     ):
         super().__init__(logger=logger, tracer=tracer, meter=meter, model_name=os.getenv("OLLAMA_MODEL", "qwen3.6:27b-mlx"))
         self._service = healthcare_service
         self._tokenizer = HealthcareTokenizer(healthcare_service)
+        self._generation_gate = generation_gate
 
     @override
     async def do_generate(
@@ -133,12 +136,17 @@ You must respond with valid JSON that matches this schema:
 Respond ONLY with valid JSON, no additional text or explanations."""
 
         # Generate using healthcare service
-        result = await self._service.generate_text(
-            prompt=schema_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=False,
-        )
+        # Parlant evaluates many startup entities concurrently. A local 27B
+        # model cannot safely absorb that fan-out: requests queue inside Ollama
+        # until their individual HTTP timeout expires. Bound the actual local
+        # generation calls while leaving Parlant's evaluation graph unchanged.
+        async with self._generation_gate:
+            result = await self._service.generate_text(
+                prompt=schema_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=False,
+            )
 
         # Parse JSON response
         try:
@@ -284,6 +292,10 @@ class ParlantHealthcareNLPService(NLPService):
         self._logger = parlant_logger
         self._tracer = parlant_tracer
         self._meter = parlant_meter
+        generation_concurrency = int(os.getenv("OLLAMA_GENERATION_CONCURRENCY", "1"))
+        if generation_concurrency < 1:
+            raise ValueError("OLLAMA_GENERATION_CONCURRENCY must be at least 1")
+        self._generation_gate = asyncio.Semaphore(generation_concurrency)
 
         # Use singleton pattern to prevent multiple initializations
         if ParlantHealthcareNLPService._shared_healthcare_service is None:
@@ -301,6 +313,7 @@ class ParlantHealthcareNLPService(NLPService):
         self._logger.info(f"   - Generator: {self._healthcare_service.generator.model_name}")
         self._logger.info(f"   - Embedder: {self._healthcare_service.embedder.model_name}")
         self._logger.info(f"   - Cache: {'enabled' if use_cache else 'disabled'}")
+        self._logger.info(f"   - Generation concurrency: {generation_concurrency}")
 
     async def get_schematic_generator(
         self, t: type[T], hints: Mapping[str, Any] = {}
@@ -317,6 +330,7 @@ class ParlantHealthcareNLPService(NLPService):
             logger=self._logger,
             tracer=self._tracer,
             meter=self._meter,
+            generation_gate=self._generation_gate,
         )
         # Set the __orig_class__ attribute for the schema property to work
         generator.__orig_class__ = HealthcareSchematicGenerator[t]  # type: ignore
