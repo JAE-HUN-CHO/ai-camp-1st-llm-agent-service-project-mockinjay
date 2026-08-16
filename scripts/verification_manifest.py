@@ -156,6 +156,16 @@ def run_command(
         raise ValueError("verification cwd must be inside the repository") from exc
     if not cwd.is_dir():
         raise ValueError("verification cwd must be an existing directory")
+    artifacts = [str(relative_output)]
+    resolved_produced: list[tuple[Path, Path]] = []
+    for produced in produced_artifacts or []:
+        produced = produced.resolve()
+        try:
+            relative_produced = produced.relative_to(artifact_dir)
+        except ValueError as exc:
+            raise ValueError("produced artifact must be inside artifact_dir") from exc
+        resolved_produced.append((produced, relative_produced))
+        artifacts.append(str(relative_produced))
     started = _now()
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8") as stream:
@@ -168,16 +178,6 @@ def run_command(
             check=False,
         )
     finished = _now()
-    artifacts = [str(relative_output)]
-    for produced in produced_artifacts or []:
-        produced = produced.resolve()
-        try:
-            relative_produced = produced.relative_to(artifact_dir)
-        except ValueError as exc:
-            raise ValueError("produced artifact must be inside artifact_dir") from exc
-        if not produced.is_file():
-            raise RuntimeError(f"expected produced artifact is missing: {relative_produced}")
-        artifacts.append(str(relative_produced))
     append_command(
         artifact_dir,
         argv=command,
@@ -187,6 +187,9 @@ def run_command(
         artifacts=artifacts,
         cwd=cwd,
     )
+    for produced, relative_produced in resolved_produced:
+        if not produced.is_file():
+            raise RuntimeError(f"expected produced artifact is missing: {relative_produced}")
     return completed.returncode
 
 

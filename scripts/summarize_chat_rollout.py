@@ -65,6 +65,21 @@ def validate_selector(path: Path, implementation: str) -> dict[str, object]:
         "stream_message_id": stream.get("message_id"),
         "terminal_status": stream.get("terminal_status"),
         "transport_done_count": stream.get("transport_done_count"),
+        "rest_attempts": sum(
+            int(value)
+            for key, value in telemetry.items()
+            if key.startswith(f"{implementation}.message.")
+            and isinstance(value, int)
+        ),
+        "rest_successes": int(telemetry.get(f"{implementation}.message.success", 0)),
+        "sse_attempts": sum(
+            int(value)
+            for key, value in telemetry.items()
+            if key.startswith(f"{implementation}.stream.")
+            and isinstance(value, int)
+        ),
+        "sse_successes": int(telemetry.get(f"{implementation}.stream.success", 0)),
+        "hosted_provider_call_count": int(payload.get("hosted_provider_call_count", 0)),
     }
 
 
@@ -76,6 +91,11 @@ def main() -> int:
     args = parser.parse_args()
     if len(args.hex_artifact) != 5:
         parser.error("exactly five --hex-artifact values are required")
+    hex_paths = [path.resolve() for path in args.hex_artifact]
+    if len(set(hex_paths)) != len(hex_paths):
+        parser.error("each --hex-artifact must identify a distinct run")
+    if args.rollback_artifact.resolve() in set(hex_paths):
+        parser.error("rollback evidence must be distinct from hex runs")
 
     hex_runs = [validate_selector(path, "hex") for path in args.hex_artifact]
     rollback = validate_selector(args.rollback_artifact, "legacy")
@@ -85,24 +105,42 @@ def main() -> int:
         "default_implementation": "legacy",
         "hex": {
             "run_count": len(hex_runs),
-            "rest_attempts": len(hex_runs),
-            "rest_successes": len(hex_runs),
-            "sse_attempts": len(hex_runs),
-            "sse_successes": len(hex_runs),
-            "success_rate_percent": 100.0,
+            "rest_attempts": sum(run["rest_attempts"] for run in hex_runs),
+            "rest_successes": sum(run["rest_successes"] for run in hex_runs),
+            "sse_attempts": sum(run["sse_attempts"] for run in hex_runs),
+            "sse_successes": sum(run["sse_successes"] for run in hex_runs),
+            "success_rate_percent": round(
+                100
+                * (
+                    sum(run["rest_successes"] for run in hex_runs)
+                    + sum(run["sse_successes"] for run in hex_runs)
+                )
+                / (
+                    sum(run["rest_attempts"] for run in hex_runs)
+                    + sum(run["sse_attempts"] for run in hex_runs)
+                ),
+                3,
+            ),
             "runs": hex_runs,
         },
         "rollback": {
             "process_restart": True,
-            "rest_attempts": 1,
-            "rest_successes": 1,
-            "sse_attempts": 1,
-            "sse_successes": 1,
+            "rest_attempts": rollback["rest_attempts"],
+            "rest_successes": rollback["rest_successes"],
+            "sse_attempts": rollback["sse_attempts"],
+            "sse_successes": rollback["sse_successes"],
             "run": rollback,
         },
-        "hosted_provider_call_count": 0,
-        "terminal_semantic_failures": 0,
-        "done_false_successes": 0,
+        "hosted_provider_call_count": sum(
+            run["hosted_provider_call_count"] for run in [*hex_runs, rollback]
+        ),
+        "terminal_semantic_failures": sum(
+            run["terminal_status"] not in {"complete", "success"}
+            for run in [*hex_runs, rollback]
+        ),
+        "done_false_successes": sum(
+            run["transport_done_count"] != 1 for run in [*hex_runs, rollback]
+        ),
     }
     ensure_redacted(payload)
     write_json(args.output, payload)

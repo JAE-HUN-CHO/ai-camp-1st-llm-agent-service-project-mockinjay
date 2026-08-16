@@ -66,7 +66,14 @@ def _read_json(path: Path) -> dict:
 
 def _stream_summary(path: Path) -> dict[str, object]:
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-    identifiers = next(record for record in records if record.get("contract") == "chat_stream_identifiers")
+    if not records:
+        raise RuntimeError("Chat stream evidence is empty")
+    identifiers = next(
+        (record for record in records if record.get("contract") == "chat_stream_identifiers"),
+        None,
+    )
+    if identifiers is None:
+        raise RuntimeError("Chat stream identifier evidence is missing")
     terminal = next(
         (record for record in records if record.get("status") in {"complete", "success"}),
         None,
@@ -84,11 +91,49 @@ def _stream_summary(path: Path) -> dict[str, object]:
     }
 
 
+def _failure_stream_summary(path: Path) -> dict[str, object]:
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    if not records:
+        raise RuntimeError("stream failure evidence is empty")
+    header = records[0]
+    summary = {
+        "status_code": header.get("status_code"),
+        "content_type": header.get("content_type"),
+        "terminal_error_count": sum(
+            record.get("status") == "error" for record in records
+        ),
+        "terminal_success_count": sum(
+            record.get("status") in {"complete", "success"} for record in records
+        ),
+        "transport_done_count": sum(
+            record.get("transport_done") is True for record in records
+        ),
+    }
+    expected = {
+        "status_code": 200,
+        "content_type": header.get("content_type"),
+        "terminal_error_count": 1,
+        "terminal_success_count": 0,
+        "transport_done_count": 1,
+    }
+    if summary != expected or "text/event-stream" not in str(
+        header.get("content_type", "")
+    ):
+        raise RuntimeError("stream failure evidence is invalid")
+    return summary
+
+
 def _telemetry(log_text: str) -> dict[str, int]:
     counters: dict[str, int] = {}
     for implementation, operation, outcome, count in TELEMETRY_PATTERN.findall(log_text):
         counters[f"{implementation}.{operation}.{outcome}"] = int(count)
     return counters
+
+
+def _readiness_only(readiness_passed: bool, smoke_evidence_collected: bool) -> bool | None:
+    if not readiness_passed:
+        return None
+    return not smoke_evidence_collected
 
 
 class _StallHandler(BaseHTTPRequestHandler):
@@ -219,6 +264,7 @@ def run(args: argparse.Namespace) -> int:
     smoke_duration = 0.0
     server_exit = -1
     failure: Exception | None = None
+    readiness_passed = False
     log_text = ""
     with tempfile.TemporaryFile() as log_file:
         try:
@@ -230,6 +276,7 @@ def run(args: argparse.Namespace) -> int:
                 stderr=subprocess.STDOUT,
             )
             _wait_ready(base_url, process, args.startup_timeout)
+            readiness_passed = True
             smoke_started = time.monotonic()
             completed = subprocess.run(
                 smoke_argv,
@@ -274,55 +321,36 @@ def run(args: argparse.Namespace) -> int:
     failure_http: dict[str, object] | None = None
     failure_stream: dict[str, object] | None = None
     if args.expect_smoke_failure:
-        if not error_artifact.is_file():
-            result = "fail"
-            failure = RuntimeError("expected failure artifact is missing")
-        else:
+        try:
+            if not error_artifact.is_file():
+                raise RuntimeError("expected failure artifact is missing")
             failure_http = _read_json(error_artifact)
             if failure_http.get("status_code") != expected_status:
-                result = "fail"
-                failure = RuntimeError("failure smoke returned unexpected HTTP status")
+                raise RuntimeError("failure smoke returned unexpected HTTP status")
             failure_stream_path = (
                 artifact_dir / "http" / f"chat-{args.scenario}-stream.ndjson"
             )
             if not failure_stream_path.is_file():
-                result = "fail"
-                failure = RuntimeError("expected stream failure artifact is missing")
-            else:
-                failure_records = [
-                    json.loads(line)
-                    for line in failure_stream_path.read_text(encoding="utf-8").splitlines()
-                ]
-                header = failure_records[0]
-                failure_stream = {
-                    "status_code": header.get("status_code"),
-                    "content_type": header.get("content_type"),
-                    "terminal_error_count": sum(
-                        record.get("status") == "error" for record in failure_records
-                    ),
-                    "terminal_success_count": sum(
-                        record.get("status") in {"complete", "success"}
-                        for record in failure_records
-                    ),
-                    "transport_done_count": sum(
-                        record.get("transport_done") is True for record in failure_records
-                    ),
-                }
-                if failure_stream != {
-                    "status_code": 200,
-                    "content_type": header.get("content_type"),
-                    "terminal_error_count": 1,
-                    "terminal_success_count": 0,
-                    "transport_done_count": 1,
-                } or "text/event-stream" not in str(header.get("content_type", "")):
-                    result = "fail"
-                    failure = RuntimeError("stream failure evidence is invalid")
+                raise RuntimeError("expected stream failure artifact is missing")
+            failure_stream = _failure_stream_summary(failure_stream_path)
+        except (OSError, ValueError, RuntimeError) as exc:
+            result = "fail"
+            failure = exc
 
     message_summary = None
     stream_summary = None
     if not args.expect_smoke_failure and result == "pass":
-        message_summary = _read_json(artifact_dir / "http" / "chat-message.json")
-        stream_summary = _stream_summary(artifact_dir / "http" / "chat-stream.ndjson")
+        try:
+            message_summary = _read_json(artifact_dir / "http" / "chat-message.json")
+            stream_summary = _stream_summary(artifact_dir / "http" / "chat-stream.ndjson")
+        except (OSError, ValueError, RuntimeError) as exc:
+            result = "fail"
+            failure = exc
+
+    smoke_evidence_collected = result == "pass" and (
+        (message_summary is not None and stream_summary is not None)
+        or (failure_http is not None and failure_stream is not None)
+    )
 
     log_digest = digest_text(log_text)
     summary: dict[str, object] = {
@@ -356,7 +384,10 @@ def run(args: argparse.Namespace) -> int:
             "failure_stream": failure_stream,
         },
         "telemetry": _telemetry(log_text),
-        "readiness_only": False if not args.expect_smoke_failure and smoke_exit == 0 else None,
+        "readiness_only": _readiness_only(
+            readiness_passed,
+            smoke_evidence_collected,
+        ),
         "server": {
             "controlled_shutdown": True,
             "exit_code": server_exit,

@@ -21,6 +21,7 @@ def sanitize_junit(path: Path) -> dict[str, int]:
     hostnames = 0
     parameters = 0
     captured_outputs = 0
+    failures = 0
     for element in root.iter():
         if "hostname" in element.attrib:
             element.set("hostname", "redacted")
@@ -37,11 +38,24 @@ def sanitize_junit(path: Path) -> dict[str, int]:
         if element.tag in {"system-out", "system-err"} and element.text:
             element.text = json.dumps(_digest(element.text), sort_keys=True)
             captured_outputs += 1
+        if element.tag in {"failure", "error"}:
+            if element.text:
+                element.text = json.dumps(_digest(element.text), sort_keys=True)
+                failures += 1
+            message = element.get("message")
+            if message:
+                digest = _digest(message)
+                element.set(
+                    "message",
+                    f"redacted sha256={digest['sha256']} bytes={digest['bytes']}",
+                )
+                failures += 1
     tree.write(path, encoding="utf-8", xml_declaration=True)
     return {
         "hostnames_redacted": hostnames,
         "parameters_hashed": parameters,
         "captured_outputs_hashed": captured_outputs,
+        "failure_details_hashed": failures,
     }
 
 
@@ -50,22 +64,33 @@ def sanitize_stream(path: Path) -> dict[str, int]:
     short_content_hashes = 0
     error_hashes = 0
     for record in records:
+        content = record.get("content")
         if record.get("status") not in {"complete", "success"}:
             content = record.pop("content", None)
             if isinstance(content, dict) and isinstance(content.get("bytes"), int):
                 record["content_bytes"] = content["bytes"]
                 short_content_hashes += 1
+            elif isinstance(content, str):
+                record["content_bytes"] = len(content.encode("utf-8"))
+                short_content_hashes += 1
+        elif isinstance(content, str):
+            record.pop("content", None)
+            record["content_bytes"] = len(content.encode("utf-8"))
+            short_content_hashes += 1
         error = record.pop("error", None)
         if isinstance(error, dict) and isinstance(error.get("bytes"), int):
             record["error_bytes"] = error["bytes"]
+            error_hashes += 1
+        elif isinstance(error, str):
+            record["error_bytes"] = len(error.encode("utf-8"))
             error_hashes += 1
     path.write_text(
         "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
         encoding="utf-8",
     )
     return {
-        "nonterminal_content_hashes_removed": short_content_hashes,
-        "error_hashes_removed": error_hashes,
+        "unsafe_content_values_removed": short_content_hashes,
+        "unsafe_error_values_removed": error_hashes,
     }
 
 
