@@ -8,6 +8,7 @@ import { secureTokenStorage } from '../../utils/security';
 vi.mock('../../services/api', () => ({
   default: {
     post: vi.fn(),
+    patch: vi.fn(),
     defaults: {
       headers: {
         common: {},
@@ -127,6 +128,28 @@ describe('AuthContext', () => {
     expect(result.current.isAuthenticated).toBe(false);
     expect(localStorage.getItem('careguide_token')).toBeNull();
     expect(localStorage.getItem('careguide_user')).toBeNull();
+  });
+
+  it('updates the authenticated user after profile persistence succeeds', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({
+      data: {
+        access_token: 'new-token-123',
+        user: {
+          id: '1',
+          username: 'testuser',
+          email: 'test@example.com',
+          profile: 'general',
+        },
+      },
+    });
+    vi.mocked(api.patch).mockResolvedValueOnce({ data: { profile: 'patient' } });
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+
+    await act(async () => result.current.login('testuser', 'password123'));
+    await act(async () => result.current.updateProfile('patient'));
+
+    expect(api.patch).toHaveBeenCalledWith('/api/auth/profile', { profile: 'patient' });
+    expect(result.current.user?.profile).toBe('patient');
   });
 
   it('throws error when useAuth is used outside AuthProvider', () => {

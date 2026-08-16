@@ -48,4 +48,21 @@ describe('callBackendAgentStream', () => {
     )).rejects.toThrow('local failure');
     expect(onError).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects EOF without the [DONE] transport terminal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([
+      'data: {"status":"streaming","content":"partial"}\n\n',
+    ])));
+    const onChunk = vi.fn();
+    const onError = vi.fn();
+
+    await expect(callBackendAgentStream(
+      'question',
+      'research_paper',
+      onChunk,
+      onError,
+    )).rejects.toThrow('before [DONE]');
+    expect(onChunk).not.toHaveBeenCalledWith('partial', true);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
 });

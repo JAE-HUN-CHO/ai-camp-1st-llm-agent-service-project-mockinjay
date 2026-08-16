@@ -54,7 +54,11 @@ const ChatPageEnhanced: React.FC = () => {
   const { user } = useAuth();
   const location = useLocation();
   const [chatProfile, setChatProfile] = useState<UserProfile>(user?.profile || 'general');
+  const [profileHydratedUserId, setProfileHydratedUserId] = useState<string | null>(null);
+  const [defaultRoomCreationKey, setDefaultRoomCreationKey] = useState<string | null>(null);
   const profileRevision = useRef(0);
+  const defaultRoomCreationRef = useRef<string | null>(null);
+  const defaultRoomAttemptedKeyRef = useRef<string | null>(null);
 
   // Sidebar state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -108,6 +112,7 @@ const ChatPageEnhanced: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    const activeUserId = user?.id;
     const applyProfile = (value: string | null) => {
       if (!cancelled && isUserProfile(value)) {
         profileRevision.current += 1;
@@ -116,13 +121,20 @@ const ChatPageEnhanced: React.FC = () => {
     };
 
     const loadProfile = async () => {
+      if (!activeUserId) return;
       const requestRevision = profileRevision.current;
-      const profile = await getUserProfile();
-      if (profileRevision.current !== requestRevision) return;
-      if (profile?.profile) {
-        applyProfile(profile.profile);
-      } else {
+      try {
+        const profile = await getUserProfile();
+        if (profileRevision.current !== requestRevision) return;
+        if (profile?.profile) {
+          applyProfile(profile.profile);
+        } else {
+          applyProfile(getPublishedUserProfile());
+        }
+      } catch {
         applyProfile(getPublishedUserProfile());
+      } finally {
+        if (!cancelled) setProfileHydratedUserId(activeUserId);
       }
     };
 
@@ -137,6 +149,10 @@ const ChatPageEnhanced: React.FC = () => {
       window.removeEventListener('careguide:profile-changed', handleProfileChanged);
     };
   }, [user?.id]);
+
+  const isRoomCreationReady = Boolean(
+    user?.id && isHydrated && profileHydratedUserId === user.id
+  );
 
   // Current agent type based on route
   const isMedicalWelfare = location.pathname === ROUTES.CHAT_MEDICAL_WELFARE;
@@ -191,15 +207,37 @@ const ChatPageEnhanced: React.FC = () => {
   // Create default room if none exists
   useEffect(() => {
     const initializeDefaultRoom = async () => {
-      if (!user?.id || !isHydrated) return;
+      if (!user?.id || !isRoomCreationReady) return;
       if (rooms.length === 0) {
-        await createRoom({ agentType: getCurrentAgentType() }, user.id, chatProfile);
+        const capturedUserId = user.id;
+        const creationKey = `${capturedUserId}:${chatProfile}:${getCurrentAgentType()}`;
+        if (
+          defaultRoomCreationRef.current
+          || defaultRoomAttemptedKeyRef.current === creationKey
+        ) return;
+        defaultRoomCreationRef.current = creationKey;
+        defaultRoomAttemptedKeyRef.current = creationKey;
+        setDefaultRoomCreationKey(creationKey);
+        try {
+          await createRoom(
+            { agentType: getCurrentAgentType() },
+            capturedUserId,
+            chatProfile,
+          );
+        } catch {
+          // The hook rejects stale user/profile results and hydration failures.
+        } finally {
+          if (defaultRoomCreationRef.current === creationKey) {
+            defaultRoomCreationRef.current = null;
+          }
+          setDefaultRoomCreationKey((current) => current === creationKey ? null : current);
+        }
       } else if (!currentRoomId && rooms.length > 0) {
         setCurrentRoomId(rooms[0].id);
       }
     };
-    initializeDefaultRoom();
-  }, [rooms, currentRoomId, createRoom, getCurrentAgentType, setCurrentRoomId, user?.id, chatProfile, isHydrated]);
+    void initializeDefaultRoom();
+  }, [rooms, currentRoomId, createRoom, defaultRoomCreationKey, getCurrentAgentType, setCurrentRoomId, user?.id, chatProfile, isRoomCreationReady]);
 
   // Cleanup on unmount or route change
   useEffect(() => {
@@ -243,12 +281,13 @@ const ChatPageEnhanced: React.FC = () => {
    * 새 방 생성 처리
    */
   const handleCreateRoom = useCallback(async () => {
+    if (!isRoomCreationReady || !user?.id) return;
     await createRoom(
       { agentType: getCurrentAgentType() },
-      user?.id,
+      user.id,
       chatProfile
     );
-  }, [createRoom, getCurrentAgentType, user?.id, chatProfile]);
+  }, [createRoom, getCurrentAgentType, user?.id, chatProfile, isRoomCreationReady]);
 
   /**
    * Handle delete room
@@ -305,13 +344,14 @@ const ChatPageEnhanced: React.FC = () => {
    * 모든 세션 초기화 처리
    */
   const handleResetAllSessions = useCallback(async () => {
+    if (!isRoomCreationReady || !user?.id) return;
     setMessagesByRoom({});
     clearAllRooms();
     handleStopStream();
     setIsSessionExpired(false);
     // Create a new default room
-    await createRoom({ agentType: getCurrentAgentType() }, user?.id, chatProfile);
-  }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType, user?.id, chatProfile]);
+    await createRoom({ agentType: getCurrentAgentType() }, user.id, chatProfile);
+  }, [clearAllRooms, handleStopStream, createRoom, getCurrentAgentType, user?.id, chatProfile, isRoomCreationReady]);
 
   /**
    * Handle restore history
@@ -366,7 +406,8 @@ const ChatPageEnhanced: React.FC = () => {
 
       setIsSessionExpired(false);
     } catch (_error) {
-      setMessagesByRoom((prev) => ({ ...prev, [currentRoomId]: [] }));
+      // Preserve current messages; the existing retry state remains visible.
+      void _error;
     } finally {
       setIsRestoringHistory(false);
     }
@@ -423,9 +464,10 @@ const ChatPageEnhanced: React.FC = () => {
     // 방 ID 가져오기 또는 생성 (새 방 생성 시 await 필요)
     let roomId = currentRoomId;
     if (!roomId) {
+      if (!isRoomCreationReady || !user?.id) return;
       const newRoom = await createRoom(
         { agentType: getCurrentAgentType() },
-        user?.id,
+        user.id,
         chatProfile
       );
       roomId = newRoom.id;
@@ -580,6 +622,7 @@ const ChatPageEnhanced: React.FC = () => {
     updateRoomLastMessage,
     incrementMessageCount,
     user?.id,
+    isRoomCreationReady,
   ]);
 
   /**

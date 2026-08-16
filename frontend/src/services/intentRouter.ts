@@ -219,6 +219,7 @@ export async function callBackendAgentStream(
     let detectedIntents: IntentCategory[] = [];
     let isEmergency = false;
     let sseBuffer = '';
+    let terminalReceived = false;
 
     const processEvent = (frame: string): boolean => {
       const dataLines = frame
@@ -228,7 +229,10 @@ export async function callBackendAgentStream(
       if (dataLines.length === 0) return false;
 
       const data = dataLines.join('\n');
-      if (data === '[DONE]') return true;
+      if (data === '[DONE]') {
+        terminalReceived = true;
+        return true;
+      }
 
       let parsed: BackendStreamChunk;
       try {
@@ -286,6 +290,9 @@ export async function callBackendAgentStream(
         if (sseBuffer.trim() && processEvent(sseBuffer.replace(/\r\n/g, '\n'))) {
           onChunk(accumulatedContent, true);
           return { agents: detectedAgents, intents: detectedIntents, isEmergency };
+        }
+        if (!terminalReceived) {
+          throw new Error('Chat stream ended before [DONE]');
         }
         onChunk(accumulatedContent, true);
         break;

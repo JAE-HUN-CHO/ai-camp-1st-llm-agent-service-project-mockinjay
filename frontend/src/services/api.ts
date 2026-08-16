@@ -395,8 +395,7 @@ export async function getChatRooms(
     return (response.data.data.rooms || []).map(mapBackendRoomToFrontend);
   } catch {
     console.error('Failed to fetch chat rooms');
-    // Return empty array on error (offline fallback)
-    return [];
+    throw new Error('채팅방 목록을 불러오지 못했습니다.');
   }
 }
 

@@ -1,7 +1,7 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatRooms } from '../useChatRooms';
-import { getChatRooms } from '../../services/api';
+import { createRoomWithSession, getChatRooms } from '../../services/api';
 
 vi.mock('../../services/api', () => ({
   createRoomWithSession: vi.fn(async (_userId, agentType, _profile, title) => ({
@@ -17,13 +17,18 @@ vi.mock('../../services/api', () => ({
 
 const create = async (result: ReturnType<typeof renderHook<typeof useChatRooms>>['result'], title: string) => {
   let room;
-  await act(async () => { await Promise.resolve(); });
+  await waitFor(() => expect(result.current.isHydrated).toBe(true));
   await act(async () => { room = await result.current.createRoom({ title }, 'user-1'); });
   return room!;
 };
 
 describe('useChatRooms', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(getChatRooms).mockReset();
+    vi.mocked(getChatRooms).mockResolvedValue([]);
+    vi.mocked(createRoomWithSession).mockClear();
+  });
 
   it('creates an authenticated in-memory room while selecting it as current', async () => {
     const { result } = renderHook(() => useChatRooms('user-1'));
@@ -61,7 +66,7 @@ describe('useChatRooms', () => {
   it('does not restore serialized rooms and supports clearing all state', async () => {
     localStorage.setItem('careguide_chat_rooms', '[{"title":"health-canary"}]');
     const { result } = renderHook(() => useChatRooms('user-1'));
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
     expect(result.current.rooms).toEqual([]);
     act(() => result.current.clearAllRooms());
     expect(result.current.rooms).toEqual([]);
@@ -79,7 +84,7 @@ describe('useChatRooms', () => {
     }]);
 
     const { result } = renderHook(() => useChatRooms('user-1', 'patient'));
-    await act(async () => { await Promise.resolve(); });
+    await waitFor(() => expect(result.current.isHydrated).toBe(true));
 
     expect(getChatRooms).toHaveBeenCalledWith('user-1');
     expect(result.current.isHydrated).toBe(true);
@@ -89,5 +94,43 @@ describe('useChatRooms', () => {
       messageCount: 2,
     });
     expect(result.current.currentRoomId).toBe('persisted-room');
+  });
+
+  it('keeps prior rooms hidden while a new user is hydrating', async () => {
+    let finishSecondHydration: (() => void) | undefined;
+    vi.mocked(getChatRooms)
+      .mockResolvedValueOnce([{
+        id: 'user-one-room',
+        title: 'Private room',
+        agent_type: 'research_paper',
+        message_count: 1,
+        created_at: '2026-08-15T00:00:00Z',
+      }])
+      .mockImplementationOnce(() => new Promise<[]>((resolve) => {
+        finishSecondHydration = () => resolve([]);
+      }));
+
+    const { result, rerender } = renderHook(
+      ({ userId }) => useChatRooms(userId),
+      { initialProps: { userId: 'user-1' } },
+    );
+    await waitFor(() => expect(result.current.rooms).toHaveLength(1));
+
+    rerender({ userId: 'user-2' });
+    expect(result.current.isHydrated).toBe(false);
+    expect(result.current.rooms).toEqual([]);
+    expect(result.current.currentRoom).toBeNull();
+
+    await act(async () => finishSecondHydration?.());
+  });
+
+  it('does not treat a failed room request as an empty hydrated result', async () => {
+    vi.mocked(getChatRooms).mockRejectedValueOnce(new Error('network unavailable'));
+    const { result } = renderHook(() => useChatRooms('user-1'));
+
+    await waitFor(() => expect(result.current.hydrationError).not.toBeNull());
+    expect(result.current.isHydrated).toBe(false);
+    expect(result.current.rooms).toEqual([]);
+    expect(createRoomWithSession).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,7 @@
  * Manages in-memory chat room metadata and CRUD operations.
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ChatRoom, CreateRoomOptions, RoomFilterOptions } from '../types/chat';
 import type { AgentType } from '../services/intentRouter';
 import { createRoomWithSession, getChatRooms, type ChatRoomData } from '../services/api';
@@ -48,7 +48,15 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
   const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
+  const [hydrationError, setHydrationError] = useState<string | null>(null);
+  const [hydrationAttempt, setHydrationAttempt] = useState(0);
   const isHydrated = Boolean(authenticatedUserId && hydratedUserId === authenticatedUserId);
+  const activeUserIdRef = useRef(authenticatedUserId);
+  const activeProfileRef = useRef(authenticatedProfile);
+  const hydratedUserIdRef = useRef(hydratedUserId);
+  activeUserIdRef.current = authenticatedUserId;
+  activeProfileRef.current = authenticatedProfile;
+  hydratedUserIdRef.current = hydratedUserId;
 
   useEffect(() => {
     let cancelled = false;
@@ -58,19 +66,28 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
         setRooms([]);
         setCurrentRoomId(null);
         setHydratedUserId(null);
+        hydratedUserIdRef.current = null;
+        setHydrationError(null);
       });
       return () => { cancelled = true; };
     }
 
-    void getChatRooms(authenticatedUserId).then((serverRooms) => {
-      if (cancelled) return;
-      const restored = serverRooms.map(mapApiRoom).filter((room) => room.id);
-      setRooms(restored);
-      setCurrentRoomId(restored[0]?.id || null);
-      setHydratedUserId(authenticatedUserId);
-    });
+    void getChatRooms(authenticatedUserId)
+      .then((serverRooms) => {
+        if (cancelled || activeUserIdRef.current !== authenticatedUserId) return;
+        const restored = serverRooms.map(mapApiRoom).filter((room) => room.id);
+        setRooms(restored);
+        setCurrentRoomId(restored[0]?.id || null);
+        hydratedUserIdRef.current = authenticatedUserId;
+        setHydratedUserId(authenticatedUserId);
+        setHydrationError(null);
+      })
+      .catch(() => {
+        if (cancelled || activeUserIdRef.current !== authenticatedUserId) return;
+        setHydrationError('채팅방을 불러오지 못했습니다. 다시 시도해주세요.');
+      });
     return () => { cancelled = true; };
-  }, [authenticatedUserId]);
+  }, [authenticatedUserId, hydrationAttempt]);
 
   /**
    * Create a new chat room with Parlant session (async)
@@ -90,7 +107,12 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
       const agentType = options.agentType || 'auto';
       const title = options.title || generateRoomTitle(agentType);
 
-      if (userId) {
+      if (
+        userId
+        && userId === activeUserIdRef.current
+        && hydratedUserIdRef.current === userId
+        && profile === activeProfileRef.current
+      ) {
         try {
           // Call backend API to create room with Parlant session
           // 백엔드 API를 호출하여 Parlant 세션과 함께 방 생성
@@ -100,6 +122,14 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
             profile,
             title
           );
+
+          if (
+            activeUserIdRef.current !== userId
+            || hydratedUserIdRef.current !== userId
+            || activeProfileRef.current !== profile
+          ) {
+            throw new Error('사용자 또는 프로필이 변경되어 방 생성을 취소했습니다.');
+          }
 
           const newRoom: ChatRoom = {
             id: roomData.id || roomData.room_id || `room_${Date.now()}`,
@@ -122,7 +152,7 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
           throw new Error('채팅방을 안전하게 생성하지 못했습니다. 다시 시도해주세요.');
         }
       }
-      throw new Error('인증된 사용자만 채팅방을 생성할 수 있습니다.');
+      throw new Error('채팅방 초기화가 완료된 뒤 다시 시도해주세요.');
     },
     [authenticatedProfile, authenticatedUserId]
   );
@@ -235,14 +265,16 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
    * 현재 방 가져오기
    */
   const currentRoom = useMemo(() => {
+    if (!isHydrated) return null;
     return rooms.find((room) => room.id === currentRoomId) || null;
-  }, [rooms, currentRoomId]);
+  }, [isHydrated, rooms, currentRoomId]);
 
   /**
    * Filter rooms based on criteria
    * 기준에 따라 방 필터링
    */
   const filterRooms = useCallback((options: RoomFilterOptions = {}): ChatRoom[] => {
+    if (!isHydrated) return [];
     return rooms.filter((room) => {
       // Filter by agent type
       // 에이전트 타입으로 필터링
@@ -273,13 +305,14 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
 
       return true;
     });
-  }, [rooms]);
+  }, [isHydrated, rooms]);
 
   /**
    * Sort rooms (pinned first, then by last activity)
    * 방 정렬 (고정된 방 먼저, 그 다음 최근 활동순)
    */
   const sortedRooms = useMemo(() => {
+    if (!isHydrated) return [];
     return [...rooms].sort((a, b) => {
       // Pinned rooms come first
       // 고정된 방이 먼저
@@ -292,7 +325,7 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
       const bTime = b.lastMessageTime || b.updatedAt;
       return bTime.getTime() - aTime.getTime();
     });
-  }, [rooms]);
+  }, [isHydrated, rooms]);
 
   /**
    * Get rooms excluding archived ones
@@ -302,13 +335,19 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
     return sortedRooms.filter((room) => !room.isArchived);
   }, [sortedRooms]);
 
+  const retryHydration = useCallback(() => {
+    setHydrationError(null);
+    setHydrationAttempt((attempt) => attempt + 1);
+  }, []);
+
   return {
     // State
     rooms: sortedRooms,
     activeRooms,
     currentRoom,
-    currentRoomId,
+    currentRoomId: isHydrated ? currentRoomId : null,
     isHydrated,
+    hydrationError,
 
     // Actions
     createRoom,
@@ -321,5 +360,6 @@ export function useChatRooms(authenticatedUserId?: string, authenticatedProfile 
     clearAllRooms,
     setCurrentRoomId,
     filterRooms,
+    retryHydration,
   };
 }
