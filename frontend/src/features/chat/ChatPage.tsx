@@ -650,7 +650,10 @@ const ChatPageEnhanced: React.FC = () => {
     user?.id,
     isRoomCreationReady,
   ]);
-  initialMessageSendRef.current = handleSendWithMessage;
+
+  useEffect(() => {
+    initialMessageSendRef.current = handleSendWithMessage;
+  }, [handleSendWithMessage]);
 
   /**
    * Handle send message (delegates to handleSendWithMessage)
