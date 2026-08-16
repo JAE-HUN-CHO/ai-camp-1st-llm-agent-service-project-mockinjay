@@ -155,15 +155,15 @@ Phase 0~1에서는 통합하거나 이동하지 않는다.
 | `cd frontend && npm run lint` | 오류 0, 경고 70 | 정적 오류는 없지만 hook/`any`/번들 관련 정리 필요 |
 | `cd frontend && npm run test -- --run` | 30 files, 410 tests passed | unit/component 범위이며 실제 browser E2E는 아님 |
 | `PYTHONPATH=backend .venv/bin/python -m pytest -q tests/backend/unit/test_api_contract.py tests/backend/unit/test_logging_redaction.py tests/backend/unit/test_ollama_chat_service.py` | 8 passed | 핵심 단위 계약 일부 통과 |
-| Research Parlant HTTP | 통과 | agent `Z07N970oiN` / customer `vVnTIsLwyj` / session `ob8OsO5rPS` / response event `dYcgO8ywyG` |
-| Welfare Parlant HTTP | 통과 | agent `4hPpdzxCVh` / customer `m7nF36INaJ` / session `DD7f32DV9K` / response event `6cZ9XjGzf0` |
+| Research Parlant HTTP | 통과 | agent/customer/session/response event 식별자는 `<redacted>`; run ID·manifest·fingerprint로 추적 |
+| Welfare Parlant HTTP | 통과 | agent/customer/session/response event 식별자는 `<redacted>`; run ID·manifest·fingerprint로 추적 |
 | hosted LLM provider | 호출 0 | 최종 승인 run의 manifest/runtime log 기준 |
 | 전체 핵심 API·브라우저 흐름 | 미완료 | Phase 2 Chat 이외의 실제 사용자 여정은 아직 범위 밖 |
 
 2026-08-16 CodeRabbit 후속 수정은 기존 Phase 0 runtime manifest를 대체하지 않는
 PR console 검증이다. 해당 worktree에서 `tests/backend/unit`은 165 passed(55 warnings),
 명시적 Mongo integration은 4 passed(26 warnings), frontend는 31 files/416 tests passed,
-build 통과, lint 0 errors/65 warnings였다. 변경 Python Ruff, architecture dependency gate,
+build 통과, lint 0 errors/64 warnings였다. 변경 Python Ruff, architecture dependency gate,
 15개 normative 문서 링크, `git diff --check`가 통과했고 보존된 runtime artifact 37개에서
 PII pattern은 0건이었다.
 
