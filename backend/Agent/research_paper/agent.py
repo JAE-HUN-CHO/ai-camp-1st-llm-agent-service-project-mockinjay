@@ -61,7 +61,8 @@ class ResearchPaperAgent(LocalAgent):
     _server_url = f"http://localhost:{_server_port}"
     _agent_id = None
     _session_cache = {}  # session_id -> (parlant_session_id, customer_id)
-    _client_initialization_lock = asyncio.Lock()
+    _client_initialization_lock: asyncio.Lock | None = None
+    _client_initialization_loop: asyncio.AbstractEventLoop | None = None
 
     # Session-based polling management
     # 세션 기반 폴링 관리
@@ -178,9 +179,21 @@ class ResearchPaperAgent(LocalAgent):
         raise TimeoutError(f"Server failed to start within {max_wait}s")
     
     @classmethod
+    def _get_client_initialization_lock(cls) -> asyncio.Lock:
+        """Return a lazy lock bound to the currently running event loop."""
+        loop = asyncio.get_running_loop()
+        if (
+            cls._client_initialization_lock is None
+            or cls._client_initialization_loop is not loop
+        ):
+            cls._client_initialization_lock = asyncio.Lock()
+            cls._client_initialization_loop = loop
+        return cls._client_initialization_lock
+
+    @classmethod
     async def _get_client(cls) -> AsyncParlantClient:
         """Get singleton Parlant client"""
-        async with cls._client_initialization_lock:
+        async with cls._get_client_initialization_lock():
             if cls._parlant_client is None:
                 # Ensure server is running
                 await cls._ensure_server_running()

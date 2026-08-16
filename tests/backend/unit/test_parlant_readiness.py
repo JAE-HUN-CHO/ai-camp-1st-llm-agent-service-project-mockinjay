@@ -88,12 +88,12 @@ async def test_existing_process_is_not_ready_without_expected_identity(
 ) -> None:
     checks = 0
 
-    async def not_ready():
+    async def not_ready() -> bool:
         nonlocal checks
         checks += 1
         return False
 
-    async def no_wait(_seconds):
+    async def no_wait(_seconds) -> None:
         return None
 
     monkeypatch.setattr(agent_class, "_check_server_running", not_ready)
@@ -120,25 +120,30 @@ async def test_client_initialization_is_serialized(
     monkeypatch, module, agent_class
 ) -> None:
     initialized = 0
+    setup_calls = 0
     release = asyncio.Event()
 
-    async def ensure_ready():
+    async def ensure_ready() -> None:
         nonlocal initialized
         initialized += 1
         await release.wait()
 
     class _HTTPClient:
-        async def aclose(self):
+        async def aclose(self) -> None:
             return None
 
     class _ParlantClient:
         pass
 
-    async def setup_agent():
-        agent_class._agent_id = "agent-1"
+    async def setup_agent() -> None:
+        nonlocal setup_calls
+        setup_calls += 1
+        monkeypatch.setattr(agent_class, "_agent_id", "agent-1")
 
     monkeypatch.setattr(agent_class, "_parlant_client", None)
-    monkeypatch.setattr(agent_class, "_client_initialization_lock", asyncio.Lock())
+    monkeypatch.setattr(agent_class, "_agent_id", None)
+    monkeypatch.setattr(agent_class, "_client_initialization_lock", None)
+    monkeypatch.setattr(agent_class, "_client_initialization_loop", None)
     monkeypatch.setattr(agent_class, "_ensure_server_running", ensure_ready)
     monkeypatch.setattr(agent_class, "_setup_agent", setup_agent)
     monkeypatch.setattr(module.httpx, "AsyncClient", lambda **_kwargs: _HTTPClient())
@@ -154,3 +159,4 @@ async def test_client_initialization_is_serialized(
     first_client, second_client = await asyncio.gather(first, second)
     assert first_client is second_client
     assert initialized == 1
+    assert setup_calls == 1

@@ -74,6 +74,13 @@ class _ErrorFrameRouter:
         yield {"status": "error", "error": "provider failed", "agent_type": "test"}
 
 
+class _ErrorThenCompleteRouter:
+    async def process_stream(self, _request):
+        yield {"status": "streaming", "content": "unsafe partial", "agent_type": "test"}
+        yield {"status": "error", "error": "provider failed", "agent_type": "test"}
+        yield {"status": "complete", "content": "must not persist", "agent_type": "test"}
+
+
 def _chat_app(manager, router, *, authenticated: bool = True) -> FastAPI:
     context_system = SimpleNamespace(
         session_manager=SimpleNamespace(
@@ -238,6 +245,27 @@ def test_explicit_error_frame_does_not_emit_success_or_persist(monkeypatch) -> N
 
     assert '"status": "error"' in response.text
     assert '"status": "complete"' not in response.text
+    assert manager.saved == []
+
+
+def test_error_then_complete_frame_still_does_not_persist(monkeypatch) -> None:
+    manager = _FakeContextManager()
+    runtime = SimpleNamespace(router_agent=_ErrorThenCompleteRouter())
+    app = _chat_app(manager, runtime.router_agent)
+    monkeypatch.setattr(chat, "get_agent_runtime", lambda _request: runtime)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/chat/stream",
+            json={
+                "query": "hello",
+                "session_id": "session-1",
+                "user_id": "user-1",
+                "room_id": "room-1",
+            },
+        )
+
+    assert '"status": "complete"' in response.text
     assert manager.saved == []
 
 

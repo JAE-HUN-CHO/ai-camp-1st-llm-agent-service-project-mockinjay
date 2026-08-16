@@ -604,7 +604,14 @@ async def chat_message(request: Request):
 
             # Save to DB after stream completes
             try:
-                if completed and session_id and query and user_id and accumulated_response:
+                if (
+                    completed
+                    and not failed
+                    and session_id
+                    and query
+                    and user_id
+                    and accumulated_response
+                ):
                     save_agent_type = final_agent_type or "research_paper"
 
                     await context_system.context_engineer.db_manager.save_conversation(
@@ -820,7 +827,14 @@ async def chat_stream(request: Request):
 
             # Save to DB after stream completes
             try:
-                if completed and session_id and query and user_id and accumulated_response:
+                if (
+                    completed
+                    and not failed
+                    and session_id
+                    and query
+                    and user_id
+                    and accumulated_response
+                ):
                     # Use final_agent_type or default to router/research_paper
                     save_agent_type = final_agent_type or "research_paper"
 
