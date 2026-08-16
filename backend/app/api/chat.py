@@ -41,7 +41,7 @@ def _consume_background_task(task: asyncio.Task[Any]) -> None:
         return
     try:
         failure = task.exception()
-    except Exception:
+    except Exception:  # noqa: BLE001 - task failures must not expose chat context
         logger.warning("Chat context analysis task failed")
         return
     if failure is not None:
@@ -142,8 +142,8 @@ async def _persist_chat_response(
             context_system.context_engineer.analyze_and_update_context(user_id)
         )
         _track_background_task(task)
-    except Exception as exc:  # history persistence must not hide a valid answer
-        logger.warning("History saving failed for direct Ollama response: %s", exc)
+    except Exception:  # noqa: BLE001 - preserve a valid answer if history fails
+        logger.warning("History saving failed for direct Ollama response")
 
 
 def _raise_hex_chat_error(error: ChatError) -> NoReturn:

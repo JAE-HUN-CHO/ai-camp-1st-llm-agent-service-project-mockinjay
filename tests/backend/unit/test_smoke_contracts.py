@@ -201,6 +201,11 @@ def test_pii_scan_fails_closed_for_missing_and_empty_directories(
     monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(missing)])
     assert pii_main() == 1
 
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(empty)])
+    assert pii_main() == 1
+
 
 def test_pii_scan_excludes_only_the_canonical_report(monkeypatch, tmp_path) -> None:
     artifact_dir = tmp_path / "artifacts"
@@ -237,11 +242,6 @@ def test_rollout_rejects_reused_hex_artifacts(monkeypatch, tmp_path) -> None:
     with pytest.raises(SystemExit) as error:
         rollout_main()
     assert error.value.code == 2
-
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    monkeypatch.setattr(sys, "argv", ["check_artifact_pii.py", str(empty)])
-    assert pii_main() == 1
 
 
 def test_parlant_smoke_removes_stale_top_level_error_artifact(tmp_path) -> None:

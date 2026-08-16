@@ -26,7 +26,7 @@ def _consume_background_task(task: asyncio.Task[Any]) -> None:
         return
     try:
         failure = task.exception()
-    except Exception:
+    except Exception:  # noqa: BLE001 - task failures must not expose chat context
         logger.warning("Chat context analysis task failed")
         return
     if failure is not None:

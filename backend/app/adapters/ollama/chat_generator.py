@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
+import logging
+import sys
 from typing import Any
 
 import httpx
@@ -15,6 +17,9 @@ from app.features.chat.domain import (
     ChatProviderUnavailable,
     ChatStreamEvent,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaChatGenerator:
@@ -106,11 +111,14 @@ class OllamaChatGenerator:
         except Exception as exc:
             raise ChatProviderUnavailable("local provider is unavailable") from exc
         finally:
+            active_error = sys.exc_info()[1]
             close = getattr(service_stream, "aclose", None)
             if close is not None:
                 try:
                     await close()
-                except Exception as exc:
-                    raise ChatProviderUnavailable(
-                        "local provider is unavailable"
-                    ) from exc
+                except Exception as exc:  # noqa: BLE001 - isolate provider cleanup
+                    logger.warning("Local provider stream cleanup failed")
+                    if active_error is None:
+                        raise ChatProviderUnavailable(
+                            "local provider is unavailable"
+                        ) from exc
