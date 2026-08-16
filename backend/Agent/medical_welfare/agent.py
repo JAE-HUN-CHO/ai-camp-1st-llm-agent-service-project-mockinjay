@@ -27,6 +27,7 @@ from Agent.core.agent_registry import AgentRegistry
 from Agent.core.contracts import AgentRequest, AgentResponse
 from Agent.core.execution_type import ExecutionType
 from app.config import PortConfigurationError, validate_parlant_ports, validate_port
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 # Parlant client
 from parlant.client.client import AsyncParlantClient
@@ -106,11 +107,23 @@ class MedicalWelfareAgent(LocalAgent):
     
     @classmethod
     async def _check_server_running(cls) -> bool:
-        """Check if Parlant server is running"""
+        """Require a 200 JSON agent list containing the expected identity."""
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{cls._server_url}/api/agents", timeout=2.0)
-                return response.status_code in [200, 401, 403, 404]
+                for path in ("/agents", "/api/agents"):
+                    response = await client.get(f"{cls._server_url}{path}", timeout=2.0)
+                    if response.status_code != 200:
+                        continue
+                    payload = response.json()
+                    agents = payload if isinstance(payload, list) else payload.get("items", [])
+                    if any(
+                        isinstance(agent, dict)
+                        and agent.get("id")
+                        and agent.get("name") == "MedicalWelfare_Agent"
+                        for agent in agents
+                    ):
+                        return True
+                return False
         except Exception:
             return False
     
@@ -517,10 +530,17 @@ class MedicalWelfareAgent(LocalAgent):
         Returns:
             AgentResponse with answer, sources
         """
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            return AgentResponse(
+                answer=EMERGENCY_RESPONSE,
+                status="success",
+                agent_type="emergency_safety",
+                metadata={"is_emergency": True, "provider": "emergency_pre_filter"},
+            )
         await self._initialize()
 
         try:
-            logger.info(f"🏥 Medical Welfare query: {request.query[:50]}...")
+            logger.info("Medical Welfare received a redacted query")
 
             # Get or create valid session (with automatic stale session recovery)
             # 유효한 세션 가져오기/생성 (스테일 세션 자동 복구 포함)
@@ -689,7 +709,7 @@ class MedicalWelfareAgent(LocalAgent):
                     
                     if msg_text and msg_text.strip():
                         full_answer.append(msg_text)
-                        logger.debug(f"📝 Extracted message: {msg_text[:100]}...")
+                        logger.debug("Extracted a provider message")
                 
                 answer_text = '\n'.join(full_answer)
                 
@@ -736,10 +756,19 @@ class MedicalWelfareAgent(LocalAgent):
         Stream responses from Parlant using continuous polling.
         연속 폴링을 사용하여 Parlant로부터 응답 스트림
         """
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            yield {
+                "answer": EMERGENCY_RESPONSE,
+                "content": EMERGENCY_RESPONSE,
+                "status": "complete",
+                "agent_type": "emergency_safety",
+                "is_emergency": True,
+            }
+            return
         await self._initialize()
 
         try:
-            logger.info(f"🏥 Medical Welfare query (stream): {request.query[:50]}...")
+            logger.info("Medical Welfare received a redacted streaming query")
 
             # Get or create valid session (with automatic stale session recovery)
             # 유효한 세션 가져오기/생성 (스테일 세션 자동 복구 포함)

@@ -5,6 +5,7 @@ import logging
 import os
 import json
 from app.adapters.ollama.client import OllamaClient
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 # 프로젝트 경로 설정
 backend_path = Path(__file__).parent.parent.parent
@@ -132,6 +133,14 @@ class TrendVisualizationAgent(LocalAgent):
         Returns:
             AgentResponse: 통일된 응답 형식
         """
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            return AgentResponse(
+                answer=EMERGENCY_RESPONSE,
+                status="success",
+                agent_type="emergency_safety",
+                metadata={"is_emergency": True, "provider": "emergency_pre_filter"},
+            )
+
         try:
             # 초기 상태 생성
             initial_state: AgentState = {
@@ -150,7 +159,7 @@ class TrendVisualizationAgent(LocalAgent):
             }
             
             # LangGraph 실행
-            logger.info(f"🚀 Starting LangGraph workflow for query: {request.query}")
+            logger.info("Starting LangGraph workflow for a redacted query")
             final_state = await self.workflow.ainvoke(initial_state)
             
             # 응답 생성

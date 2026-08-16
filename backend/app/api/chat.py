@@ -44,7 +44,12 @@ from Agent.medical_welfare.agent import MedicalWelfareAgent
 from Agent.research_paper.agent import ResearchPaperAgent
 from Agent.core.contracts import AgentRequest
 from app.services.agent_runtime import AgentRuntime, get_agent_runtime
-from app.api.dependencies import get_request_user_id, require_user_match
+from app.api.dependencies import (
+    authorize_chat_actor,
+    get_request_user_id,
+    require_user_match,
+)
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 
 def _authorize_user(request: Request, requested_user_id: Optional[str]) -> str:
@@ -61,6 +66,17 @@ def _authorize_session(request: Request, context_system, session_id: str) -> str
     if session and session.get("user_id") != current_user_id:
         raise HTTPException(status_code=403, detail="Access denied: session ownership mismatch")
     return current_user_id
+
+
+async def _emergency_sse():
+    event = {
+        "status": "complete",
+        "content": EMERGENCY_RESPONSE,
+        "agent_type": "emergency_safety",
+        "is_emergency": True,
+    }
+    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 async def _persist_chat_response(
@@ -101,6 +117,8 @@ async def _direct_ollama_stream(
     room_id: str | None,
 ):
     accumulated = ""
+    terminal_emitted = False
+    completed = False
     try:
         async for chunk in service.stream(
             query, profile=profile, user_context=user_context
@@ -113,11 +131,21 @@ async def _direct_ollama_stream(
                 status = "streaming"
             if status in {"streaming", "complete"}:
                 accumulated = content if status == "complete" else accumulated + content
+            terminal_emitted = terminal_emitted or status == "complete"
             yield f"data: {json.dumps(chunk, ensure_ascii=False, default=str)}\n\n"
-    except Exception as exc:
-        logger.error("Direct Ollama stream failed: %s", exc, exc_info=True)
-        yield f"data: {json.dumps({'status': 'error', 'error': str(exc)}, ensure_ascii=False)}\n\n"
-    finally:
+        if not terminal_emitted:
+            terminal = {
+                "status": "complete",
+                "content": accumulated,
+                "agent_type": "ollama_rag",
+            }
+            yield f"data: {json.dumps(terminal, ensure_ascii=False)}\n\n"
+        completed = True
+    except Exception:
+        logger.error("Direct Ollama stream failed", exc_info=True)
+        yield 'data: {"status":"error","error":"local provider stream failed"}\n\n'
+
+    if completed:
         await _persist_chat_response(
             context_system,
             user_id=user_id,
@@ -392,11 +420,33 @@ async def chat_message(request: Request):
         if not query:
             raise HTTPException(status_code=400, detail="Query is required")
 
+        decision = emergency_safety_policy.evaluate(query)
+        if decision.blocked:
+            return JSONResponse(
+                content={
+                    "answer": EMERGENCY_RESPONSE,
+                    "content": EMERGENCY_RESPONSE,
+                    "status": "success",
+                    "agent_type": "emergency_safety",
+                    "sources": [],
+                    "metadata": {
+                        "provider": "emergency_pre_filter",
+                        "is_emergency": True,
+                    },
+                }
+            )
+
+        actor = await authorize_chat_actor(
+            request,
+            context_system,
+            requested_user_id=body.get("user_id"),
+            room_id=room_id,
+            session_id=session_id,
+        )
+        user_id = actor.user_id
+
         # --- Context Engineering: Injection ---
         context = body.get("context", {})
-
-        # Resolve user_id from session if not provided
-        _authorize_session(request, context_system, session_id)
 
         if user_id:
             try:
@@ -407,7 +457,9 @@ async def chat_message(request: Request):
                 if user_context.get("summary") or user_context.get("keywords"):
                     if "user_history" not in context:
                         context["user_history"] = user_context
-                    logger.info(f"✅ Injected context for user {user_id}")
+                    logger.info("Injected redacted user context")
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(f"Context injection failed: {e}")
 
@@ -481,7 +533,7 @@ async def chat_message(request: Request):
                 async for chunk in router_agent.process_stream(agent_request):
                     # Check for cancellation request
                     if stream_registry.get(session_id, {}).get("cancel_requested"):
-                        logger.info(f"Stream cancelled for session {session_id}")
+                        logger.info("Chat stream cancelled")
                         yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Stream stopped by user'})}\n\n"
                         break
                     content = ""
@@ -527,9 +579,9 @@ async def chat_message(request: Request):
                     if session_id in stream_registry:
                         stream_registry.get(session_id)["partial_response"] = accumulated_response
 
-            except Exception as e:
-                logger.error(f"Stream error: {e}")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            except Exception:
+                logger.error("Chat stream failed", exc_info=True)
+                yield 'data: {"status":"error","error":"local chat stream failed"}\n\n'
             finally:
                 # Remove from active streams
                 stream_registry.pop(session_id, None)
@@ -543,7 +595,7 @@ async def chat_message(request: Request):
                         user_id, session_id, save_agent_type, query, accumulated_response, room_id
                     )
                     asyncio.create_task(context_system.context_engineer.analyze_and_update_context(user_id))
-                    logger.info(f"✅ Saved streaming conversation for user {user_id} (Agent: {save_agent_type}, Room: {room_id})")
+                    logger.info("Saved redacted streaming conversation metadata")
             except Exception as e:
                 logger.warning(f"History saving failed in stream: {e}")
 
@@ -580,17 +632,35 @@ async def chat_stream(request: Request):
         room_id = body.get("room_id") # Optional - for multiple chat rooms
 
         # Debug: Log session and room info for room-based session separation
-        logger.info(f"🔑 Stream request: session_id={session_id}, room_id={room_id}, user_id={user_id}")
+        logger.info("Authenticated chat stream request received")
 
         if not query:
             raise HTTPException(status_code=400, detail="Query is required")
 
+        decision = emergency_safety_policy.evaluate(query)
+        if decision.blocked:
+            return StreamingResponse(
+                _emergency_sse(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+        actor = await authorize_chat_actor(
+            request,
+            context_system,
+            requested_user_id=body.get("user_id"),
+            room_id=room_id,
+            session_id=session_id,
+        )
+        user_id = actor.user_id
+
         # --- Context Engineering: Injection ---
         context = body.get("context", {})
         
-        # Resolve user_id from session if not provided
-        _authorize_session(request, context_system, session_id)
-
         if user_id:
             try:
                 # 1. Get Context
@@ -600,7 +670,7 @@ async def chat_stream(request: Request):
                 if user_context.get("summary") or user_context.get("keywords"):
                     if "user_history" not in context:
                         context["user_history"] = user_context
-                    logger.info(f"✅ Injected context for user {user_id}")
+                    logger.info("Injected redacted user context")
             except Exception as e:
                 logger.warning(f"Context injection failed: {e}")
 
@@ -668,7 +738,7 @@ async def chat_stream(request: Request):
                             current_agent_type = chunk["agent_type"]
 
                         sse_data = f"data: {json.dumps(chunk)}\n\n"
-                        logger.info(f"📤 SSE sending: {content[:50] if content else 'no content'}...")
+                        logger.info("Sending redacted SSE frame")
                         yield sse_data
 
                     elif hasattr(chunk, 'dict'): # AgentResponse (Pydantic)
@@ -679,14 +749,14 @@ async def chat_stream(request: Request):
                         # Ensure consistent format with 'content' field for frontend compatibility
                         resp_dict["content"] = content  # Add content field for frontend
                         sse_data = f"data: {json.dumps(resp_dict, default=str)}\n\n"
-                        logger.info(f"📤 SSE sending (pydantic): answer={content[:50] if content else 'empty'}, agent={current_agent_type}")
+                        logger.info("Sending redacted structured SSE frame")
                         logger.debug(f"📤 SSE full data keys: {list(resp_dict.keys())}")
                         yield sse_data
                     else:
                         # Handle raw string or other types
                         content = str(chunk)
                         sse_data = f"data: {json.dumps({'content': content})}\n\n"
-                        logger.info(f"📤 SSE sending (raw): {content[:50]}...")
+                        logger.info("Sending redacted compatibility SSE frame")
                         yield sse_data
 
                     # Accumulate for history
@@ -714,9 +784,9 @@ async def chat_stream(request: Request):
                         # Full response object
                         accumulated_response = content
 
-            except Exception as e:
-                logger.error(f"Stream error: {e}")
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            except Exception:
+                logger.error("Chat stream failed", exc_info=True)
+                yield 'data: {"status":"error","error":"local chat stream failed"}\n\n'
 
             # Save to DB after stream completes
             try:
@@ -729,7 +799,7 @@ async def chat_stream(request: Request):
                     )
                     # Trigger analysis (fire and forget)
                     asyncio.create_task(context_system.context_engineer.analyze_and_update_context(user_id))
-                    logger.info(f"✅ Saved streaming conversation for user {user_id} (Agent: {save_agent_type}, Room: {room_id})")
+                    logger.info("Saved redacted streaming conversation metadata")
             except Exception as e:
                 logger.warning(f"History saving failed in stream: {e}")
 
@@ -802,7 +872,26 @@ async def _proxy_request(path: str, request: Request, base_url: str):
                 body_json = json.loads(body)
                 session_id = body_json.get("session_id")
                 query = body_json.get("query") or body_json.get("message")
-                
+
+                if query and emergency_safety_policy.evaluate(query).blocked:
+                    return JSONResponse(
+                        content={
+                            "status": "success",
+                            "content": EMERGENCY_RESPONSE,
+                            "agent_type": "emergency_safety",
+                            "is_emergency": True,
+                        }
+                    )
+
+                if query:
+                    await authorize_chat_actor(
+                        request,
+                        context_system,
+                        requested_user_id=body_json.get("user_id"),
+                        room_id=body_json.get("room_id"),
+                        session_id=session_id,
+                    )
+
                 if session_id and query:
                     session = context_system.session_manager.get_session(session_id)
                     if session:
@@ -824,11 +913,13 @@ async def _proxy_request(path: str, request: Request, base_url: str):
                                 body = json.dumps(body_json).encode("utf-8")
                                 # Update content-length header
                                 headers["content-length"] = str(len(body))
-                                logger.info(f"✅ Injected context for user {user_id}")
+                                logger.info("Injected redacted user context into proxy request")
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.warning(f"Context injection failed: {e}")
 
-        logger.info(f"Proxying {request.method} {url}")
+        logger.info("Proxying authenticated request to local Parlant")
 
         # Forward request to Parlant server
         response = await client.request(
@@ -860,6 +951,8 @@ async def _proxy_request(path: str, request: Request, base_url: str):
             headers=dict(response.headers)
         )
 
+    except HTTPException:
+        raise
     except httpx.ConnectError:
         logger.error(f"Cannot connect to Parlant server at {base_url}")
         raise HTTPException(

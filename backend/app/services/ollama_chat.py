@@ -13,11 +13,7 @@ from typing import Any
 
 from app.adapters.ollama.client import OllamaClient, OllamaProviderError
 from app.adapters.ollama.embedding import expand_vector_losslessly
-
-EMERGENCY_RESPONSE = (
-    "🚨 응급 증상이 의심됩니다. 즉시 119에 연락하거나 가까운 응급실로 이동하세요. "
-    "온라인 안내만으로 진단하거나 기다리지 마세요."
-)
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 
 class OllamaChatService:
@@ -45,16 +41,6 @@ class OllamaChatService:
             raise ValueError("OLLAMA_EMBEDDING_DIMENSIONS must remain 1536 for the MongoDB vector index")
         self.dimensions = 1536
         self.top_k = max(1, min(top_k, 20))
-
-    @staticmethod
-    def _is_emergency(query: str) -> bool:
-        # Keep the pre-filter independent from the LLM and avoid importing the
-        # legacy agent graph when the service is used in a lightweight process.
-        lowered = query.lower()
-        return any(
-            keyword in lowered
-            for keyword in ("흉통", "가슴 통증", "호흡곤란", "숨이 안", "의식저하", "경련")
-        )
 
     async def embed_query(self, query: str) -> list[float]:
         response = await self.client.embeddings.create(
@@ -168,7 +154,7 @@ class OllamaChatService:
         profile: str = "general",
         user_context: Any = None,
     ) -> dict[str, Any]:
-        if self._is_emergency(query):
+        if emergency_safety_policy.evaluate(query).blocked:
             return {
                 "answer": EMERGENCY_RESPONSE,
                 "sources": [],
@@ -206,7 +192,7 @@ class OllamaChatService:
         profile: str = "general",
         user_context: Any = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        if self._is_emergency(query):
+        if emergency_safety_policy.evaluate(query).blocked:
             yield {"status": "complete", "content": EMERGENCY_RESPONSE, "agent_type": "ollama_rag", "is_emergency": True}
             return
 

@@ -6,11 +6,13 @@ Nutrition Agent Implementation
 import os
 import logging
 import json
-from typing import TYPE_CHECKING, Dict, Any, List
+from typing import Dict, Any, List
 from app.adapters.ollama.client import OllamaClient
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 from ..base_agent import BaseAgent
 from ..core.types import AgentType
 from ..core.agent_registry import AgentRegistry
+from ..core.contracts import AgentRequest, AgentResponse
 from .prompts import (
     NUTRITION_SYSTEM_PROMPT,
     IMAGE_CLASSIFICATION_PROMPT,
@@ -20,9 +22,6 @@ from .prompts import (
     ALTERNATIVE_INGREDIENT_PROMPT,
     get_profile_instructions
 )
-
-if TYPE_CHECKING:
-    from ..core.contracts import AgentRequest, AgentResponse
 
 # Lazy import RAG (only if needed)
 try:
@@ -135,8 +134,8 @@ class NutritionAgent(BaseAgent):
 
     async def process(
         self,
-        request: "AgentRequest"
-    ) -> "AgentResponse":
+        request: AgentRequest
+    ) -> AgentResponse:
         """
         영양 분석 처리 - 5가지 이미지 케이스 완벽 지원
 
@@ -149,6 +148,14 @@ class NutritionAgent(BaseAgent):
         from ..core.contracts import AgentResponse
 
         # Extract fields from AgentRequest
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            return AgentResponse(
+                answer=EMERGENCY_RESPONSE,
+                status="success",
+                agent_type="emergency_safety",
+                metadata={"is_emergency": True, "provider": "emergency_pre_filter"},
+            )
+
         user_input = request.query
         session_id = request.session_id
         context = request.context
@@ -311,7 +318,7 @@ class NutritionAgent(BaseAgent):
             )
 
             content = response.choices[0].message.content
-            logger.info(f"🔍 Classification response: {content[:200]}")
+            logger.info("Nutrition classification response received")
 
             # JSON 파싱
             classification = self._extract_json(content)

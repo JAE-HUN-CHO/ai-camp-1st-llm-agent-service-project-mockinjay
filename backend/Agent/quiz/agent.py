@@ -31,6 +31,7 @@ if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 from app.db.connection import db
 from app.services.mypage.points_service import PointsService
+from app.core.emergency_safety import EMERGENCY_RESPONSE, emergency_safety_policy
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,14 @@ class QuizAgent(LocalAgent):
         Returns:
             AgentResponse: 통일된 응답 형식
         """
+        if emergency_safety_policy.evaluate(request.query).blocked:
+            return AgentResponse(
+                answer=EMERGENCY_RESPONSE,
+                status="success",
+                agent_type="emergency_safety",
+                metadata={"is_emergency": True, "provider": "emergency_pre_filter"},
+            )
+
         # 기존 메서드 호출 (어댑터 패턴)
         legacy_result = await self._process_legacy(
             request.query,

@@ -36,6 +36,21 @@ class _FakeContextManager:
     async def analyze_and_update_context(self, _user_id: str) -> None:
         return None
 
+    async def connect(self) -> None:
+        return None
+
+    @property
+    def db(self):
+        manager = self
+
+        class _Collection:
+            async def find_one(self, query):
+                if query.get("room_id") == "room-1" and query.get("user_id") == "user-1":
+                    return {"room_id": "room-1", "user_id": "user-1"}
+                return None
+
+        return {"chat_rooms": _Collection()}
+
 
 class _FakeRouter:
     async def process_stream(self, _request):
@@ -46,7 +61,13 @@ class _FakeRouter:
 def test_chat_stream_emits_sse_and_persists_final_response(monkeypatch) -> None:
     manager = _FakeContextManager()
     context_system = SimpleNamespace(
-        session_manager=SimpleNamespace(get_session=lambda _session_id: None),
+        session_manager=SimpleNamespace(
+            get_session=lambda session_id: {
+                "session_id": session_id,
+                "user_id": "user-1",
+                "room_id": "room-1",
+            }
+        ),
         context_engineer=SimpleNamespace(db_manager=manager, get_user_context=manager.get_user_context),
     )
     runtime = SimpleNamespace(router_agent=_FakeRouter())
