@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import healthProfileContract from '../../../../tests/backend/fixtures/health-profile-v1-contract.json';
+
 import api, { getHealthProfile, updateHealthProfile } from '../api';
 
 
@@ -20,8 +22,16 @@ describe('Health Profile frozen v1 client contract', () => {
     vi.restoreAllMocks();
   });
 
+  it('uses the shared frozen response key fixture', () => {
+    expect(Object.keys(frozenProfile).sort()).toEqual(
+      [...healthProfileContract.response_keys].sort(),
+    );
+  });
+
   it('reads the canonical MyPage path without reshaping the payload', async () => {
-    const get = vi.spyOn(api, 'get').mockResolvedValue({ data: frozenProfile });
+    const get = vi.spyOn(api, 'get').mockResolvedValue(
+      { data: frozenProfile } as Awaited<ReturnType<typeof api.get>>,
+    );
 
     await expect(getHealthProfile()).resolves.toEqual(frozenProfile);
     expect(get).toHaveBeenCalledWith('/api/mypage/health-profile');
@@ -34,7 +44,9 @@ describe('Health Profile frozen v1 client contract', () => {
       age: 44,
       gender: 'other',
     };
-    const put = vi.spyOn(api, 'put').mockResolvedValue({ data: frozenProfile });
+    const put = vi.spyOn(api, 'put').mockResolvedValue(
+      { data: frozenProfile } as Awaited<ReturnType<typeof api.put>>,
+    );
 
     await expect(updateHealthProfile(update)).resolves.toEqual(frozenProfile);
     expect(put).toHaveBeenCalledWith('/api/mypage/health-profile', update);

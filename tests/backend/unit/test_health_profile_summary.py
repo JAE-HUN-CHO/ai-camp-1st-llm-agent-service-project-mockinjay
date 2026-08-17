@@ -20,6 +20,7 @@ from summarize_health_profiles_phase3b import (
 
 
 def _selector(implementation: str) -> dict[str, object]:
+    """Build passing selector evidence for one implementation."""
     return {
         "result": "pass",
         "implementation": implementation,
@@ -55,6 +56,7 @@ def _selector(implementation: str) -> dict[str, object]:
 
 
 def _http(implementation: str) -> dict[str, object]:
+    """Build passing HTTP evidence for one implementation."""
     return {
         "result": "pass",
         "implementation": implementation,
@@ -67,11 +69,13 @@ def _http(implementation: str) -> dict[str, object]:
 
 
 def _invalid_selector() -> dict[str, object]:
+    """Build passing invalid-selector evidence."""
     return {
         "result": "pass",
         "configured_value": "invalid",
         "process_exit_code": 3,
         "timed_out": False,
+        "shutdown_failure": None,
         "duration_seconds": 0.5,
         "max_duration_seconds": 15.0,
         "expected_error_seen": True,
@@ -87,6 +91,7 @@ def _invalid_selector() -> dict[str, object]:
 
 
 def _schema() -> dict[str, object]:
+    """Build passing health-profile schema evidence."""
     return {
         "result": "pass",
         "collection": "health_profiles",
@@ -94,6 +99,7 @@ def _schema() -> dict[str, object]:
         "document_count": 0,
         "field_audit_applicable": False,
         "field_audit_passed": True,
+        "index_audit_applicable": True,
         "verification_user_count": 0,
         "verification_document_count": 0,
         "duplicate_user_id_group_count": 0,
@@ -107,6 +113,7 @@ def _schema() -> dict[str, object]:
 
 
 def _passing_unit_cases() -> list[tuple[str, str]]:
+    """Build one passing case for every required unit-test group."""
     return [
         (f"tests.backend.unit.{module} test_case", "passed")
         for module in (
@@ -125,6 +132,7 @@ def _build_summary(
     import_count: object = 0,
     pii_count: object = 0,
 ) -> dict[str, object]:
+    """Build a complete Phase 3B summary from synthetic evidence."""
     return build_summary(
         unit=unit,
         integration=[
@@ -154,6 +162,7 @@ def _build_summary(
 
 
 def test_selector_summary_requires_identity_telemetry_and_provider_evidence() -> None:
+    """Verify selector summary requires identity telemetry and provider evidence."""
     legacy = _selector("legacy")
     assert selector_passes(legacy, "legacy")
 
@@ -162,6 +171,7 @@ def test_selector_summary_requires_identity_telemetry_and_provider_evidence() ->
 
 
 def test_http_summary_requires_all_owner_and_preservation_cases() -> None:
+    """Verify HTTP summary requires all owner and preservation cases."""
     http = _http("hex")
     assert http_passes(http, "hex")
 
@@ -170,14 +180,20 @@ def test_http_summary_requires_all_owner_and_preservation_cases() -> None:
 
 
 def test_invalid_selector_summary_requires_bounded_nonzero_exit() -> None:
+    """Verify invalid selector summary requires bounded nonzero exit."""
     invalid = _invalid_selector()
     assert invalid_selector_passes(invalid)
 
     invalid["process_exit_code"] = 0
     assert not invalid_selector_passes(invalid)
 
+    invalid = _invalid_selector()
+    invalid["shutdown_failure"] = {"type": "OSError"}
+    assert not invalid_selector_passes(invalid)
+
 
 def test_schema_summary_requires_loopback_and_all_zero_drift() -> None:
+    """Verify schema summary requires loopback and all zero drift."""
     schema = _schema()
     assert schema_passes(schema)
 
@@ -186,6 +202,7 @@ def test_schema_summary_requires_loopback_and_all_zero_drift() -> None:
 
 
 def test_selected_reports_skips_separately_and_keeps_them_nonpassing() -> None:
+    """Verify selected reports skips separately and keeps them nonpassing."""
     cases = [
         ("target passes", "passed"),
         ("target skips", "skipped"),
@@ -202,6 +219,7 @@ def test_selected_reports_skips_separately_and_keeps_them_nonpassing() -> None:
 
 
 def test_build_summary_passes_with_complete_evidence_and_derived_counters() -> None:
+    """Verify build summary passes with complete evidence and derived counters."""
     unit = _passing_unit_cases()
     summary = _build_summary(unit)
 
@@ -214,6 +232,7 @@ def test_build_summary_passes_with_complete_evidence_and_derived_counters() -> N
 
 
 def test_build_summary_fails_closed_when_a_required_group_is_skipped() -> None:
+    """Verify build summary fails closed when a required group is skipped."""
     unit = _passing_unit_cases()
     unit[0] = (unit[0][0], "skipped")
 

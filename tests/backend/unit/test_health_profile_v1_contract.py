@@ -29,17 +29,20 @@ RESPONSE_KEYS = set(FIXTURE["response_keys"])
 
 class _Result:
     def __init__(self, *, matched_count: int, upserted_id: ObjectId | None) -> None:
+        """Initialize the fake MongoDB update result."""
         self.matched_count = matched_count
         self.upserted_id = upserted_id
 
 
 class _Collection:
     def __init__(self) -> None:
+        """Initialize the fake collection and its captured operations."""
         self.documents: dict[str, dict[str, object]] = {}
         self.mutation_queries: list[dict[str, object]] = []
         self.error: Exception | None = None
 
     async def find_one(self, query: dict[str, object]) -> dict[str, object] | None:
+        """Return one fake document selected by owner."""
         if self.error:
             raise self.error
         document = self.documents.get(str(query["userId"]))
@@ -52,6 +55,7 @@ class _Collection:
         *,
         upsert: bool,
     ) -> _Result:
+        """Apply one fake owner-scoped upsert."""
         if self.error:
             raise self.error
         assert upsert is True
@@ -76,6 +80,7 @@ class _Collection:
         upsert: bool,
         return_document: object,
     ) -> dict[str, object] | None:
+        """Apply and return one fake owner-scoped upsert."""
         await self.update_one(query, update, upsert=upsert)
         assert return_document == ReturnDocument.AFTER
         document = self.documents.get(str(query["userId"]))
@@ -87,11 +92,13 @@ def _client(
     implementation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[TestClient, dict[str, dict[str, ObjectId]]]:
+    """Build a test client with a selectable implementation and actor."""
     app = FastAPI()
     app.include_router(mypage.router)
     actor = {"value": {"_id": ObjectId("507f1f77bcf86cd799439011")}}
 
     async def _current_user() -> dict[str, ObjectId]:
+        """Return the currently selected synthetic actor."""
         return actor["value"]
 
     app.dependency_overrides[get_current_user] = _current_user
@@ -108,6 +115,7 @@ def _client(
 
 
 def _assert_json_response(response, expected_status: int = 200) -> dict[str, object]:
+    """Assert the frozen JSON status and return its object payload."""
     assert response.status_code == expected_status
     assert response.headers["content-type"].startswith("application/json")
     payload = response.json()
@@ -119,6 +127,7 @@ def _assert_json_response(response, expected_status: int = 200) -> dict[str, obj
 def test_get_returns_frozen_default_payload(
     implementation: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verify get returns frozen default payload."""
     collection = _Collection()
     client, actor = _client(collection, implementation, monkeypatch)
     owner_id = str(actor["value"]["_id"])
@@ -134,6 +143,7 @@ def test_get_returns_frozen_default_payload(
 def test_update_preserves_keys_alias_and_null_unset_semantics(
     implementation: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verify update preserves keys alias and null unset semantics."""
     collection = _Collection()
     client, actor = _client(collection, implementation, monkeypatch)
     path = FIXTURE["paths"]["update"]["path"]
@@ -151,6 +161,8 @@ def test_update_preserves_keys_alias_and_null_unset_semantics(
     assert set(created) == RESPONSE_KEYS
     assert created["userId"] == owner_id
     assert created["conditions"] == created["healthConditions"]
+    assert created["allergies"] == ["synthetic-allergy"]
+    assert created["dietaryRestrictions"] == ["synthetic-restriction"]
     assert isinstance(created["updatedAt"], str)
     datetime.fromisoformat(created["updatedAt"])
 
@@ -160,6 +172,8 @@ def test_update_preserves_keys_alias_and_null_unset_semantics(
     for payload in (explicit_null, empty_update):
         assert payload["conditions"] == ["synthetic-condition"]
         assert payload["healthConditions"] == ["synthetic-condition"]
+        assert payload["allergies"] == ["synthetic-allergy"]
+        assert payload["dietaryRestrictions"] == ["synthetic-restriction"]
         assert payload["age"] == 44
         assert payload["gender"] == "other"
 
@@ -168,6 +182,7 @@ def test_update_preserves_keys_alias_and_null_unset_semantics(
 def test_owner_binding_keeps_cross_user_profiles_separate(
     implementation: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verify owner binding keeps cross user profiles separate."""
     collection = _Collection()
     client, actor = _client(collection, implementation, monkeypatch)
     path = FIXTURE["paths"]["update"]["path"]
@@ -191,6 +206,7 @@ def test_owner_binding_keeps_cross_user_profiles_separate(
 def test_validation_status_is_frozen(
     implementation: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verify validation status is frozen."""
     collection = _Collection()
     client, _ = _client(collection, implementation, monkeypatch)
     path = FIXTURE["paths"]["update"]["path"]
@@ -218,6 +234,7 @@ def test_persistence_error_payload_is_frozen(
     contract_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify persistence error payload is frozen."""
     collection = _Collection()
     collection.error = RuntimeError("synthetic database failure")
     client, _ = _client(collection, implementation, monkeypatch)

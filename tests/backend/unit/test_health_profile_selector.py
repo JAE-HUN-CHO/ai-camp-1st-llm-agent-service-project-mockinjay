@@ -11,22 +11,26 @@ from app.bootstrap.container import (
 
 
 def test_health_profile_selector_defaults_to_legacy_when_unset() -> None:
+    """Verify health profile selector defaults to legacy when unset."""
     assert resolve_health_profile_implementation({}) is HealthProfileImplementation.LEGACY
 
 
 @pytest.mark.parametrize("implementation", ["legacy", "hex"])
 def test_health_profile_selector_accepts_only_declared_values(implementation: str) -> None:
+    """Verify health profile selector accepts only declared values."""
     assert resolve_health_profile_implementation(
         {"HEALTH_PROFILE_IMPLEMENTATION": implementation}
     ).value == implementation
 
 
 def test_health_profile_selector_invalid_value_fails_closed() -> None:
+    """Verify health profile selector invalid value fails closed."""
     with pytest.raises(HealthProfileConfigurationError):
         resolve_health_profile_implementation({"HEALTH_PROFILE_IMPLEMENTATION": "mongo"})
 
 
 def test_health_profile_selector_can_rollback_to_unset_legacy() -> None:
+    """Verify health profile selector can rollback to unset legacy."""
     selected = build_health_profile_container(
         environment={"HEALTH_PROFILE_IMPLEMENTATION": "hex"}
     )

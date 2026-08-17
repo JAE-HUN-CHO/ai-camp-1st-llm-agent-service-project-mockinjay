@@ -23,16 +23,19 @@ class HealthProfileError(Exception):
 
 class HealthProfileAccessDenied(HealthProfileError):
     def __init__(self) -> None:
+        """Initialize the fail-closed owner-access error."""
         super().__init__("authenticated actor is required")
 
 
 class HealthProfilePersistenceError(HealthProfileError):
     def __init__(self) -> None:
+        """Initialize the storage-boundary failure without sensitive values."""
         super().__init__("health profile persistence failed")
 
 
 class HealthProfilePatchError(ValueError):
     def __init__(self) -> None:
+        """Initialize the unsupported-patch-field error."""
         super().__init__("health profile patch contains unsupported fields")
 
 
@@ -49,6 +52,7 @@ class HealthProfile:
     updated_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        """Freeze mutable profile collections after construction."""
         object.__setattr__(self, "conditions", tuple(self.conditions))
         object.__setattr__(self, "allergies", tuple(self.allergies))
         object.__setattr__(
@@ -57,9 +61,11 @@ class HealthProfile:
 
     @classmethod
     def empty(cls, owner_id: str) -> HealthProfile:
+        """Create the frozen default profile for one owner."""
         return cls(owner_id=owner_id)
 
     def as_fields(self) -> dict[str, object]:
+        """Return the profile fields using the existing storage schema names."""
         return {
             "conditions": self.conditions,
             "allergies": self.allergies,
@@ -76,12 +82,14 @@ class HealthProfilePatch:
     fields: Mapping[str, object]
 
     def __post_init__(self) -> None:
+        """Validate patch fields and freeze the supplied mapping."""
         unknown = set(self.fields) - set(MUTABLE_HEALTH_PROFILE_FIELDS)
         if unknown:
             raise HealthProfilePatchError
         object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
 
     def as_persisted_fields(self) -> dict[str, object]:
+        """Return non-null fields that preserve the frozen update semantics."""
         return {key: value for key, value in self.fields.items() if value is not None}
 
 

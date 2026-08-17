@@ -14,6 +14,7 @@ from app.features.health.domain import HealthProfilePatch, HealthProfilePersiste
 
 class _Collection:
     def __init__(self) -> None:
+        """Initialize the fake collection and its captured operations."""
         self.documents: dict[str, dict[str, object]] = {}
         self.find_queries: list[dict[str, object]] = []
         self.update_calls: list[
@@ -23,6 +24,7 @@ class _Collection:
         self.force_missing = False
 
     async def find_one(self, query: dict[str, object]) -> dict[str, object] | None:
+        """Return one fake document selected by owner."""
         if self.error:
             raise self.error
         self.find_queries.append(deepcopy(query))
@@ -39,6 +41,7 @@ class _Collection:
         upsert: bool,
         return_document: Any,
     ) -> dict[str, object] | None:
+        """Apply and return one fake owner-scoped upsert."""
         if self.error:
             raise self.error
         self.update_calls.append(
@@ -52,6 +55,7 @@ class _Collection:
 
 @pytest.mark.asyncio
 async def test_missing_profile_returns_owner_scoped_frozen_default() -> None:
+    """Verify missing profile returns owner scoped frozen default."""
     collection = _Collection()
     repository = MongoHealthProfileRepository(lambda: collection)
 
@@ -66,6 +70,7 @@ async def test_missing_profile_returns_owner_scoped_frozen_default() -> None:
 
 @pytest.mark.asyncio
 async def test_upsert_preserves_schema_and_ignores_null_fields() -> None:
+    """Verify upsert preserves schema and ignores null fields."""
     collection = _Collection()
     collection.documents["actor-a"] = {
         "userId": "actor-a",
@@ -93,6 +98,7 @@ async def test_upsert_preserves_schema_and_ignores_null_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_adapter_wraps_database_failure_without_health_values() -> None:
+    """Verify adapter wraps database failure without health values."""
     collection = _Collection()
     collection.error = RuntimeError("synthetic database failure")
     repository = MongoHealthProfileRepository(lambda: collection)
@@ -103,6 +109,7 @@ async def test_adapter_wraps_database_failure_without_health_values() -> None:
 
 @pytest.mark.asyncio
 async def test_atomic_upsert_missing_result_is_explicit_after_one_scoped_write() -> None:
+    """Verify atomic upsert missing result is explicit after one scoped write."""
     collection = _Collection()
     collection.force_missing = True
     repository = MongoHealthProfileRepository(lambda: collection)

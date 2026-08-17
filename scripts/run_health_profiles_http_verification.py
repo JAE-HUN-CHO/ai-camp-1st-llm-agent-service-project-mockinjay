@@ -30,9 +30,9 @@ sys.path.insert(0, str(BACKEND))
 
 from app.config import settings
 from smoke_common import (
-    HOSTED_SECRET_NAMES,
     digest_text,
     ensure_redacted,
+    remaining_hosted_credentials,
     require_local_http,
     resolve_artifact_path,
     sanitize_hosted_credentials,
@@ -56,6 +56,7 @@ class ShutdownResult:
 
 
 def _require_local_mongodb(uri: str) -> None:
+    """Reject live verification unless MongoDB is on a loopback host."""
     parsed = urlsplit(uri)
     if parsed.scheme != "mongodb" or parsed.hostname not in {
         "localhost",
@@ -66,6 +67,11 @@ def _require_local_mongodb(uri: str) -> None:
 
 
 def read_schema_audit(path: Path) -> dict[str, int]:
+    """Load zero-drift schema evidence captured at a safe execution boundary.
+
+    Run the audit only before HTTP verification starts or after verification
+    cleanup succeeds, never during HTTP execution or after cleanup failure.
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("result") != "pass":
         raise ValueError("Health Profile schema audit did not pass")
@@ -85,6 +91,7 @@ def read_schema_audit(path: Path) -> dict[str, int]:
 
 
 def _token(secret_key: str, owner: str) -> str:
+    """Create a short-lived synthetic owner token for local verification."""
     return jwt.encode(
         {
             "user_id": owner,
@@ -97,6 +104,7 @@ def _token(secret_key: str, owner: str) -> str:
 
 
 def _wait_ready(base_url: str, process: subprocess.Popen[bytes], timeout: float) -> None:
+    """Wait for local HTTP readiness or fail within the startup bound."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -112,6 +120,7 @@ def _wait_ready(base_url: str, process: subprocess.Popen[bytes], timeout: float)
 
 
 def _stop_process(process: subprocess.Popen[bytes]) -> ShutdownResult:
+    """Stop the local verification server and classify the shutdown."""
     if process.poll() is not None:
         return ShutdownResult(False, int(process.returncode or 0), "already_exited")
     process.terminate()
@@ -128,6 +137,7 @@ def _stop_process(process: subprocess.Popen[bytes]) -> ShutdownResult:
 
 
 def _telemetry(log_text: str) -> dict[str, int]:
+    """Parse non-sensitive health-profile telemetry from server logs."""
     counters: dict[str, int] = {}
     for implementation, operation, outcome, count in TELEMETRY_PATTERN.findall(log_text):
         counters[f"{implementation}.{operation}.{outcome}"] = int(count)
@@ -135,6 +145,7 @@ def _telemetry(log_text: str) -> dict[str, int]:
 
 
 def telemetry_failures(counters: dict[str, int], implementation: str) -> list[str]:
+    """Return selector-identity telemetry contract failures."""
     failures = []
     for operation in ("get", "update"):
         key = f"{implementation}.{operation}.success"
@@ -171,6 +182,7 @@ def record_server_command(
     finished_at: str,
     artifacts: list[str],
 ) -> None:
+    """Append the server lifecycle and artifacts to the run manifest."""
     append_command(
         artifact_dir,
         argv=server_argv,
@@ -182,6 +194,7 @@ def record_server_command(
 
 
 def run(args: argparse.Namespace) -> int:
+    """Run one local implementation and collect redacted HTTP evidence."""
     artifact_dir = args.artifact_dir.resolve()
     selector_path = resolve_artifact_path(artifact_dir, args.selector_artifact)
     http_path = resolve_artifact_path(artifact_dir, args.http_artifact)
@@ -363,8 +376,8 @@ def run(args: argparse.Namespace) -> int:
             "hosted_credentials_present_before_sanitization": (
                 removed_hosted_credentials
             ),
-            "hosted_credentials_present_after_sanitization": sorted(
-                name for name in HOSTED_SECRET_NAMES if environment.get(name)
+            "hosted_credentials_present_after_sanitization": (
+                remaining_hosted_credentials(environment)
             ),
         },
         "removed_hosted_credential_names": removed_hosted_credentials,
@@ -420,6 +433,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Parse live-verification arguments and return the bounded result."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--selector-artifact", type=Path, required=True)

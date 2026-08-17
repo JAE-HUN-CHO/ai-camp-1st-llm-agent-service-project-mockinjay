@@ -16,11 +16,15 @@ from app.features.health.domain import (
 class HealthProfileRepository(Protocol):
     """Every profile operation is scoped by the trusted actor owner."""
 
-    async def get_for_owner(self, owner_id: str) -> HealthProfile: ...
+    async def get_for_owner(self, owner_id: str) -> HealthProfile:
+        """Load one health profile within the supplied owner boundary."""
+        ...
 
     async def upsert_for_owner(
         self, owner_id: str, patch: HealthProfilePatch
-    ) -> HealthProfile: ...
+    ) -> HealthProfile:
+        """Persist one health profile within the supplied owner boundary."""
+        ...
 
 
 class HealthRecordRepository(Protocol):

@@ -18,6 +18,7 @@ from app.features.health.ports import HealthProfileRepository, HealthRecordRepos
 
 
 def _profile_owner_id(actor: ActorContext) -> str:
+    """Require and return the authenticated health-profile owner identifier."""
     if not actor.user_id:
         raise HealthProfileAccessDenied
     return actor.user_id
@@ -25,19 +26,23 @@ def _profile_owner_id(actor: ActorContext) -> str:
 
 class GetHealthProfile:
     def __init__(self, repository: HealthProfileRepository) -> None:
+        """Initialize the query use case with its repository port."""
         self._repository = repository
 
     async def execute(self, actor: ActorContext) -> HealthProfile:
+        """Load the profile scoped to the authenticated actor."""
         return await self._repository.get_for_owner(_profile_owner_id(actor))
 
 
 class UpdateHealthProfile:
     def __init__(self, repository: HealthProfileRepository) -> None:
+        """Initialize the update use case with its repository port."""
         self._repository = repository
 
     async def execute(
         self, actor: ActorContext, patch: HealthProfilePatch
     ) -> HealthProfile:
+        """Apply a partial profile update for the authenticated actor."""
         return await self._repository.upsert_for_owner(_profile_owner_id(actor), patch)
 
 

@@ -30,7 +30,9 @@ _MONGO_FIELD = {
 class _HealthProfileCollection(Protocol):
     async def find_one(
         self, query: Mapping[str, object]
-    ) -> Mapping[str, object] | None: ...
+    ) -> Mapping[str, object] | None:
+        """Find one health-profile document by an owner-scoped query."""
+        ...
 
     async def find_one_and_update(
         self,
@@ -39,7 +41,9 @@ class _HealthProfileCollection(Protocol):
         *,
         upsert: bool,
         return_document: object,
-    ) -> Mapping[str, object] | None: ...
+    ) -> Mapping[str, object] | None:
+        """Atomically update and return one owner-scoped profile document."""
+        ...
 
 
 class _MissingUpsertResult(RuntimeError):
@@ -52,13 +56,16 @@ class MongoHealthProfileRepository:
     def __init__(
         self, collection_factory: Callable[[], _HealthProfileCollection]
     ) -> None:
+        """Initialize the repository with a lazy MongoDB collection factory."""
         self._collection_factory = collection_factory
 
     @property
     def _collection(self) -> _HealthProfileCollection:
+        """Resolve the current MongoDB health-profile collection."""
         return self._collection_factory()
 
     async def get_for_owner(self, owner_id: str) -> HealthProfile:
+        """Load one profile without reading outside the supplied owner scope."""
         try:
             document = await self._collection.find_one({"userId": owner_id})
             return self._to_domain(document) if document else HealthProfile.empty(owner_id)
@@ -68,6 +75,7 @@ class MongoHealthProfileRepository:
     async def upsert_for_owner(
         self, owner_id: str, patch: HealthProfilePatch
     ) -> HealthProfile:
+        """Atomically persist and return a profile for the supplied owner."""
         update = {
             "userId": owner_id,
             "updatedAt": datetime.now(UTC),
@@ -91,10 +99,12 @@ class MongoHealthProfileRepository:
 
     @staticmethod
     def _raise_missing_upsert_result() -> None:
+        """Raise the explicit failure used when an upsert returns no document."""
         raise _MissingUpsertResult
 
     @staticmethod
     def _to_domain(document: Mapping[str, object]) -> HealthProfile:
+        """Convert one stored health-profile document to the domain model."""
         updated_at = document.get("updatedAt")
         if isinstance(updated_at, str):
             updated_at = datetime.fromisoformat(updated_at)
@@ -110,5 +120,6 @@ class MongoHealthProfileRepository:
 
     @staticmethod
     def _raise_persistence_error(exc: Exception) -> None:
+        """Translate a MongoDB failure without exposing health values."""
         logger.warning("Health Profile persistence failed")
         raise HealthProfilePersistenceError from exc

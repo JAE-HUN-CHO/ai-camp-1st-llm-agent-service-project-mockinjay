@@ -42,14 +42,18 @@ class SmokeContractError(RuntimeError):
         status_code: int | None = None,
         content_type: str | None = None,
     ) -> None:
+        """Initialize a redacted HTTP contract failure."""
         super().__init__(message)
         self.status_code = status_code
         self.content_type = content_type
 
 
-def _json(response: httpx.Response, expected_status: int) -> object:
+def _json(
+    response: httpx.Response, expected_status: int, expected_media_type: str
+) -> object:
+    """Validate JSON status and media type without retaining the raw body."""
     content_type = response.headers.get("content-type", "")
-    if response.status_code != expected_status or "application/json" not in content_type:
+    if response.status_code != expected_status or expected_media_type not in content_type:
         raise SmokeContractError(
             "Health Profile status or media type mismatch",
             status_code=response.status_code,
@@ -65,8 +69,15 @@ def _json(response: httpx.Response, expected_status: int) -> object:
         ) from exc
 
 
-def _profile(response: httpx.Response) -> dict[str, object]:
-    payload = _json(response, 200)
+def _profile(
+    response: httpx.Response, contract: dict[str, object]
+) -> dict[str, object]:
+    """Validate and return the frozen health-profile response shape."""
+    payload = _json(
+        response,
+        int(contract["status"]),
+        str(contract["media_type"]),
+    )
     if not isinstance(payload, dict) or set(payload) != PROFILE_KEYS:
         raise SmokeContractError(
             "Health Profile response keys changed",
@@ -77,6 +88,7 @@ def _profile(response: httpx.Response) -> dict[str, object]:
 
 
 def _summary(response: httpx.Response, payload: object) -> dict[str, object]:
+    """Summarize an HTTP response using status, media type, hash, and length."""
     return {
         "status_code": response.status_code,
         "content_type": response.headers.get("content-type"),
@@ -90,6 +102,7 @@ def _stable_profile(profile: dict[str, object]) -> dict[str, object]:
 
 
 def run(args: argparse.Namespace) -> int:
+    """Exercise owner, validation, and preservation cases over real local HTTP."""
     token = os.getenv("CAREGUIDE_SMOKE_TOKEN")
     other_token = os.getenv("CAREGUIDE_OTHER_SMOKE_TOKEN")
     canary = os.getenv("CAREGUIDE_HEALTH_PROFILE_CANARY")
@@ -103,7 +116,13 @@ def run(args: argparse.Namespace) -> int:
 
     base_url = require_local_http(args.base_url)
     artifact_path = resolve_artifact_path(args.artifact_dir, args.artifact_name)
-    path = f"{base_url}/api/mypage/health-profile"
+    get_contract = CONTRACT["paths"]["get"]
+    update_contract = CONTRACT["paths"]["update"]
+    get_path = f"{base_url}{get_contract['path']}"
+    update_path = f"{base_url}{update_contract['path']}"
+    get_method = str(get_contract["method"])
+    update_method = str(update_contract["method"])
+    update_media_type = str(update_contract["media_type"])
     owner_headers = {"Authorization": f"Bearer {token}"}
     other_headers = {"Authorization": f"Bearer {other_token}"}
     operations: dict[str, object] = {}
@@ -115,8 +134,8 @@ def run(args: argparse.Namespace) -> int:
     validation_cases_passed = 0
 
     with httpx.Client(timeout=args.timeout) as client:
-        default_response = client.get(path, headers=owner_headers)
-        default_profile = _profile(default_response)
+        default_response = client.request(get_method, get_path, headers=owner_headers)
+        default_profile = _profile(default_response, get_contract)
         expected_default = {"userId": owner_id, **CONTRACT["default_values"]}
         if default_profile != expected_default:
             raise SmokeContractError("Health Profile default payload changed")
@@ -129,8 +148,12 @@ def run(args: argparse.Namespace) -> int:
             "age": 44,
             "gender": "other",
         }
-        update_response = client.put(path, headers=owner_headers, json=update_payload)
-        updated = _profile(update_response)
+        if set(update_payload) != set(CONTRACT["update_fields"]):
+            raise SmokeContractError("Health Profile update field set changed")
+        update_response = client.request(
+            update_method, update_path, headers=owner_headers, json=update_payload
+        )
+        updated = _profile(update_response, update_contract)
         if (
             updated.get("userId") != owner_id
             or updated.get("conditions") != [canary]
@@ -145,23 +168,33 @@ def run(args: argparse.Namespace) -> int:
         stable_updated = _stable_profile(updated)
         operations["owner_update"] = _summary(update_response, updated)
 
-        null_response = client.put(
-            path, headers=owner_headers, json={"conditions": None}
+        null_response = client.request(
+            update_method,
+            update_path,
+            headers=owner_headers,
+            json={"conditions": None},
         )
-        null_profile = _profile(null_response)
+        null_profile = _profile(null_response, update_contract)
         if _stable_profile(null_profile) != stable_updated:
             raise SmokeContractError("Health Profile explicit-null semantics changed")
         null_preserved = True
         operations["explicit_null"] = _summary(null_response, null_profile)
 
-        unset_response = client.put(path, headers=owner_headers, json={})
-        unset_profile = _profile(unset_response)
+        unset_response = client.request(
+            update_method, update_path, headers=owner_headers, json={}
+        )
+        unset_profile = _profile(unset_response, update_contract)
         if _stable_profile(unset_profile) != stable_updated:
             raise SmokeContractError("Health Profile unset semantics changed")
+        owner_updated_at = unset_profile.get("updatedAt")
+        if not isinstance(owner_updated_at, str):
+            raise SmokeContractError("Health Profile update timestamp changed")
         unset_preserved = True
         operations["empty_update"] = _summary(unset_response, unset_profile)
 
-        unauthenticated_response = client.put(path, json={"age": 45})
+        unauthenticated_response = client.request(
+            update_method, update_path, json={"age": 45}
+        )
         if unauthenticated_response.status_code not in {401, 403}:
             raise SmokeContractError(
                 "Unauthenticated Health Profile write was accepted",
@@ -171,31 +204,42 @@ def run(args: argparse.Namespace) -> int:
         unauthenticated = _json(
             unauthenticated_response,
             401 if unauthenticated_response.status_code == 401 else 403,
+            update_media_type,
         )
         operations["unauthenticated_update"] = _summary(
             unauthenticated_response, unauthenticated
         )
         unauthorized_write_count = 0
 
-        other_default_response = client.get(path, headers=other_headers)
-        other_default = _profile(other_default_response)
+        other_default_response = client.request(
+            get_method, get_path, headers=other_headers
+        )
+        other_default = _profile(other_default_response, get_contract)
         if other_default != {"userId": other_owner_id, **CONTRACT["default_values"]}:
             raise SmokeContractError("Cross-user Health Profile read leaked owner data")
         cross_user_cases_passed += 1
         operations["other_default"] = _summary(other_default_response, other_default)
 
-        other_update_response = client.put(
-            path, headers=other_headers, json={"age": 52, "gender": "other"}
+        other_update_response = client.request(
+            update_method,
+            update_path,
+            headers=other_headers,
+            json={"age": 52, "gender": "other"},
         )
-        other_updated = _profile(other_update_response)
+        other_updated = _profile(other_update_response, update_contract)
         if other_updated.get("userId") != other_owner_id or other_updated.get("age") != 52:
             raise SmokeContractError("Cross-user Health Profile owner binding failed")
         cross_user_cases_passed += 1
         operations["other_update"] = _summary(other_update_response, other_updated)
 
-        owner_after_response = client.get(path, headers=owner_headers)
-        owner_after = _profile(owner_after_response)
-        if _stable_profile(owner_after) != stable_updated:
+        owner_after_response = client.request(
+            get_method, get_path, headers=owner_headers
+        )
+        owner_after = _profile(owner_after_response, get_contract)
+        if (
+            _stable_profile(owner_after) != stable_updated
+            or owner_after.get("updatedAt") != owner_updated_at
+        ):
             raise SmokeContractError("Cross-user Health Profile write changed owner data")
         cross_user_cases_passed += 1
         operations["owner_after_other_write"] = _summary(
@@ -204,32 +248,45 @@ def run(args: argparse.Namespace) -> int:
 
         minimum_age = int(CONTRACT["validation"]["age_minimum"])
         maximum_age = int(CONTRACT["validation"]["age_maximum"])
-        below_minimum_response = client.put(
-            path, headers=owner_headers, json={"age": minimum_age - 1}
+        below_minimum_response = client.request(
+            update_method,
+            update_path,
+            headers=owner_headers,
+            json={"age": minimum_age - 1},
         )
         below_minimum = _json(
             below_minimum_response,
             int(CONTRACT["validation"]["age_below_minimum_status"]),
+            update_media_type,
         )
         operations["invalid_age_below_minimum"] = _summary(
             below_minimum_response, below_minimum
         )
         validation_cases_passed += 1
-        above_maximum_response = client.put(
-            path, headers=owner_headers, json={"age": maximum_age + 1}
+        above_maximum_response = client.request(
+            update_method,
+            update_path,
+            headers=owner_headers,
+            json={"age": maximum_age + 1},
         )
         above_maximum = _json(
             above_maximum_response,
             int(CONTRACT["validation"]["age_above_maximum_status"]),
+            update_media_type,
         )
         operations["invalid_age_above_maximum"] = _summary(
             above_maximum_response, above_maximum
         )
         validation_cases_passed += 1
 
-        after_validation_response = client.get(path, headers=owner_headers)
-        after_validation = _profile(after_validation_response)
-        if _stable_profile(after_validation) != stable_updated:
+        after_validation_response = client.request(
+            get_method, get_path, headers=owner_headers
+        )
+        after_validation = _profile(after_validation_response, get_contract)
+        if (
+            _stable_profile(after_validation) != stable_updated
+            or after_validation.get("updatedAt") != owner_updated_at
+        ):
             raise SmokeContractError("Rejected Health Profile age was persisted")
         operations["owner_after_invalid_age"] = _summary(
             after_validation_response, after_validation
@@ -268,6 +325,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Parse HTTP smoke arguments and return the contract result."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--timeout", type=float, default=15.0)

@@ -37,6 +37,7 @@ EXPECTED_INDEXES = {
 
 
 def _require_loopback(uri: str) -> str:
+    """Reject schema audits that do not target loopback MongoDB."""
     parsed = urlsplit(uri)
     if parsed.scheme != "mongodb" or parsed.hostname not in {
         "localhost",
@@ -48,12 +49,14 @@ def _require_loopback(uri: str) -> str:
 
 
 async def audit(output: Path) -> None:
+    """Audit the existing health_profiles schema and indexes without mutation."""
     host = _require_loopback(settings.mongodb_uri)
     client = AsyncIOMotorClient(settings.mongodb_uri, serverSelectionTimeoutMS=3000)
     try:
         database = client[settings.db_name]
         collection = database.health_profiles
         await client.admin.command("ping")
+        collection_exists = "health_profiles" in await database.list_collection_names()
         document_count = await collection.count_documents({})
         verification_user_ids = [
             str(document["_id"])
@@ -93,12 +96,14 @@ async def audit(output: Path) -> None:
             duplicate_group_count = int(result_document.get("groups", 0))
 
         indexes: dict[str, dict[str, object]] = {}
-        async for index in collection.list_indexes():
-            name = str(index.get("name"))
-            indexes[name] = {
-                "keys": [list(item) for item in index.get("key", {}).items()],
-                "unique": bool(index.get("unique", name == "_id_")),
-            }
+        index_audit_applicable = collection_exists
+        if index_audit_applicable:
+            async for index in collection.list_indexes():
+                name = str(index.get("name"))
+                indexes[name] = {
+                    "keys": [list(item) for item in index.get("key", {}).items()],
+                    "unique": bool(index.get("unique", name == "_id_")),
+                }
 
         unexpected_fields = sorted(set(observed_fields) - ALLOWED_FIELDS)
         field_audit_applicable = document_count > 0
@@ -106,7 +111,9 @@ async def audit(output: Path) -> None:
         schema_drift_count = int(
             not field_audit_passed or bool(invalid_owner_document_count)
         )
-        index_drift_count = int(indexes != EXPECTED_INDEXES)
+        index_drift_count = int(
+            not index_audit_applicable or indexes != EXPECTED_INDEXES
+        )
         result = (
             "pass"
             if verification_user_count == 0
@@ -133,6 +140,7 @@ async def audit(output: Path) -> None:
                 "observed_field_names": observed_fields,
                 "allowed_field_names": sorted(ALLOWED_FIELDS),
                 "unexpected_field_names": unexpected_fields,
+                "index_audit_applicable": index_audit_applicable,
                 "indexes": indexes,
                 "schema_drift_count": schema_drift_count,
                 "index_drift_count": index_drift_count,
@@ -149,6 +157,7 @@ async def audit(output: Path) -> None:
 
 
 def main() -> int:
+    """Parse schema-audit arguments and return its fail-closed exit code."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

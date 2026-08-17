@@ -29,16 +29,29 @@ HOSTED_SECRET_NAMES = frozenset(
         "OPENAI_API_KEY",
     }
 )
+HOSTED_SECRET_SUFFIXES = ("_API_KEY", "_API_TOKEN")
 
 
 def sanitize_hosted_credentials(environment: MutableMapping[str, str]) -> list[str]:
     """Remove hosted-provider credentials and return names only, never values."""
     removed_names = sorted(
-        name for name in HOSTED_SECRET_NAMES if name in environment
+        name
+        for name in environment
+        if name in HOSTED_SECRET_NAMES or name.endswith(HOSTED_SECRET_SUFFIXES)
     )
     for name in removed_names:
         environment.pop(name)
     return removed_names
+
+
+def remaining_hosted_credentials(environment: MutableMapping[str, str]) -> list[str]:
+    """Return non-empty hosted credential names without exposing their values."""
+    return sorted(
+        name
+        for name, value in environment.items()
+        if value
+        and (name in HOSTED_SECRET_NAMES or name.endswith(HOSTED_SECRET_SUFFIXES))
+    )
 
 
 def utc_now() -> str:

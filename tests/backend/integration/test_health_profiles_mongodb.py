@@ -19,6 +19,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.asyncio
 async def test_health_profile_round_trip_is_owner_scoped_and_schema_preserving() -> None:
+    """Verify health profile round trip is owner scoped and schema preserving."""
     explicit_uri = os.getenv("MONGODB_URI")
     if not explicit_uri:
         pytest.skip("MONGODB_URI is required for the live Mongo integration smoke")

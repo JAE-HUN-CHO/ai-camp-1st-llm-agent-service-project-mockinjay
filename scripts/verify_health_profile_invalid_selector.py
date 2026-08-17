@@ -19,8 +19,8 @@ sys.path.insert(0, str(BACKEND))
 
 from app.bootstrap.container import HEALTH_PROFILE_IMPLEMENTATION_ERROR
 from smoke_common import (
-    HOSTED_SECRET_NAMES,
     digest_text,
+    remaining_hosted_credentials,
     require_local_http,
     resolve_artifact_path,
     sanitize_hosted_credentials,
@@ -31,6 +31,7 @@ from verification_manifest import append_command
 
 
 def run(args: argparse.Namespace) -> int:
+    """Prove an invalid selector exits before local HTTP readiness."""
     artifact_dir = args.artifact_dir.resolve()
     artifact_path = resolve_artifact_path(artifact_dir, args.artifact_name)
     base_url = require_local_http(f"http://127.0.0.1:{args.port}")
@@ -58,6 +59,7 @@ def run(args: argparse.Namespace) -> int:
     started = time.monotonic()
     false_ready_count = 0
     launch_failure: Exception | None = None
+    shutdown_failure: Exception | None = None
     with tempfile.TemporaryFile() as log_file:
         process: subprocess.Popen[bytes] | None = None
         timed_out = False
@@ -78,16 +80,25 @@ def run(args: argparse.Namespace) -> int:
                     pass
                 time.sleep(0.1)
             timed_out = process.poll() is None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - persist launch failure evidence
             launch_failure = exc
         finally:
             if process is not None and process.poll() is None:
-                process.terminate()
                 try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                except Exception as exc:  # noqa: BLE001 - preserve cleanup evidence
+                    shutdown_failure = exc
+                    try:
+                        if process.poll() is None:
+                            process.kill()
+                            process.wait(timeout=5)
+                    except Exception as fallback_exc:  # noqa: BLE001
+                        shutdown_failure = fallback_exc
         exit_code = -1 if process is None else int(process.returncode or 0)
         log_file.seek(0)
         log_text = log_file.read().decode("utf-8", errors="replace")
@@ -96,6 +107,7 @@ def run(args: argparse.Namespace) -> int:
     result = (
         "pass"
         if launch_failure is None
+        and shutdown_failure is None
         and not timed_out
         and exit_code != 0
         and expected_error_seen
@@ -121,8 +133,8 @@ def run(args: argparse.Namespace) -> int:
                 "hosted_credentials_present_before_sanitization": (
                     removed_hosted_credentials
                 ),
-                "hosted_credentials_present_after_sanitization": sorted(
-                    name for name in HOSTED_SECRET_NAMES if environment.get(name)
+                "hosted_credentials_present_after_sanitization": (
+                    remaining_hosted_credentials(environment)
                 ),
             },
             "failure": (
@@ -131,6 +143,14 @@ def run(args: argparse.Namespace) -> int:
                     "message": digest_text(str(launch_failure)),
                 }
                 if launch_failure is not None
+                else None
+            ),
+            "shutdown_failure": (
+                {
+                    "type": type(shutdown_failure).__name__,
+                    "message": digest_text(str(shutdown_failure)),
+                }
+                if shutdown_failure is not None
                 else None
             ),
             "log": digest_text(log_text),
@@ -150,6 +170,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Parse invalid-selector arguments and return the bounded result."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--artifact-name", type=Path, required=True)

@@ -127,10 +127,12 @@ class HealthProfileTelemetry:
     """Process-local counters containing no actor or health values."""
 
     def __init__(self, implementation: HealthProfileImplementation) -> None:
+        """Initialize thread-safe health-profile implementation counters."""
         self._implementation = implementation
         self._counters: Counter[tuple[str, str]] = Counter()
 
     def record(self, operation: str, outcome: str) -> None:
+        """Record one non-sensitive implementation outcome."""
         key = (operation, outcome)
         self._counters[key] += 1
         logger.info(
@@ -143,6 +145,7 @@ class HealthProfileTelemetry:
         )
 
     def snapshot(self) -> dict[str, object]:
+        """Return a stable copy of the current telemetry counters."""
         return {
             "implementation": self._implementation.value,
             "counters": {
@@ -189,6 +192,7 @@ class HealthProfileContainer:
 
     @property
     def is_hex(self) -> bool:
+        """Report whether the composition root selected the hex implementation."""
         return self.implementation is HealthProfileImplementation.HEX
 
 

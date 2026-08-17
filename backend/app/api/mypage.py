@@ -83,6 +83,7 @@ async def update_user_profile(
 
 
 def _health_profile_response(profile: HealthProfile) -> dict[str, object]:
+    """Convert a health-profile domain object to the frozen REST response."""
     conditions = list(profile.conditions)
     return {
         "userId": profile.owner_id,
@@ -97,6 +98,7 @@ def _health_profile_response(profile: HealthProfile) -> dict[str, object]:
 
 
 def _health_profile_patch(update: HealthProfileUpdateRequest) -> HealthProfilePatch:
+    """Convert the frozen REST update request to a domain patch."""
     return HealthProfilePatch(
         {
             "conditions": update.conditions,
@@ -111,6 +113,7 @@ def _health_profile_patch(update: HealthProfileUpdateRequest) -> HealthProfilePa
 def _translate_health_profile_error(
     error: Exception, operation: str
 ) -> HTTPException:
+    """Translate domain failures to the frozen REST error contract."""
     if isinstance(error, HTTPException):
         return error
     if isinstance(error, HealthProfileAccessDenied):

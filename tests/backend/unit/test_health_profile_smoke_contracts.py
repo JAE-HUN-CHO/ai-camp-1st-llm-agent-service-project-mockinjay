@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from unittest.mock import Mock
 
 import pytest
 
@@ -23,6 +24,7 @@ from run_health_profiles_http_verification import (
 )
 from smoke_common import (
     HOSTED_SECRET_NAMES,
+    remaining_hosted_credentials,
     resolve_artifact_path as shared_resolve_artifact_path,
     sanitize_hosted_credentials,
 )
@@ -30,6 +32,7 @@ import verify_health_profile_invalid_selector as invalid_selector
 
 
 def test_health_profile_artifact_path_stays_inside_run(tmp_path: Path) -> None:
+    """Verify health profile artifact path stays inside run."""
     assert resolve_artifact_path is shared_resolve_artifact_path
     assert resolve_artifact_path(tmp_path, Path("http/profile.json")) == (
         tmp_path / "http/profile.json"
@@ -42,6 +45,7 @@ def test_health_profile_artifact_path_stays_inside_run(tmp_path: Path) -> None:
 
 
 def test_health_profile_child_environment_removes_all_hosted_credentials() -> None:
+    """Verify health profile child environment removes all hosted credentials."""
     required_names = {
         "ANTHROPIC_API_KEY",
         "AZURE_OPENAI_API_KEY",
@@ -56,14 +60,34 @@ def test_health_profile_child_environment_removes_all_hosted_credentials() -> No
     }
     assert required_names <= HOSTED_SECRET_NAMES
     environment = dict.fromkeys(HOSTED_SECRET_NAMES, "synthetic-secret")
+    environment["FUTURE_PROVIDER_API_KEY"] = "synthetic-secret"
+    environment["FUTURE_PROVIDER_API_TOKEN"] = "synthetic-secret"
+    environment["CAREGUIDE_SMOKE_TOKEN"] = "preserved-local-token"
     environment["SAFE_SETTING"] = "preserved"
 
-    assert sanitize_hosted_credentials(environment) == sorted(HOSTED_SECRET_NAMES)
+    assert sanitize_hosted_credentials(environment) == sorted(
+        {
+            *HOSTED_SECRET_NAMES,
+            "FUTURE_PROVIDER_API_KEY",
+            "FUTURE_PROVIDER_API_TOKEN",
+        }
+    )
     assert not HOSTED_SECRET_NAMES.intersection(environment)
-    assert environment == {"SAFE_SETTING": "preserved"}
+    assert environment == {
+        "CAREGUIDE_SMOKE_TOKEN": "preserved-local-token",
+        "SAFE_SETTING": "preserved",
+    }
+    assert remaining_hosted_credentials(environment) == []
+    assert remaining_hosted_credentials(
+        {
+            "EMPTY_PROVIDER_API_KEY": "",
+            "FUTURE_PROVIDER_API_KEY": "synthetic-secret",
+        }
+    ) == ["FUTURE_PROVIDER_API_KEY"]
 
 
 def test_health_profile_schema_audit_requires_all_zero_counters(tmp_path: Path) -> None:
+    """Verify health profile schema audit requires all zero counters."""
     path = tmp_path / "schema.json"
     payload = {
         "result": "pass",
@@ -83,6 +107,7 @@ def test_health_profile_schema_audit_requires_all_zero_counters(tmp_path: Path) 
 
 
 def test_health_profile_telemetry_rejects_missing_and_opposite_calls() -> None:
+    """Verify health profile telemetry rejects missing and opposite calls."""
     log_text = "\n".join(
         [
             "INFO Health Profile implementation call implementation=hex "
@@ -108,11 +133,13 @@ def test_health_profile_telemetry_rejects_missing_and_opposite_calls() -> None:
 
 
 def test_health_profile_verification_exit_code_handles_list_only_failure() -> None:
+    """Verify health profile verification exit code handles list only failure."""
     assert verification_exit_code(False, [], 0) == 0
     assert verification_exit_code(False, ["missing hex.update.success"], 0) == 1
 
 
 def test_health_profile_selector_evidence_requires_default_legacy_or_explicit_hex() -> None:
+    """Verify health profile selector evidence requires default legacy or explicit hex."""
     validate_selector_contract("legacy", True)
     validate_selector_contract("hex", False)
 
@@ -125,9 +152,11 @@ def test_health_profile_selector_evidence_requires_default_legacy_or_explicit_he
 def test_invalid_selector_launch_failure_writes_fail_closed_artifact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verify invalid selector launch failure writes fail closed artifact."""
     real_popen = invalid_selector.subprocess.Popen
 
     def fail_to_launch(argv: list[str], *args: object, **kwargs: object) -> object:
+        """Simulate failure only when the local verification server starts."""
         if "uvicorn" in argv:
             raise OSError("synthetic launch failure")
         return real_popen(argv, *args, **kwargs)
@@ -145,3 +174,32 @@ def test_invalid_selector_launch_failure_writes_fail_closed_artifact(
     assert payload["result"] == "fail"
     assert payload["process_exit_code"] == -1
     assert payload["failure"]["type"] == "OSError"
+
+
+def test_invalid_selector_shutdown_failure_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify shutdown failures still produce fail-closed selector evidence."""
+    process = Mock(returncode=None)
+    process.poll.return_value = None
+    process.wait.side_effect = OSError("synthetic shutdown failure")
+    append_command = Mock()
+    monkeypatch.setattr(
+        invalid_selector.subprocess,
+        "Popen",
+        Mock(return_value=process),
+    )
+    monkeypatch.setattr(invalid_selector, "append_command", append_command)
+    args = argparse.Namespace(
+        artifact_dir=tmp_path,
+        artifact_name=Path("selector/invalid.json"),
+        port=65001,
+        timeout=0.0,
+    )
+
+    assert invalid_selector.run(args) == 1
+    payload = json.loads((tmp_path / "selector/invalid.json").read_text())
+    assert payload["result"] == "fail"
+    assert payload["shutdown_failure"]["type"] == "OSError"
+    process.kill.assert_called_once()
+    append_command.assert_called_once()

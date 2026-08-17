@@ -7,14 +7,17 @@ import argparse
 import json
 from pathlib import Path
 import re
-import xml.etree.ElementTree as ET  # noqa: S314 - parses only locally generated JUnit
+import xml.etree.ElementTree as ET
 
 from smoke_common import write_json
 
 
 def _cases(path: Path) -> list[tuple[str, str]]:
+    """Read JUnit cases into normalized names and outcomes."""
     cases = []
-    for case in ET.parse(path).getroot().iter("testcase"):
+    for case in ET.parse(path).getroot().iter(  # noqa: S314 - local JUnit only
+        "testcase"
+    ):
         name = " ".join(
             value for value in (case.get("classname"), case.get("name")) if value
         )
@@ -29,6 +32,7 @@ def _cases(path: Path) -> list[tuple[str, str]]:
 
 
 def _selected(cases: list[tuple[str, str]], fragment: str) -> dict[str, int]:
+    """Summarize the exact test group matching a module fragment."""
     group_pattern = re.compile(rf"(^|[./]){re.escape(fragment)}(?=[./ ]|$)")
     matches = [
         (name, status) for name, status in cases if group_pattern.search(name)
@@ -42,6 +46,7 @@ def _selected(cases: list[tuple[str, str]], fragment: str) -> dict[str, int]:
 
 
 def _read_object(path: Path) -> dict[str, object]:
+    """Load one required JSON evidence object."""
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Phase 3B evidence must be a JSON object")
@@ -49,6 +54,7 @@ def _read_object(path: Path) -> dict[str, object]:
 
 
 def _nested(item: dict[str, object], *path: str) -> object:
+    """Read a nested evidence value without accepting a missing path."""
     current: object = item
     for part in path:
         if not isinstance(current, dict) or part not in current:
@@ -58,6 +64,7 @@ def _nested(item: dict[str, object], *path: str) -> object:
 
 
 def _zero(item: dict[str, object], *path: str) -> bool:
+    """Accept only integer zero for a required evidence counter."""
     value = _nested(item, *path)
     return type(value) is int and value == 0
 
@@ -65,6 +72,7 @@ def _zero(item: dict[str, object], *path: str) -> bool:
 def _sum_integer_evidence(
     items: tuple[dict[str, object], ...], *path: str
 ) -> int | None:
+    """Sum integer counters while failing closed on missing evidence."""
     values = [_nested(item, *path) for item in items]
     if not all(type(value) is int for value in values):
         return None
@@ -72,6 +80,7 @@ def _sum_integer_evidence(
 
 
 def provider_evidence_passes(item: dict[str, object]) -> bool:
+    """Validate derived local-only provider-call evidence."""
     evidence = item.get("provider_call_evidence")
     return (
         isinstance(evidence, dict)
@@ -89,6 +98,7 @@ def provider_evidence_passes(item: dict[str, object]) -> bool:
 
 
 def selector_passes(item: dict[str, object], implementation: str) -> bool:
+    """Validate selector identity, telemetry, safety, and storage evidence."""
     expected_selector = {
         "environment_present": implementation == "hex",
         "configured_value": implementation if implementation == "hex" else None,
@@ -118,6 +128,7 @@ def selector_passes(item: dict[str, object], implementation: str) -> bool:
 
 
 def http_passes(item: dict[str, object], implementation: str) -> bool:
+    """Validate one implementation's frozen HTTP and owner contract."""
     return (
         item.get("result") == "pass"
         and item.get("implementation") == implementation
@@ -130,6 +141,7 @@ def http_passes(item: dict[str, object], implementation: str) -> bool:
 
 
 def invalid_selector_passes(item: dict[str, object]) -> bool:
+    """Validate bounded fail-closed behavior for an invalid selector."""
     duration = item.get("duration_seconds")
     maximum = item.get("max_duration_seconds")
     return (
@@ -138,6 +150,7 @@ def invalid_selector_passes(item: dict[str, object]) -> bool:
         and type(item.get("process_exit_code")) is int
         and int(item["process_exit_code"]) != 0
         and item.get("timed_out") is False
+        and item.get("shutdown_failure") is None
         and type(duration) in {int, float}
         and type(maximum) in {int, float}
         and float(duration) <= float(maximum)
@@ -166,6 +179,7 @@ def invalid_selector_passes(item: dict[str, object]) -> bool:
 
 
 def schema_passes(item: dict[str, object]) -> bool:
+    """Validate the additive, zero-drift storage evidence."""
     return (
         item.get("result") == "pass"
         and item.get("collection") == "health_profiles"
@@ -174,6 +188,7 @@ def schema_passes(item: dict[str, object]) -> bool:
         and item.get("field_audit_applicable")
         == (int(item["document_count"]) > 0)
         and item.get("field_audit_passed") is True
+        and item.get("index_audit_applicable") is True
         and _zero(item, "verification_user_count")
         and _zero(item, "verification_document_count")
         and _zero(item, "duplicate_user_id_group_count")
@@ -200,6 +215,7 @@ def build_summary(
     imports: dict[str, object],
     pii: dict[str, object],
 ) -> dict[str, object]:
+    """Combine test and runtime evidence into the Phase 3B acceptance result."""
     groups = {
         "frozen_v1_contract": _selected(unit, "test_health_profile_v1_contract"),
         "application": _selected(unit, "test_health_profile_application"),
@@ -281,6 +297,7 @@ def build_summary(
 
 
 def main() -> int:
+    """Parse evidence paths and write the final acceptance summary."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--unit-junit", type=Path, required=True)
     parser.add_argument("--integration-junit", type=Path, required=True)
