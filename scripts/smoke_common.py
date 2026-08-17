@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -14,6 +15,43 @@ from sensitive_patterns import SENSITIVE_PATTERN
 
 ROOT = Path(__file__).resolve().parents[1]
 SENSITIVE = SENSITIVE_PATTERN
+HOSTED_SECRET_NAMES = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "AZURE_OPENAI_API_KEY",
+        "EMCIE_API_KEY",
+        "GNEWS_API_KEY",
+        "GOOGLE_API_KEY",
+        "GROQ_API_KEY",
+        "NCBI_API_KEY",
+        "NEWSDATA_API_KEY",
+        "NEWSAPI_KEY",
+        "OPENAI_API_KEY",
+    }
+)
+HOSTED_SECRET_SUFFIXES = ("_API_KEY", "_API_TOKEN")
+
+
+def sanitize_hosted_credentials(environment: MutableMapping[str, str]) -> list[str]:
+    """Remove hosted-provider credentials and return names only, never values."""
+    removed_names = sorted(
+        name
+        for name in environment
+        if name in HOSTED_SECRET_NAMES or name.endswith(HOSTED_SECRET_SUFFIXES)
+    )
+    for name in removed_names:
+        environment.pop(name)
+    return removed_names
+
+
+def remaining_hosted_credentials(environment: MutableMapping[str, str]) -> list[str]:
+    """Return non-empty hosted credential names without exposing their values."""
+    return sorted(
+        name
+        for name, value in environment.items()
+        if value
+        and (name in HOSTED_SECRET_NAMES or name.endswith(HOSTED_SECRET_SUFFIXES))
+    )
 
 
 def utc_now() -> str:
@@ -38,6 +76,19 @@ def ensure_redacted(payload: object) -> None:
     serialized = json.dumps(payload, ensure_ascii=False)
     if SENSITIVE.search(serialized):
         raise ValueError("sensitive canary or credential detected in evidence payload")
+
+
+def resolve_artifact_path(artifact_dir: Path, relative_path: Path) -> Path:
+    """Resolve a verification artifact without allowing path traversal."""
+    artifact_root = artifact_dir.resolve()
+    if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.name:
+        raise ValueError("verification artifact path must stay inside artifact_dir")
+    resolved = (artifact_root / relative_path).resolve()
+    try:
+        resolved.relative_to(artifact_root)
+    except ValueError as exc:
+        raise ValueError("verification artifact path must stay inside artifact_dir") from exc
+    return resolved
 
 
 def write_json(path: Path, payload: object) -> None:

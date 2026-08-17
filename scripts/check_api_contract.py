@@ -23,6 +23,7 @@ def route_methods(path: str) -> set[str]:
 
 REQUIRED = {
     "/api/auth/change-password": {"POST"},
+    "/api/mypage/health-profile": {"GET", "PUT"},
     "/api/health-records/": {"GET", "POST"},
     "/api/health-records/{record_id}": {"PUT", "DELETE"},
     "/api/quiz/session/start": {"POST"},

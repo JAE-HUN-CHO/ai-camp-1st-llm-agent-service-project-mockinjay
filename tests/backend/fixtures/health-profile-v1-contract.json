@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "paths": {
+    "get": {
+      "method": "GET",
+      "path": "/api/mypage/health-profile",
+      "status": 200,
+      "media_type": "application/json"
+    },
+    "update": {
+      "method": "PUT",
+      "path": "/api/mypage/health-profile",
+      "status": 200,
+      "media_type": "application/json"
+    }
+  },
+  "response_keys": [
+    "age",
+    "allergies",
+    "conditions",
+    "dietaryRestrictions",
+    "gender",
+    "healthConditions",
+    "updatedAt",
+    "userId"
+  ],
+  "default_values": {
+    "age": null,
+    "allergies": [],
+    "conditions": [],
+    "dietaryRestrictions": [],
+    "gender": null,
+    "healthConditions": [],
+    "updatedAt": null
+  },
+  "update_fields": [
+    "age",
+    "allergies",
+    "conditions",
+    "dietaryRestrictions",
+    "gender"
+  ],
+  "null_and_unset_semantics": "ignore_and_preserve_existing",
+  "validation": {
+    "age_minimum": 1,
+    "age_maximum": 150,
+    "age_below_minimum_status": 422,
+    "age_above_maximum_status": 422
+  },
+  "errors": {
+    "get_persistence": {
+      "status": 500,
+      "detail": "건강 프로필 조회 중 오류가 발생했습니다"
+    },
+    "update_persistence": {
+      "status": 500,
+      "detail": "건강 프로필 수정 중 오류가 발생했습니다"
+    }
+  }
+}

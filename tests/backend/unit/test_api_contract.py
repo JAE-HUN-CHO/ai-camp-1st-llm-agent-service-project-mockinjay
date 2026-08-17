@@ -20,6 +20,7 @@ def _route_methods(path: str) -> set[str]:
 def test_frontend_account_and_health_routes_are_registered() -> None:
     assert "POST" in _route_methods("/api/auth/change-password")
     assert _route_methods("/api/auth/change-password") <= {"POST"}
+    assert _route_methods("/api/mypage/health-profile") == {"GET", "PUT"}
     assert {"GET", "POST"} <= _route_methods("/api/health-records/")
     assert {"PUT", "DELETE"} <= _route_methods("/api/health-records/{record_id}")
     assert not _route_methods("/api/health")

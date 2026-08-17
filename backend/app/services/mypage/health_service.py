@@ -69,8 +69,8 @@ class HealthService:
 
             return health_profile
 
-        except Exception as e:
-            logger.error(f"Error fetching health profile: {e}", exc_info=True)
+        except Exception:
+            logger.error("Health profile lookup failed")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="건강 프로필 조회 중 오류가 발생했습니다"
@@ -134,11 +134,11 @@ class HealthService:
             conditions = updated_profile.get("conditions", [])
             updated_profile["healthConditions"] = conditions
 
-            logger.info(f"Health profile updated for user: {user_id}")
+            logger.info("Health profile updated")
             return updated_profile
 
-        except Exception as e:
-            logger.error(f"Error updating health profile: {e}", exc_info=True)
+        except Exception:
+            logger.error("Health profile update failed")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="건강 프로필 수정 중 오류가 발생했습니다"

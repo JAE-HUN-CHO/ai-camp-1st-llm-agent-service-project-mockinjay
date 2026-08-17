@@ -1,10 +1,30 @@
-"""Consumer-owned persistence port for Phase 3A Health Records."""
+"""Consumer-owned persistence ports for the approved Health slices."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from app.features.health.domain import HealthRecord, HealthRecordDraft, HealthRecordPatch
+from app.features.health.domain import (
+    HealthProfile,
+    HealthProfilePatch,
+    HealthRecord,
+    HealthRecordDraft,
+    HealthRecordPatch,
+)
+
+
+class HealthProfileRepository(Protocol):
+    """Every profile operation is scoped by the trusted actor owner."""
+
+    async def get_for_owner(self, owner_id: str) -> HealthProfile:
+        """Load one health profile within the supplied owner boundary."""
+        ...
+
+    async def upsert_for_owner(
+        self, owner_id: str, patch: HealthProfilePatch
+    ) -> HealthProfile:
+        """Persist one health profile within the supplied owner boundary."""
+        ...
 
 
 class HealthRecordRepository(Protocol):
