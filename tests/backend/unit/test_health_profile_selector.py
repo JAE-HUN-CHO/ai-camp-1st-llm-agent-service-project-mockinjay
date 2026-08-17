@@ -1,11 +1,13 @@
 """Phase 3B Health Profile implementation selector tests."""
 
 from collections import Counter
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import pytest
 
+from app.bootstrap import container as container_module
 from app.bootstrap.container import (
     HealthProfileConfigurationError,
     HealthProfileImplementation,
@@ -56,6 +58,11 @@ def test_health_profile_telemetry_serializes_record_and_snapshot(
 ) -> None:
     """Verify records cannot mutate counters while a snapshot is iterating."""
     telemetry = HealthProfileTelemetry(HealthProfileImplementation.HEX)
+    monkeypatch.setattr(
+        container_module.logger,
+        "info",
+        lambda *_args, **_kwargs: None,
+    )
     telemetry.record("get", "success")
     snapshot_started = Event()
     allow_snapshot = Event()
@@ -63,7 +70,9 @@ def test_health_profile_telemetry_serializes_record_and_snapshot(
     writer_finished = Event()
     original_items = Counter.items
 
-    def blocking_items(counter: Counter[tuple[str, str]]):
+    def blocking_items(
+        counter: Counter[tuple[str, str]],
+    ) -> Iterator[tuple[tuple[str, str], int]]:
         """Pause snapshot iteration so the concurrent writer can be observed."""
         for item in original_items(counter):
             snapshot_started.set()
