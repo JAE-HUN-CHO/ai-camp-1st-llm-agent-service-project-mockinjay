@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import logging
 import os
+from threading import Lock
 from typing import Any
 
 from fastapi import Request
@@ -130,28 +131,33 @@ class HealthProfileTelemetry:
         """Initialize thread-safe health-profile implementation counters."""
         self._implementation = implementation
         self._counters: Counter[tuple[str, str]] = Counter()
+        self._lock = Lock()
 
     def record(self, operation: str, outcome: str) -> None:
         """Record one non-sensitive implementation outcome."""
         key = (operation, outcome)
-        self._counters[key] += 1
+        with self._lock:
+            self._counters[key] += 1
+            count = self._counters[key]
         logger.info(
             "Health Profile implementation call implementation=%s operation=%s "
             "outcome=%s count=%d",
             self._implementation.value,
             operation,
             outcome,
-            self._counters[key],
+            count,
         )
 
     def snapshot(self) -> dict[str, object]:
         """Return a stable copy of the current telemetry counters."""
-        return {
-            "implementation": self._implementation.value,
-            "counters": {
+        with self._lock:
+            counters = {
                 f"{operation}.{outcome}": count
                 for (operation, outcome), count in sorted(self._counters.items())
-            },
+            }
+        return {
+            "implementation": self._implementation.value,
+            "counters": counters,
         }
 
 
